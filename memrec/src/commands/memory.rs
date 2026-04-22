@@ -94,7 +94,7 @@ pub async fn list(client: &Client, limit: usize) -> Result<()> {
                 for memory in m.memories {
                     println!("\n[{:?}] {}...", 
                         memory.memory_type, 
-                        &memory.content[..50.min(memory.content.len())]
+                        &memory.content.chars().take(50).collect::<String>()
                     );
                     println!("  ID: {}", memory.id);
                     println!("  Tags: {:?}", memory.tags);
