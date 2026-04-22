@@ -1,0 +1,24 @@
+[Unit]
+Description=MemRec Memory Persistence Daemon
+Documentation=https://github.com/anomalyco/memrec
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/memrecd
+ExecStopPost=/bin/rm -f %h/.memrec/memrecd.sock
+Restart=on-failure
+RestartSec=5
+
+# Environment
+Environment="RUST_LOG=info"
+
+# Working directory
+WorkingDirectory=%h/.memrec
+
+# Standard output and error
+StandardOutput=append:%h/.memrec/memrecd.log
+StandardError=append:%h/.memrec/memrecd.log
+
+[Install]
+WantedBy=default.target
