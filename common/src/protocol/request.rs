@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::types::MemoryType;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum RequestAction {
     Add,
