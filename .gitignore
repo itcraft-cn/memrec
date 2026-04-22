@@ -1,0 +1,19 @@
+# Build artifacts
+/target/
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Data
+/.memrec/
+/data/
+
+# Logs
+*.log
+
+# Test
+/test_data/

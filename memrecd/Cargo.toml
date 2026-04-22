@@ -1,0 +1,15 @@
+[package]
+name = "memrecd"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "memrecd"
+path = "src/main.rs"
+
+[dependencies]
+memrec-common = { path = "../common" }
+anyhow.workspace = true
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"

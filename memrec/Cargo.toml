@@ -1,0 +1,15 @@
+[package]
+name = "memrec"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "memrec"
+path = "src/main.rs"
+
+[dependencies]
+memrec-common = { path = "../common" }
+anyhow.workspace = true
+tokio = { version = "1", features = ["full"] }
+clap = { version = "4", features = ["derive", "color"] }
+dirs = "5"
