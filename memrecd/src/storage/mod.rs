@@ -1,8 +1,8 @@
-mod traits;
-mod rocksdb;
-mod memory_store;
-mod vector_store;
-mod qdrant;
+pub mod traits;
+pub mod rocksdb;
+pub mod memory_store;
+pub mod vector_store;
+pub mod qdrant;
 
 pub use traits::{MemoryStorage, ProjectStorage, ConfigStorage, VectorStorage, VectorPayload, SearchFilter, SearchHit};
 pub use rocksdb::RocksDBStore;

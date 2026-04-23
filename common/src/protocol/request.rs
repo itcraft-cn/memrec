@@ -15,6 +15,9 @@ pub enum RequestAction {
     List,
     Tag,
     
+    SearchMemory,
+    GetProjectInfo,
+    
     ProjectCreate,
     ProjectList,
     ProjectSwitch,
@@ -24,6 +27,29 @@ pub enum RequestAction {
     ConfigSet,
     
     Stats,
+}
+
+impl std::fmt::Display for RequestAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RequestAction::Add => write!(f, "add"),
+            RequestAction::Get => write!(f, "get"),
+            RequestAction::Update => write!(f, "update"),
+            RequestAction::Delete => write!(f, "delete"),
+            RequestAction::Search => write!(f, "search"),
+            RequestAction::List => write!(f, "list"),
+            RequestAction::Tag => write!(f, "tag"),
+            RequestAction::SearchMemory => write!(f, "search_memory"),
+            RequestAction::GetProjectInfo => write!(f, "get_project_info"),
+            RequestAction::ProjectCreate => write!(f, "project_create"),
+            RequestAction::ProjectList => write!(f, "project_list"),
+            RequestAction::ProjectSwitch => write!(f, "project_switch"),
+            RequestAction::ProjectDelete => write!(f, "project_delete"),
+            RequestAction::ConfigGet => write!(f, "config_get"),
+            RequestAction::ConfigSet => write!(f, "config_set"),
+            RequestAction::Stats => write!(f, "stats"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,6 +83,9 @@ pub enum RequestParams {
     List(ListParams),
     Tag(TagParams),
     
+    SearchMemory(SearchMemoryParams),
+    GetProjectInfo(GetProjectInfoParams),
+    
     ProjectCreate(ProjectCreateParams),
     ProjectSwitch(ProjectSwitchParams),
     ProjectDelete(ProjectDeleteParams),
@@ -73,11 +102,15 @@ pub struct AddParams {
     pub tags: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_id: Option<Uuid>,
+    #[serde(default)]
+    pub is_global: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetParams {
     pub id: Uuid,
+    #[serde(default)]
+    pub merge: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,6 +147,31 @@ pub struct SearchParams {
     pub min_importance: f32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchMemoryParams {
+    pub query: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<Uuid>,
+    #[serde(default = "default_include_global")]
+    pub include_global: bool,
+    #[serde(default)]
+    pub project_only: bool,
+    #[serde(default)]
+    pub global_only: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_type: Option<MemoryType>,
+    #[serde(default = "default_top_k")]
+    pub top_k: usize,
+    #[serde(default = "default_min_score")]
+    pub min_score: f32,
+}
+
+fn default_include_global() -> bool { true }
+fn default_min_score() -> f32 { 0.7 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetProjectInfoParams;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SearchMode {
@@ -144,6 +202,12 @@ pub struct ListParams {
     pub memory_type: Option<MemoryType>,
     #[serde(default = "default_limit")]
     pub limit: usize,
+    #[serde(default)]
+    pub project_only: bool,
+    #[serde(default)]
+    pub global_only: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<Uuid>,
 }
 
 fn default_limit() -> usize { 20 }
@@ -192,6 +256,7 @@ mod tests {
                 memory_type: MemoryType::Knowledge,
                 tags: vec!["tag1".to_string()],
                 project_id: None,
+                is_global: false,
             })),
             1,
         );
@@ -206,6 +271,7 @@ mod tests {
             RequestAction::Get,
             Some(RequestParams::Get(GetParams {
                 id: Uuid::nil(),
+                merge: false,
             })),
             1,
         );
@@ -230,5 +296,43 @@ mod tests {
         
         assert_eq!(params.mode, SearchMode::Hybrid);
         assert_eq!(params.top_k, 10);
+    }
+    
+    #[test]
+    fn test_search_memory_params_defaults() {
+        let params = SearchMemoryParams {
+            query: "test".to_string(),
+            project_id: None,
+            include_global: default_include_global(),
+            project_only: false,
+            global_only: false,
+            memory_type: None,
+            top_k: default_top_k(),
+            min_score: default_min_score(),
+        };
+        
+        assert_eq!(params.include_global, true);
+        assert_eq!(params.top_k, 10);
+        assert_eq!(params.min_score, 0.7);
+    }
+    
+    #[test]
+    fn test_search_memory_params_serde() {
+        let params = SearchMemoryParams {
+            query: "authentication".to_string(),
+            project_id: Some(Uuid::new_v4()),
+            include_global: true,
+            project_only: false,
+            global_only: false,
+            memory_type: Some(MemoryType::Decision),
+            top_k: 20,
+            min_score: 0.8,
+        };
+        
+        let json = serde_json::to_string(&params).unwrap();
+        let parsed: SearchMemoryParams = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(params.query, parsed.query);
+        assert_eq!(params.top_k, parsed.top_k);
     }
 }

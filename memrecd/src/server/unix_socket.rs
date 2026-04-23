@@ -91,7 +91,8 @@ impl UnixSocketServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::{MemoryStore, RocksDBStore};
+    use crate::storage::{MemoryStore, RocksDBStore, VectorStore};
+    use crate::embedding::FastEmbedGenerator;
     use tempfile::tempdir;
     
     #[tokio::test]
@@ -101,7 +102,9 @@ mod tests {
         
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
         let storage = Arc::new(MemoryStore::new(rocksdb));
-        let router = Arc::new(Router::new(storage));
+        let embedder = Arc::new(FastEmbedGenerator::new().unwrap());
+        let vector_store = Arc::new(VectorStore::new(embedder.dimension()));
+        let router = Arc::new(Router::new(storage, vector_store, embedder));
         
         let server = UnixSocketServer::bind(&socket_path, router).await.unwrap();
         assert!(socket_path.exists());

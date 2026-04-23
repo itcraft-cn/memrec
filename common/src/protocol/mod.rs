@@ -8,12 +8,14 @@ pub use request::{
     AddParams, GetParams, UpdateParams, DeleteParams,
     SearchParams, SearchMode, TimeRange,
     ListParams, TagParams,
+    SearchMemoryParams, GetProjectInfoParams,
     ProjectCreateParams, ProjectSwitchParams, ProjectDeleteParams,
     ConfigSetParams,
 };
 pub use response::{
     JsonRpcResponse, ResponseResult,
     MemoryResult, MemoryListResult, SearchResult,
-    ProjectResult, ProjectListResult,
+    SemanticSearchResult, SearchHit,
+    ProjectResult, ProjectListResult, ProjectInfoResult,
     ConfigResult, StatsResult, SuccessResult,
 };

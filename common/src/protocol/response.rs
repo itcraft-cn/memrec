@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+use chrono::{DateTime, Utc};
 
-use crate::types::{Memory, Project};
+use crate::types::{Memory, MemoryType, Project};
 use super::error::JsonRpcError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,8 +41,10 @@ pub enum ResponseResult {
     Memory(MemoryResult),
     MemoryList(MemoryListResult),
     SearchResult(SearchResult),
+    SemanticSearchResult(SemanticSearchResult),
     Project(ProjectResult),
     ProjectList(ProjectListResult),
+    ProjectInfo(ProjectInfoResult),
     Config(ConfigResult),
     Stats(StatsResult),
     Success(SuccessResult),
@@ -65,6 +69,29 @@ pub struct SearchResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SemanticSearchResult {
+    pub results: Vec<SearchHit>,
+    pub total: usize,
+    pub query_embedding_time_ms: u64,
+    pub search_time_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchHit {
+    pub memory_id: Uuid,
+    pub score: f32,
+    pub memory_type: MemoryType,
+    pub content_preview: String,
+    pub project_id: Option<Uuid>,
+    pub tags: Vec<String>,
+    pub is_chunked: bool,
+    pub chunk_group_id: Option<Uuid>,
+    pub chunk_index: Option<u32>,
+    pub chunk_total: Option<u32>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectResult {
     pub project: Project,
 }
@@ -73,6 +100,15 @@ pub struct ProjectResult {
 pub struct ProjectListResult {
     pub projects: Vec<Project>,
     pub total: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectInfoResult {
+    pub project_id: Uuid,
+    pub project_name: Option<String>,
+    pub project_root: String,
+    pub memory_count: usize,
+    pub mr_pid_exists: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,5 +182,32 @@ mod tests {
         let parsed: JsonRpcResponse = serde_json::from_str(&json).unwrap();
         
         assert_eq!(resp.id, parsed.id);
+    }
+    
+    #[test]
+    fn test_semantic_search_result_serde() {
+        let result = SemanticSearchResult {
+            results: vec![SearchHit {
+                memory_id: Uuid::new_v4(),
+                score: 0.95,
+                memory_type: MemoryType::Decision,
+                content_preview: "test content".to_string(),
+                project_id: Some(Uuid::new_v4()),
+                tags: vec!["critical".to_string()],
+                is_chunked: false,
+                chunk_group_id: None,
+                chunk_index: None,
+                chunk_total: None,
+                created_at: Utc::now(),
+            }],
+            total: 1,
+            query_embedding_time_ms: 10,
+            search_time_ms: 5,
+        };
+        
+        let json = serde_json::to_string(&result).unwrap();
+        let parsed: SemanticSearchResult = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(result.total, parsed.total);
     }
 }

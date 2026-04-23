@@ -4,7 +4,8 @@ use std::path::PathBuf;
 use tokio::signal;
 use tracing::info;
 
-use crate::storage::{RocksDBStore, MemoryStore};
+use crate::storage::{RocksDBStore, MemoryStore, VectorStore};
+use crate::embedding::FastEmbedGenerator;
 use crate::server::{UnixSocketServer, Router};
 
 pub struct Daemon {
@@ -34,7 +35,10 @@ impl Daemon {
         let rocksdb = RocksDBStore::open(&self.data_dir)?;
         let storage = Arc::new(MemoryStore::new(rocksdb));
         
-        let router = Arc::new(Router::new(storage));
+        let embedder = Arc::new(FastEmbedGenerator::new()?);
+        let vector_store = Arc::new(VectorStore::new(embedder.dimension()));
+        
+        let router = Arc::new(Router::new(storage, vector_store, embedder));
         
         let server = UnixSocketServer::bind(&self.socket_path, router).await?;
         
