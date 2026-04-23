@@ -6,7 +6,7 @@ use tokio::signal;
 use tokio::time::interval;
 use tracing::{info, warn};
 
-use crate::storage::{RocksDBStore, MemoryStore, PersistentVectorStore, MemoryStorage, VectorStorage};
+use crate::storage::{RocksDBStore, MemoryStore, RocksDBVectorStore, MemoryStorage, VectorStorage};
 use crate::embedding::FastEmbedGenerator;
 use crate::server::{UnixSocketServer, Router};
 
@@ -40,7 +40,7 @@ impl Daemon {
         let storage = Arc::new(MemoryStore::new(rocksdb));
         
         let embedder = Arc::new(FastEmbedGenerator::new()?);
-        let vector_store = Arc::new(PersistentVectorStore::new(embedder.dimension(), &self.data_dir)?);
+        let vector_store = Arc::new(RocksDBVectorStore::open(&self.data_dir.join("vectors"), embedder.dimension())?);
         
         self.rebuild_missing_embeddings(&storage, &vector_store, &embedder).await?;
         
@@ -73,11 +73,11 @@ impl Daemon {
     async fn rebuild_missing_embeddings(
         &self,
         storage: &Arc<MemoryStore>,
-        vector_store: &Arc<PersistentVectorStore>,
+        vector_store: &Arc<RocksDBVectorStore>,
         embedder: &Arc<FastEmbedGenerator>,
     ) -> Result<()> {
         let memories = storage.list(1000).await?;
-        let existing_count = vector_store.count_in_memory();
+        let existing_count = vector_store.count_cached();
         
         if existing_count >= memories.len() {
             info!("All {} memories have embeddings", memories.len());
@@ -105,12 +105,12 @@ impl Daemon {
         }
         
         vector_store.save()?;
-        info!("Rebuild complete, saved {} embeddings", vector_store.count_in_memory());
+        info!("Rebuild complete, saved {} embeddings", vector_store.count_cached());
         
         Ok(())
     }
     
-    async fn sync_loop(vector_store: Arc<PersistentVectorStore>) {
+    async fn sync_loop(vector_store: Arc<RocksDBVectorStore>) {
         let mut ticker = interval(Duration::from_secs(SYNC_INTERVAL_SECS));
         
         loop {
@@ -124,7 +124,7 @@ impl Daemon {
         }
     }
     
-    fn shutdown(&self, vector_store: &Arc<PersistentVectorStore>) -> Result<()> {
+    fn shutdown(&self, vector_store: &Arc<RocksDBVectorStore>) -> Result<()> {
         info!("Shutting down daemon");
         
         if let Err(e) = vector_store.save() {
