@@ -35,6 +35,10 @@ pub struct Memory {
     pub project_id: Option<Uuid>,
     pub is_deleted: bool,
     pub deleted_at: Option<DateTime<Utc>>,
+    
+    pub chunk_group_id: Option<Uuid>,
+    pub chunk_index: Option<u32>,
+    pub chunk_total: Option<u32>,
 }
 
 impl Memory {
@@ -55,6 +59,9 @@ impl Memory {
             project_id: None,
             is_deleted: false,
             deleted_at: None,
+            chunk_group_id: None,
+            chunk_index: None,
+            chunk_total: None,
         }
     }
     
@@ -68,9 +75,20 @@ impl Memory {
         self
     }
     
+    pub fn with_chunk_info(mut self, group_id: Uuid, index: u32, total: u32) -> Self {
+        self.chunk_group_id = Some(group_id);
+        self.chunk_index = Some(index);
+        self.chunk_total = Some(total);
+        self
+    }
+    
     pub fn access(&mut self) {
         self.last_accessed = Utc::now();
         self.access_count += 1;
+    }
+    
+    pub fn is_chunked(&self) -> bool {
+        self.chunk_group_id.is_some()
     }
 }
 
@@ -146,5 +164,31 @@ mod tests {
         assert_eq!(memory.id, parsed.id);
         assert_eq!(memory.content, parsed.content);
         assert_eq!(memory.tags, parsed.tags);
+    }
+    
+    #[test]
+    fn test_memory_chunk_fields() {
+        let group_id = Uuid::new_v4();
+        let memory = Memory::new("test".to_string(), MemoryType::Knowledge)
+            .with_chunk_info(group_id, 0, 3);
+        
+        assert_eq!(memory.chunk_group_id, Some(group_id));
+        assert_eq!(memory.chunk_index, Some(0));
+        assert_eq!(memory.chunk_total, Some(3));
+        assert!(memory.is_chunked());
+    }
+    
+    #[test]
+    fn test_memory_chunk_serde() {
+        let group_id = Uuid::new_v4();
+        let memory = Memory::new("test".to_string(), MemoryType::Knowledge)
+            .with_chunk_info(group_id, 1, 5);
+        
+        let json = serde_json::to_string(&memory).unwrap();
+        let parsed: Memory = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(memory.chunk_group_id, parsed.chunk_group_id);
+        assert_eq!(memory.chunk_index, parsed.chunk_index);
+        assert_eq!(memory.chunk_total, parsed.chunk_total);
     }
 }
