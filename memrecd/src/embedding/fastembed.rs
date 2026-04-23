@@ -3,7 +3,7 @@ use fastembed::{TextEmbedding, UserDefinedEmbeddingModel, TokenizerFiles};
 use std::sync::Mutex;
 use std::path::PathBuf;
 
-const DEFAULT_MODEL_DIR: &str = ".cache/huggingface/hub/models--Qdrant--all-MiniLM-L6-v2-onnx/snapshots/main";
+const DEFAULT_MODEL_DIR: &str = ".memrec/models/Qdrant--all-MiniLM-L6-v2-onnx";
 const ENV_MODEL_DIR: &str = "MEMREC_MODEL_DIR";
 
 pub struct FastEmbedGenerator {
