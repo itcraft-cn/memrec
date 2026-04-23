@@ -1,12 +1,16 @@
 use anyhow::Result;
 use std::sync::Arc;
 use std::path::PathBuf;
+use std::time::Duration;
 use tokio::signal;
-use tracing::info;
+use tokio::time::interval;
+use tracing::{info, warn};
 
-use crate::storage::{RocksDBStore, MemoryStore, VectorStore};
+use crate::storage::{RocksDBStore, MemoryStore, PersistentVectorStore, MemoryStorage, VectorStorage};
 use crate::embedding::FastEmbedGenerator;
 use crate::server::{UnixSocketServer, Router};
+
+const SYNC_INTERVAL_SECS: u64 = 30;
 
 pub struct Daemon {
     socket_path: PathBuf,
@@ -36,11 +40,15 @@ impl Daemon {
         let storage = Arc::new(MemoryStore::new(rocksdb));
         
         let embedder = Arc::new(FastEmbedGenerator::new()?);
-        let vector_store = Arc::new(VectorStore::new(embedder.dimension()));
+        let vector_store = Arc::new(PersistentVectorStore::new(embedder.dimension(), &self.data_dir)?);
         
-        let router = Arc::new(Router::new(storage, vector_store, embedder));
+        self.rebuild_missing_embeddings(&storage, &vector_store, &embedder).await?;
+        
+        let router = Arc::new(Router::new(storage.clone(), vector_store.clone(), embedder));
         
         let server = UnixSocketServer::bind(&self.socket_path, router).await?;
+        
+        let sync_task = tokio::spawn(Self::sync_loop(vector_store.clone()));
         
         let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())?;
         let mut sigint = signal::unix::signal(signal::unix::SignalKind::interrupt())?;
@@ -57,11 +65,73 @@ impl Daemon {
             }
         }
         
-        self.shutdown()
+        sync_task.abort();
+        
+        self.shutdown(&vector_store)
     }
     
-    fn shutdown(&self) -> Result<()> {
+    async fn rebuild_missing_embeddings(
+        &self,
+        storage: &Arc<MemoryStore>,
+        vector_store: &Arc<PersistentVectorStore>,
+        embedder: &Arc<FastEmbedGenerator>,
+    ) -> Result<()> {
+        let memories = storage.list(1000).await?;
+        let existing_count = vector_store.count_in_memory();
+        
+        if existing_count >= memories.len() {
+            info!("All {} memories have embeddings", memories.len());
+            return Ok(());
+        }
+        
+        info!("Rebuilding embeddings for {} memories (existing: {})", 
+            memories.len() - existing_count, existing_count);
+        
+        for memory in &memories {
+            if vector_store.get(&memory.id).await?.is_none() {
+                let embedding = embedder.embed(&memory.content)?;
+                let payload = crate::storage::VectorPayload {
+                    project_id: memory.project_id,
+                    memory_type: memory.memory_type.to_string(),
+                    tags: memory.tags.clone(),
+                    content_preview: memory.content.chars().take(200).collect(),
+                    importance: memory.importance,
+                    chunk_group_id: memory.chunk_group_id,
+                    chunk_index: memory.chunk_index,
+                    chunk_total: memory.chunk_total,
+                };
+                vector_store.add(&memory.id, &embedding, payload).await?;
+            }
+        }
+        
+        vector_store.save()?;
+        info!("Rebuild complete, saved {} embeddings", vector_store.count_in_memory());
+        
+        Ok(())
+    }
+    
+    async fn sync_loop(vector_store: Arc<PersistentVectorStore>) {
+        let mut ticker = interval(Duration::from_secs(SYNC_INTERVAL_SECS));
+        
+        loop {
+            ticker.tick().await;
+            
+            if let Err(e) = vector_store.save() {
+                warn!("Failed to sync vector store: {}", e);
+            } else {
+                info!("Vector store synced");
+            }
+        }
+    }
+    
+    fn shutdown(&self, vector_store: &Arc<PersistentVectorStore>) -> Result<()> {
         info!("Shutting down daemon");
+        
+        if let Err(e) = vector_store.save() {
+            warn!("Failed to save vector store on shutdown: {}", e);
+        } else {
+            info!("Vector store saved on shutdown");
+        }
         
         if self.socket_path.exists() {
             std::fs::remove_file(&self.socket_path)?;

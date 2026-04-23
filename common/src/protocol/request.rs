@@ -170,7 +170,7 @@ pub struct SearchMemoryParams {
 }
 
 fn default_include_global() -> bool { true }
-fn default_min_score() -> f32 { 0.7 }
+fn default_min_score() -> f32 { 0.0 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetProjectInfoParams;

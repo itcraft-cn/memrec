@@ -14,7 +14,7 @@ pub struct SearchArgs {
     #[arg(short = 'k', long, default_value = "10")]
     top_k: usize,
     
-    #[arg(long, default_value = "0.7")]
+    #[arg(long, default_value = "0.0")]
     min_score: f32,
     
     #[arg(long)]
