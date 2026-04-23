@@ -56,31 +56,31 @@ memrec add "技术栈：Rust+Tokio+RocksDB" --mtype context --tag tech
 ### 语义检索
 
 ```bash
-memrec search --query "关键词" [--mtype <type>] [--project-only] [--global-only] [-k <num>]
+memrec search "关键词" [--mtype <type>] [--project-only] [--global-only] [-k <num>]
 ```
 
 **参数：**
-- `--query` - 搜索文本（必填）
+- 搜索文本（位置参数，必填）
 - `--project-only` - 仅当前项目记忆
 - `--global-only` - 仅公共记忆
 - `-k` - 返回数量（默认10）
-- `--min-score` - 最低相似度（默认0.7）
+- `--min-score` - 最低相似度（默认0.0）
 - `--mtype` - 过滤类型
 - `--human` - 人类可读格式（默认JSON）
 
 **示例：**
 ```bash
 # 默认检索项目+公共
-memrec search --query "认证方案"
+memrec search "认证方案"
 
 # 仅项目记忆
-memrec search --query "Rust最佳实践" --project-only
+memrec search "Rust最佳实践" --project-only
 
 # 仅公共记忆
-memrec search --query "用户偏好" --global-only -k 20
+memrec search "用户偏好" --global-only -k 20
 
 # 人类可读格式
-memrec search --query "架构" --human
+memrec search "架构" --human
 ```
 
 ### 获取记忆
@@ -187,13 +187,29 @@ memrec stats
 ### 安装
 
 ```bash
+# 构建并安装
 cargo build --release
 install -m 755 target/release/memrecd ~/.local/bin/
 install -m 755 target/release/memrec ~/.local/bin/
+
+# 下载Embedding模型（约90MB）
+mkdir -p ~/.memrec/models/Qdrant--all-MiniLM-L6-v2-onnx
+cd ~/.memrec/models/Qdrant--all-MiniLM-L6-v2-onnx
+wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/model.onnx
+wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/tokenizer.json
+wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/config.json
+wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/special_tokens_map.json
+wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/tokenizer_config.json
+
+# 安装systemd服务
 ./scripts/systemd/install.sh
 systemctl --user enable memrecd
 systemctl --user start memrecd
 ```
+
+**模型配置：**
+- 默认路径：`~/.memrec/models/Qdrant--all-MiniLM-L6-v2-onnx/`
+- 自定义路径：环境变量 `MEMREC_MODEL_DIR`
 
 ### 管理
 
@@ -220,11 +236,13 @@ memrec search --query "test"
 
 ```
 ~/.memrec/
-├── memrecd.sock      # Unix Socket
-├── memrecd.pid       # PID文件
-├── memrecd.log       # 日志文件
-├── db/               # RocksDB数据
-└── qdrant/           # 向量索引
+├── memrecd.sock         # Unix Socket
+├── memrecd.pid          # PID文件
+├── memrecd.log          # 日志文件
+├── data/                # RocksDB数据
+│   └── vectors/         # 向量存储
+└── models/              # Embedding模型
+    └── Qdrant--all-MiniLM-L6-v2-onnx/
 ```
 
 ## 性能指标

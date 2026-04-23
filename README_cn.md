@@ -26,9 +26,22 @@ cargo build --release
 install -m 755 target/release/memrecd ~/.local/bin/
 install -m 755 target/release/memrec ~/.local/bin/
 
+# 下载Embedding模型（约90MB）
+mkdir -p ~/.memrec/models/Qdrant--all-MiniLM-L6-v2-onnx
+cd ~/.memrec/models/Qdrant--all-MiniLM-L6-v2-onnx
+wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/model.onnx
+wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/tokenizer.json
+wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/config.json
+wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/special_tokens_map.json
+wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/tokenizer_config.json
+
 # 安装systemd服务（可选）
 ./scripts/systemd/install.sh
 ```
+
+**模型配置：**
+- 默认路径：`~/.memrec/models/Qdrant--all-MiniLM-L6-v2-onnx/`
+- 自定义路径：设置环境变量 `MEMREC_MODEL_DIR`
 
 ### 使用
 
