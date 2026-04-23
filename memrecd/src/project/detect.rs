@@ -1,0 +1,131 @@
+use std::path::PathBuf;
+use std::fs;
+use chrono::{DateTime, Utc};
+use uuid::Uuid;
+use anyhow::Result;
+
+pub struct ProjectIdFile {
+    pub project_id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub project_name: Option<String>,
+}
+
+impl ProjectIdFile {
+    pub fn new(project_name: Option<String>) -> Self {
+        Self {
+            project_id: Uuid::new_v4(),
+            created_at: Utc::now(),
+            project_name,
+        }
+    }
+    
+    pub fn parse(content: &str) -> Result<Self> {
+        let mut project_id: Option<Uuid> = None;
+        let mut created_at: Option<DateTime<Utc>> = None;
+        let mut project_name: Option<String> = None;
+        
+        for line in content.lines() {
+            if let Some((key, value)) = line.split_once('=') {
+                match key.trim() {
+                    "memrec_project_id" => {
+                        project_id = Some(Uuid::parse_str(value.trim())?);
+                    }
+                    "created_at" => {
+                        created_at = Some(DateTime::parse_from_rfc3339(value.trim())?.with_timezone(&Utc));
+                    }
+                    "project_name" => {
+                        project_name = Some(value.trim().to_string());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        
+        match (project_id, created_at) {
+            (Some(id), Some(at)) => Ok(Self {
+                project_id: id,
+                created_at: at,
+                project_name,
+            }),
+            _ => anyhow::bail!("Invalid .mr_pid file format"),
+        }
+    }
+    
+    pub fn to_string(&self) -> String {
+        let mut content = format!(
+            "memrec_project_id={}\ncreated_at={}",
+            self.project_id,
+            self.created_at.to_rfc3339()
+        );
+        if let Some(name) = &self.project_name {
+            content.push_str(&format!("\nproject_name={}", name));
+        }
+        content
+    }
+}
+
+pub fn find_project_root() -> Result<PathBuf> {
+    let current = std::env::current_dir()?;
+    
+    if let Ok(output) = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(&current)
+        .output()
+    {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return Ok(PathBuf::from(path));
+            }
+        }
+    }
+    
+    Ok(current)
+}
+
+pub fn detect_project_id() -> Result<Uuid> {
+    let project_root = find_project_root()?;
+    let mr_pid_path = project_root.join(".mr_pid");
+    
+    if mr_pid_path.exists() {
+        let content = fs::read_to_string(&mr_pid_path)?;
+        let file = ProjectIdFile::parse(&content)?;
+        Ok(file.project_id)
+    } else {
+        let file = ProjectIdFile::new(None);
+        fs::write(&mr_pid_path, file.to_string())?;
+        Ok(file.project_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    
+    #[test]
+    fn test_project_id_file_creation() {
+        let file = ProjectIdFile::new(Some("test-project".to_string()));
+        assert!(!file.project_id.is_nil());
+        assert_eq!(file.project_name, Some("test-project".to_string()));
+    }
+    
+    #[test]
+    fn test_project_id_file_parse() {
+        let original = ProjectIdFile::new(None);
+        let content = original.to_string();
+        let parsed = ProjectIdFile::parse(&content).unwrap();
+        
+        assert_eq!(original.project_id, parsed.project_id);
+    }
+    
+    #[test]
+    fn test_project_id_file_roundtrip() {
+        let original = ProjectIdFile::new(Some("my-project".to_string()));
+        let content = original.to_string();
+        let parsed = ProjectIdFile::parse(&content).unwrap();
+        
+        assert_eq!(original.project_id, parsed.project_id);
+        assert_eq!(original.project_name, parsed.project_name);
+    }
+}
