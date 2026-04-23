@@ -8,7 +8,7 @@ use crate::client::Client;
 
 const MAX_CHUNK_SIZE: usize = 7500;  // 留余量给JSON序列化
 
-pub async fn add(client: &Client, content: String, mtype: String, tags: Vec<String>) -> Result<()> {
+pub async fn add(client: &Client, content: String, mtype: String, tags: Vec<String>, is_global: bool) -> Result<()> {
     let memory_type = parse_memory_type(&mtype)?;
     
     if content.len() > MAX_CHUNK_SIZE {
@@ -31,6 +31,7 @@ pub async fn add(client: &Client, content: String, mtype: String, tags: Vec<Stri
                     memory_type,
                     tags: part_tags,
                     project_id: None,
+                    is_global,
                 })),
                 i as u64 + 1,
             );
@@ -57,6 +58,7 @@ pub async fn add(client: &Client, content: String, mtype: String, tags: Vec<Stri
                 memory_type,
                 tags,
                 project_id: None,
+                is_global,
             })),
             1,
         );
@@ -135,13 +137,13 @@ fn format_part_tags(original_tags: &[String], part_num: usize, total_parts: usiz
     tags
 }
 
-pub async fn get(client: &Client, id: String) -> Result<()> {
+pub async fn get(client: &Client, id: String, merge: bool) -> Result<()> {
     let uuid = uuid::Uuid::parse_str(&id)
         .map_err(|e| anyhow::anyhow!("Invalid UUID: {}", e))?;
     
     let request = JsonRpcRequest::new(
         RequestAction::Get,
-        Some(RequestParams::Get(GetParams { id: uuid })),
+        Some(RequestParams::Get(GetParams { id: uuid, merge })),
         1,
     );
     
@@ -170,13 +172,16 @@ pub async fn get(client: &Client, id: String) -> Result<()> {
     Ok(())
 }
 
-pub async fn list(client: &Client, limit: usize) -> Result<()> {
+pub async fn list(client: &Client, limit: usize, project_only: bool, global_only: bool) -> Result<()> {
     let request = JsonRpcRequest::new(
         RequestAction::List,
         Some(RequestParams::List(ListParams {
             tags: Vec::new(),
             memory_type: None,
             limit,
+            project_only,
+            global_only,
+            project_id: None,
         })),
         1,
     );

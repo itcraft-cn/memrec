@@ -5,7 +5,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use client::Client;
-use commands::{add, get, list, delete, stats};
+use commands::{add, get, list, delete, stats, search_execute, SearchArgs};
 
 #[derive(Parser)]
 #[command(name = "memrec")]
@@ -24,18 +24,27 @@ enum Commands {
         mtype: String,
         #[arg(short, long)]
         tag: Vec<String>,
+        #[arg(long)]
+        global: bool,
     },
     Get {
         id: String,
+        #[arg(long)]
+        merge: bool,
     },
     List {
         #[arg(short, long, default_value = "20")]
         limit: usize,
+        #[arg(long)]
+        project_only: bool,
+        #[arg(long)]
+        global_only: bool,
     },
     Delete {
         id: String,
     },
     Stats,
+    Search(SearchArgs),
 }
 
 #[tokio::main]
@@ -45,20 +54,23 @@ async fn main() -> Result<()> {
     let client = Client::new()?;
     
     match cli.command {
-        Commands::Add { content, mtype, tag } => {
-            add(&client, content, mtype, tag).await?;
+        Commands::Add { content, mtype, tag, global } => {
+            add(&client, content, mtype, tag, global).await?;
         }
-        Commands::Get { id } => {
-            get(&client, id).await?;
+        Commands::Get { id, merge } => {
+            get(&client, id, merge).await?;
         }
-        Commands::List { limit } => {
-            list(&client, limit).await?;
+        Commands::List { limit, project_only, global_only } => {
+            list(&client, limit, project_only, global_only).await?;
         }
         Commands::Delete { id } => {
             delete(&client, id).await?;
         }
         Commands::Stats => {
             stats(&client).await?;
+        }
+        Commands::Search(args) => {
+            search_execute(&client, args).await?;
         }
     }
     
