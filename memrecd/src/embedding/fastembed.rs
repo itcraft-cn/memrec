@@ -1,5 +1,4 @@
 use anyhow::Result;
-use std::sync::{Arc, Mutex};
 
 pub struct FastEmbedGenerator {
     dimension: usize,
