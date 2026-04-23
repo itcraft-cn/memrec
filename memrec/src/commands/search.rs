@@ -8,7 +8,7 @@ use crate::client::Client;
 
 #[derive(Args, Debug)]
 pub struct SearchArgs {
-    #[arg(short, long)]
+    #[arg(required = true)]
     query: String,
     
     #[arg(short = 'k', long, default_value = "10")]
