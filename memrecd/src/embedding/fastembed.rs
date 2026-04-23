@@ -1,8 +1,10 @@
 use anyhow::Result;
 use fastembed::{TextEmbedding, UserDefinedEmbeddingModel, TokenizerFiles};
 use std::sync::Mutex;
+use std::path::PathBuf;
 
-const MODEL_DIR: &str = ".cache/huggingface/hub/models--Qdrant--all-MiniLM-L6-v2-onnx/snapshots/main";
+const DEFAULT_MODEL_DIR: &str = ".cache/huggingface/hub/models--Qdrant--all-MiniLM-L6-v2-onnx/snapshots/main";
+const ENV_MODEL_DIR: &str = "MEMREC_MODEL_DIR";
 
 pub struct FastEmbedGenerator {
     model: Mutex<TextEmbedding>,
@@ -11,13 +13,10 @@ pub struct FastEmbedGenerator {
 
 impl FastEmbedGenerator {
     pub fn new() -> Result<Self> {
-        let home = dirs::home_dir()
-            .ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
-        
-        let model_dir = home.join(MODEL_DIR);
+        let model_dir = Self::get_model_dir()?;
         
         let onnx_file = std::fs::read(model_dir.join("model.onnx"))
-            .map_err(|e| anyhow::anyhow!("Failed to read model.onnx: {}. Download from https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to read model.onnx from {:?}: {}. Download from https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx", model_dir, e))?;
         
         let tokenizer_files = TokenizerFiles {
             tokenizer_file: std::fs::read(model_dir.join("tokenizer.json"))?,
@@ -34,6 +33,22 @@ impl FastEmbedGenerator {
             model: Mutex::new(model),
             dimension: 384,
         })
+    }
+    
+    fn get_model_dir() -> Result<PathBuf> {
+        if let Ok(env_path) = std::env::var(ENV_MODEL_DIR) {
+            let path = PathBuf::from(env_path);
+            if path.is_absolute() {
+                return Ok(path);
+            }
+            let home = dirs::home_dir()
+                .ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
+            return Ok(home.join(path));
+        }
+        
+        let home = dirs::home_dir()
+            .ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
+        Ok(home.join(DEFAULT_MODEL_DIR))
     }
     
     pub fn dimension(&self) -> usize {
