@@ -49,45 +49,40 @@ impl UnixSocketServer {
     async fn handle_connection(mut stream: tokio::net::UnixStream, router: Arc<Router>) {
         let mut buffer = vec![0u8; 8192];
         
-        loop {
-            match stream.read(&mut buffer).await {
-                Ok(0) => {
-                    debug!("Connection closed");
-                    break;
-                }
-                Ok(n) => {
-                    let request = String::from_utf8_lossy(&buffer[..n]);
-                    debug!("Received request: {}", request);
-                    
-                    let response = match router.parse_request(&request) {
-                        Ok(req) => {
-                            let resp = router.route(req).await;
-                            router.serialize_response(&resp).unwrap_or_else(|e| {
-                                format!("{{\"error\": \"{}\"}}", e)
-                            })
-                        }
-                        Err(e) => format!("{{\"error\": \"{}\"}}", e)
-                    };
-                    
-                    if let Err(e) = stream.write_all(response.as_bytes()).await {
-                        error!("Failed to write response: {}", e);
-                        break;
+        match stream.read(&mut buffer).await {
+            Ok(0) => {
+                debug!("Connection closed");
+            }
+            Ok(n) => {
+                let request = String::from_utf8_lossy(&buffer[..n]);
+                debug!("Received request: {}", request);
+                
+                let response = match router.parse_request(&request) {
+                    Ok(req) => {
+                        let resp = router.route(req).await;
+                        router.serialize_response(&resp).unwrap_or_else(|e| {
+                            format!("{{\"error\": \"{}\"}}", e)
+                        })
                     }
-                    
-                    if let Err(e) = stream.flush().await {
-                        error!("Failed to flush stream: {}", e);
-                        break;
-                    }
-                    
-                    if let Err(e) = stream.shutdown().await {
-                        error!("Failed to shutdown stream: {}", e);
-                    }
+                    Err(e) => format!("{{\"error\": \"{}\"}}", e)
+                };
+                
+                if let Err(e) = stream.write_all(response.as_bytes()).await {
+                    error!("Failed to write response: {}", e);
                     return;
                 }
-                Err(e) => {
-                    error!("Failed to read from stream: {}", e);
-                    break;
+                
+                if let Err(e) = stream.flush().await {
+                    error!("Failed to flush stream: {}", e);
+                    return;
                 }
+                
+                if let Err(e) = stream.shutdown().await {
+                    error!("Failed to shutdown stream: {}", e);
+                }
+            }
+            Err(e) => {
+                error!("Failed to read from stream: {}", e);
             }
         }
     }

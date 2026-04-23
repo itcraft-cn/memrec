@@ -37,7 +37,7 @@ impl VectorStore {
 
 #[async_trait]
 impl VectorStorage for VectorStore {
-    async fn add(&self, id: &Uuid, embedding: &[f32], payload: VectorPayload) -> Result<()> {
+    async fn add(&self, id: &Uuid, embedding: &[f32], _payload: VectorPayload) -> Result<()> {
         if embedding.len() != self.dimension {
             return Err(anyhow::anyhow!(
                 "Embedding dimension mismatch: expected {}, got {}",

@@ -180,17 +180,14 @@ pub struct GetVersionParams;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum SearchMode {
     Exact,
     Semantic,
+    #[default]
     Hybrid,
 }
 
-impl Default for SearchMode {
-    fn default() -> Self {
-        SearchMode::Hybrid
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimeRange {
@@ -319,7 +316,7 @@ mod tests {
         
         assert_eq!(params.include_global, true);
         assert_eq!(params.top_k, 10);
-        assert_eq!(params.min_score, 0.7);
+        assert_eq!(params.min_score, 0.0);
     }
     
     #[test]

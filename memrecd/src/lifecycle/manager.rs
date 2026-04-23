@@ -3,7 +3,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use tracing::info;
 
-use memrec_common::{Memory, MemoryConfig};
+use memrec_common::MemoryConfig;
 use crate::storage::MemoryStorage;
 use crate::importance::ImportanceCalculator;
 
@@ -101,7 +101,7 @@ mod tests {
     use super::*;
     use crate::storage::{MemoryStore, RocksDBStore};
     use tempfile::tempdir;
-    use memrec_common::MemoryType;
+    use memrec_common::{Memory, MemoryType};
     
     #[tokio::test]
     async fn test_recalculate_importance() {

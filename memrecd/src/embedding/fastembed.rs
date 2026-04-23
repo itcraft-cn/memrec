@@ -61,16 +61,16 @@ impl FastEmbedGenerator {
         
         embeddings.into_iter()
             .next()
-            .map(|e| e.into_iter().map(|v| v as f32).collect())
+            .map(|e| e.into_iter().collect())
             .ok_or_else(|| anyhow::anyhow!("No embedding returned"))
     }
     
     pub fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
         let mut model = self.model.lock().map_err(|_| anyhow::anyhow!("Model lock poisoned"))?;
-        let embeddings = model.embed(texts.to_vec(), None)?;
+        let embeddings = model.embed(texts, None)?;
         
         Ok(embeddings.into_iter()
-            .map(|e| e.into_iter().map(|v| v as f32).collect())
+            .map(|e| e.into_iter().collect())
             .collect())
     }
 }

@@ -41,13 +41,11 @@ impl RocksDBVectorStore {
             let cf = db.cf_handle(CF_VECTORS).expect("CF_VECTORS not found");
             let mut cache_lock = cache.lock().unwrap();
             
-            for item in db.iterator_cf(&cf, rocksdb::IteratorMode::Start) {
-                if let Ok((key, value)) = item {
-                    if let Ok(id_str) = std::str::from_utf8(&key) {
-                        if let Ok(id) = Uuid::parse_str(id_str) {
-                            if let Ok(stored) = serde_json::from_slice::<StoredVector>(&value) {
-                                cache_lock.insert(id, stored);
-                            }
+            for (key, value) in db.iterator_cf(&cf, rocksdb::IteratorMode::Start).flatten() {
+                if let Ok(id_str) = std::str::from_utf8(&key) {
+                    if let Ok(id) = Uuid::parse_str(id_str) {
+                        if let Ok(stored) = serde_json::from_slice::<StoredVector>(&value) {
+                            cache_lock.insert(id, stored);
                         }
                     }
                 }
@@ -149,11 +147,10 @@ impl VectorStorage for RocksDBVectorStore {
         
         let mut similarities: Vec<(Uuid, f32, &StoredVector)> = cache.iter()
             .filter_map(|(id, stored)| {
-                if filter.project_id.is_some() && stored.payload.project_id != filter.project_id {
-                    if !filter.include_global || stored.payload.project_id != Some(Uuid::nil()) {
+                if filter.project_id.is_some() && stored.payload.project_id != filter.project_id
+                    && (!filter.include_global || stored.payload.project_id != Some(Uuid::nil())) {
                         return None;
                     }
-                }
                 
                 if filter.memory_type.is_some() && Some(stored.payload.memory_type.as_str()) != filter.memory_type.as_deref() {
                     return None;
@@ -199,8 +196,6 @@ mod tests {
     #[tokio::test]
     async fn test_rocksdb_vector_store() {
         let dir = tempdir().unwrap();
-        let store = RocksDBVectorStore::open(dir.path(), 3).unwrap();
-        
         let id = Uuid::new_v4();
         let embedding = vec![1.0, 2.0, 3.0];
         let payload = VectorPayload {
@@ -208,13 +203,16 @@ mod tests {
             ..Default::default()
         };
         
-        store.add(&id, &embedding, payload).await.unwrap();
-        
-        let retrieved = store.get(&id).await.unwrap();
-        assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap(), embedding);
-        
-        store.save().unwrap();
+        {
+            let store = RocksDBVectorStore::open(dir.path(), 3).unwrap();
+            store.add(&id, &embedding, payload).await.unwrap();
+            
+            let retrieved = store.get(&id).await.unwrap();
+            assert!(retrieved.is_some());
+            assert_eq!(retrieved.unwrap(), embedding);
+            
+            store.save().unwrap();
+        }
         
         let store2 = RocksDBVectorStore::open(dir.path(), 3).unwrap();
         let retrieved2 = store2.get(&id).await.unwrap();

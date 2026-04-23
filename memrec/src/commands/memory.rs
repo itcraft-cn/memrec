@@ -38,14 +38,9 @@ pub async fn add(client: &Client, content: String, mtype: String, tags: Vec<Stri
             
             let response = client.send(&request).await?;
             
-            if let Some(result) = response.result {
-                match result {
-                    ResponseResult::Memory(m) => {
-                        ids.push(m.memory.id);
-                        println!("Part {}: Added {}", i + 1, m.memory.id);
-                    }
-                    _ => {}
-                }
+            if let Some(ResponseResult::Memory(m)) = response.result {
+                ids.push(m.memory.id);
+                println!("Part {}: Added {}", i + 1, m.memory.id);
             }
         }
         

@@ -31,19 +31,12 @@ impl Project {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct ProjectConfig {
     pub memory_config: MemoryConfig,
     pub active: bool,
 }
 
-impl Default for ProjectConfig {
-    fn default() -> Self {
-        Self {
-            memory_config: MemoryConfig::default(),
-            active: false,
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

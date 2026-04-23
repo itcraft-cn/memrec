@@ -1,3 +1,4 @@
+use std::fmt;
 use std::path::PathBuf;
 use std::fs;
 use chrono::{DateTime, Utc};
@@ -50,17 +51,15 @@ impl ProjectIdFile {
             _ => anyhow::bail!("Invalid .mr_pid file format"),
         }
     }
-    
-    pub fn to_string(&self) -> String {
-        let mut content = format!(
-            "memrec_project_id={}\ncreated_at={}",
-            self.project_id,
-            self.created_at.to_rfc3339()
-        );
+}
+
+impl fmt::Display for ProjectIdFile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "memrec_project_id={}\ncreated_at={}", self.project_id, self.created_at.to_rfc3339())?;
         if let Some(name) = &self.project_name {
-            content.push_str(&format!("\nproject_name={}", name));
+            write!(f, "\nproject_name={}", name)?;
         }
-        content
+        Ok(())
     }
 }
 
