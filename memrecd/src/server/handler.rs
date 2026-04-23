@@ -6,7 +6,7 @@ use memrec_common::{
     protocol::{RequestAction, RequestParams, ResponseResult,
     MemoryResult, MemoryListResult, SuccessResult,
     StatsResult, SearchHit, SemanticSearchResult,
-    ProjectInfoResult, GetProjectInfoParams},
+    ProjectInfoResult, GetProjectInfoParams, VersionResult},
     Memory, MemoryType,
 };
 use uuid::Uuid;
@@ -45,6 +45,7 @@ impl Router {
             
             RequestAction::SearchMemory => self.handle_search_memory(request.params, request.id).await,
             RequestAction::GetProjectInfo => self.handle_project_info(request.params, request.id).await,
+            RequestAction::GetVersion => self.handle_version(request.id).await,
             
             _ => JsonRpcResponse::error(
                 JsonRpcError {
@@ -373,6 +374,15 @@ impl Router {
                 id
             )
         }
+    }
+    
+    async fn handle_version(&self, id: u64) -> JsonRpcResponse {
+        JsonRpcResponse::success(
+            ResponseResult::Version(VersionResult {
+                version: env!("CARGO_PKG_VERSION").to_string(),
+            }),
+            id
+        )
     }
     
     pub fn parse_request(&self, raw: &str) -> Result<JsonRpcRequest> {

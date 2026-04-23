@@ -17,6 +17,7 @@ pub enum RequestAction {
     
     SearchMemory,
     GetProjectInfo,
+    GetVersion,
     
     ProjectCreate,
     ProjectList,
@@ -41,6 +42,7 @@ impl std::fmt::Display for RequestAction {
             RequestAction::Tag => write!(f, "tag"),
             RequestAction::SearchMemory => write!(f, "search_memory"),
             RequestAction::GetProjectInfo => write!(f, "get_project_info"),
+            RequestAction::GetVersion => write!(f, "get_version"),
             RequestAction::ProjectCreate => write!(f, "project_create"),
             RequestAction::ProjectList => write!(f, "project_list"),
             RequestAction::ProjectSwitch => write!(f, "project_switch"),
@@ -85,6 +87,7 @@ pub enum RequestParams {
     
     SearchMemory(SearchMemoryParams),
     GetProjectInfo(GetProjectInfoParams),
+    GetVersion(GetVersionParams),
     
     ProjectCreate(ProjectCreateParams),
     ProjectSwitch(ProjectSwitchParams),
@@ -171,6 +174,9 @@ fn default_min_score() -> f32 { 0.7 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetProjectInfoParams;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetVersionParams;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

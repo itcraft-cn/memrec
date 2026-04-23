@@ -5,7 +5,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use client::Client;
-use commands::{add, get, list, delete, stats, search_execute, SearchArgs};
+use commands::{add, get, list, delete, stats, search_execute, version, SearchArgs};
 
 #[derive(Parser)]
 #[command(name = "memrec")]
@@ -45,6 +45,7 @@ enum Commands {
     },
     Stats,
     Search(SearchArgs),
+    Version,
 }
 
 #[tokio::main]
@@ -71,6 +72,9 @@ async fn main() -> Result<()> {
         }
         Commands::Search(args) => {
             search_execute(&client, args).await?;
+        }
+        Commands::Version => {
+            version(&client).await?;
         }
     }
     

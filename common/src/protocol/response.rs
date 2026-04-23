@@ -45,6 +45,7 @@ pub enum ResponseResult {
     Project(ProjectResult),
     ProjectList(ProjectListResult),
     ProjectInfo(ProjectInfoResult),
+    Version(VersionResult),
     Config(ConfigResult),
     Stats(StatsResult),
     Success(SuccessResult),
@@ -109,6 +110,11 @@ pub struct ProjectInfoResult {
     pub project_root: String,
     pub memory_count: usize,
     pub mr_pid_exists: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VersionResult {
+    pub version: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

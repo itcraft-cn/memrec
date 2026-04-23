@@ -259,6 +259,40 @@ pub async fn stats(client: &Client) -> Result<()> {
     Ok(())
 }
 
+pub async fn version(client: &Client) -> Result<()> {
+    let cli_version = env!("CARGO_PKG_VERSION");
+    
+    let request = JsonRpcRequest::new(RequestAction::GetVersion, None, 1);
+    
+    let response = client.send(&request).await?;
+    
+    let server_version = if let Some(result) = response.result {
+        match result {
+            ResponseResult::Version(v) => v.version,
+            _ => {
+                println!("Error: Unexpected response type");
+                return Ok(());
+            }
+        }
+    } else if let Some(err) = response.error {
+        println!("Error: Failed to get server version: {}", err.message);
+        return Ok(());
+    } else {
+        println!("Error: No response from server");
+        return Ok(());
+    };
+    
+    println!("CLI version:    {}", cli_version);
+    println!("Server version: {}", server_version);
+    
+    if cli_version != server_version {
+        println!("\n⚠️  WARNING: Version mismatch!");
+        println!("Please update memrecd to match CLI version.");
+    }
+    
+    Ok(())
+}
+
 fn parse_memory_type(s: &str) -> Result<MemoryType> {
     match s.to_lowercase().as_str() {
         "conversation" => Ok(MemoryType::Conversation),
