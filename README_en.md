@@ -65,7 +65,33 @@ Automatic lifecycle management:
 - **Compression**: Low importance memories compressed to summaries
 - **Forgetting**: importance < 0.1 and inactive > 90 days → deletion
 
-## Systemd Service
+## Service Management
+
+Two management approaches available:
+
+### Option 1: Manual Scripts (Recommended for Development)
+
+```bash
+# Start
+./scripts/start.sh
+
+# Stop
+./scripts/stop.sh
+
+# Restart
+./scripts/restart.sh
+
+# Status
+./scripts/status.sh
+```
+
+Features:
+- PID file management
+- Background execution
+- Log output to `~/.memrec/memrecd.log`
+- Graceful shutdown (SIGTERM, force after 10s timeout)
+
+### Option 2: Systemd Service (Recommended for Production)
 
 ```bash
 # Install
@@ -76,6 +102,15 @@ systemctl --user start memrecd
 systemctl --user stop memrecd
 systemctl --user status memrecd
 journalctl --user -u memrecd -f
+```
+
+Or use the convenience script:
+
+```bash
+./scripts/memrecctl.sh start
+./scripts/memrecctl.sh stop
+./scripts/memrecctl.sh status
+./scripts/memrecctl.sh logs
 ```
 
 ## Skill Integration

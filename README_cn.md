@@ -65,7 +65,33 @@ memrec delete <id>
 - **压缩**：低重要性记忆压缩为摘要
 - **遗忘**：重要性 < 0.1 且 90天未访问 → 删除
 
-## Systemd服务
+## 启停管理
+
+提供两套管理方式：
+
+### 方式一：手工管理（推荐开发环境）
+
+```bash
+# 启动
+./scripts/start.sh
+
+# 停止
+./scripts/stop.sh
+
+# 重启
+./scripts/restart.sh
+
+# 状态
+./scripts/status.sh
+```
+
+特性：
+- PID文件管理
+- 后台运行
+- 日志输出到 `~/.memrec/memrecd.log`
+- 优雅关闭（SIGTERM，10秒超时后强制）
+
+### 方式二：Systemd服务（推荐生产环境）
 
 ```bash
 # 安装
@@ -76,6 +102,15 @@ systemctl --user start memrecd
 systemctl --user stop memrecd
 systemctl --user status memrecd
 journalctl --user -u memrecd -f
+```
+
+或者使用便捷脚本：
+
+```bash
+./scripts/memrecctl.sh start
+./scripts/memrecctl.sh stop
+./scripts/memrecctl.sh status
+./scripts/memrecctl.sh logs
 ```
 
 ## Skill集成
