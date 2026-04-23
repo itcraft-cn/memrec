@@ -169,8 +169,13 @@ pub struct SearchMemoryParams {
     pub min_score: f32,
 }
 
-fn default_include_global() -> bool { true }
-fn default_min_score() -> f32 { 0.0 }
+pub fn default_include_global() -> bool { true }
+pub fn default_min_score() -> f32 {
+    std::env::var("MEMREC_MIN_SCORE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.75)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetProjectInfoParams;
@@ -316,7 +321,7 @@ mod tests {
         
         assert_eq!(params.include_global, true);
         assert_eq!(params.top_k, 10);
-        assert_eq!(params.min_score, 0.0);
+        assert_eq!(params.min_score, 0.75);
     }
     
     #[test]

@@ -2,7 +2,7 @@ use clap::Args;
 use uuid::Uuid;
 use memrec_common::{
     JsonRpcRequest, RequestAction, RequestParams,
-    SearchMemoryParams, MemoryType,
+    SearchMemoryParams, MemoryType, default_min_score,
 };
 use crate::client::Client;
 
@@ -14,7 +14,7 @@ pub struct SearchArgs {
     #[arg(short = 'k', long, default_value = "10")]
     top_k: usize,
     
-    #[arg(long, default_value = "0.0")]
+    #[arg(long, default_value_t = default_min_score())]
     min_score: f32,
     
     #[arg(long)]

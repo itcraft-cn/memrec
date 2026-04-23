@@ -11,6 +11,7 @@ pub use request::{
     SearchMemoryParams, GetProjectInfoParams, GetVersionParams,
     ProjectCreateParams, ProjectSwitchParams, ProjectDeleteParams,
     ConfigSetParams,
+    default_min_score, default_include_global,
 };
 pub use response::{
     JsonRpcResponse, ResponseResult,

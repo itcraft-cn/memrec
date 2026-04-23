@@ -11,3 +11,4 @@ pub use protocol::{SemanticSearchResult, SearchHit};
 pub use protocol::{AddParams, GetParams, ListParams};
 pub use protocol::{MemoryResult, MemoryListResult, StatsResult, SuccessResult};
 pub use protocol::{ProjectInfoResult};
+pub use protocol::{default_min_score, default_include_global};
