@@ -40,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Technical Details
 
 - Model: all-MiniLM-L6-v2 (384 dimensions, ~90MB)
-- Vector storage: ~/.memrec/data/vectors/
+- Vector storage: ~/.memrec/vectors/
 - Data directory structure updated
 - Performance: ~130MB memory with model loaded
 

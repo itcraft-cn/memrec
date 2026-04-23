@@ -15,6 +15,7 @@ const SYNC_INTERVAL_SECS: u64 = 30;
 pub struct Daemon {
     socket_path: PathBuf,
     data_dir: PathBuf,
+    vectors_dir: PathBuf,
 }
 
 impl Daemon {
@@ -22,14 +23,18 @@ impl Daemon {
         let home = dirs::home_dir()
             .ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
         
-        let data_dir = home.join(".memrec").join("data");
-        let socket_path = home.join(".memrec").join("memrecd.sock");
+        let base_dir = home.join(".memrec");
+        let data_dir = base_dir.join("data");
+        let vectors_dir = base_dir.join("vectors");
+        let socket_path = base_dir.join("memrecd.sock");
         
         std::fs::create_dir_all(&data_dir)?;
+        std::fs::create_dir_all(&vectors_dir)?;
         
         Ok(Self {
             socket_path,
             data_dir,
+            vectors_dir,
         })
     }
     
@@ -40,7 +45,7 @@ impl Daemon {
         let storage = Arc::new(MemoryStore::new(rocksdb));
         
         let embedder = Arc::new(FastEmbedGenerator::new()?);
-        let vector_store = Arc::new(RocksDBVectorStore::open(&self.data_dir.join("vectors"), embedder.dimension())?);
+        let vector_store = Arc::new(RocksDBVectorStore::open(&self.vectors_dir, embedder.dimension())?);
         
         self.rebuild_missing_embeddings(&storage, &vector_store, &embedder).await?;
         
