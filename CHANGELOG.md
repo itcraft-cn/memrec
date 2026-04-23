@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0-dev] - 2026-04-23
+
+### Added
+
+#### Phase 6: Semantic Search & Project Isolation
+- Real semantic embeddings with FastEmbed (all-MiniLM-L6-v2)
+- Local ONNX model loading from ~/.memrec/models/
+- Configurable model path via MEMREC_MODEL_DIR env var
+- RocksDB-based vector persistence (vectors column family)
+- Auto-rebuild missing embeddings on startup
+- 30s sync interval + graceful shutdown save
+- Project memory isolation with .mr_pid file
+- Public vs project memory separation
+- Semantic search with meaningful similarity scores
+
+#### Search Enhancements
+- `memrec search "query"` - positional argument syntax
+- --min-score default changed to 0.0 (hash embedding had low scores)
+- --project-only and --global-only filters
+- --human output format
+
+#### Buffer Overflow Fix
+- Dynamic response buffer (1MB limit)
+- Server shutdown after sending response
+
+### Changed
+
+- Vector storage: RocksDB instead of in-memory
+- Embedding: Real ONNX model instead of hash placeholder
+- Search syntax: removed redundant --query flag
+- Default model path: ~/.memrec/models/Qdrant--all-MiniLM-L6-v2-onnx/
+
+### Technical Details
+
+- Model: all-MiniLM-L6-v2 (384 dimensions, ~90MB)
+- Vector storage: ~/.memrec/data/vectors/
+- Data directory structure updated
+- Performance: ~130MB memory with model loaded
+
+---
+
 ## [0.1.0] - 2026-04-23
 
 ### Added
@@ -80,10 +121,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Known Limitations
 
-- Vector store is in-memory (no persistence)
-- Embedding generation not implemented (placeholder)
-- HTTP API deferred to Phase 2
-- MCP protocol deferred to Phase 3
+- Qdrant client library doesn't support embedded mode (placeholder kept)
+- Model must be downloaded manually (~90MB)
 
 ### Breaking Changes
 
@@ -127,11 +166,18 @@ None - initial release
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 0.2.0-dev | 2026-04-23 | Semantic search, project isolation, real embeddings |
 | 0.1.0 | 2026-04-23 | Initial release with core features |
 
 ---
 
 ## Development Milestones
+
+### Phase 6: Semantic Search (Completed)
+- Real FastEmbed embeddings
+- RocksDB vector persistence
+- Project isolation
+- 51 tests passing
 
 ### Phase 1: Infrastructure (Completed)
 - Workspace structure
@@ -173,7 +219,7 @@ None - initial release
 
 ## Release Checklist
 
-- [x] All tests passing (34 tests)
+- [x] All tests passing (51 tests)
 - [x] Documentation complete
 - [x] Systemd service tested
 - [x] CLI commands verified
@@ -181,6 +227,8 @@ None - initial release
 - [x] UTF-8 handling fixed
 - [x] Long content splitting
 - [x] CHANGELOG created
+- [x] Semantic search working
+- [x] Model download documented
 
 ---
 
