@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use uuid::Uuid;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use super::traits::VectorStorage;
+use super::traits::{VectorStorage, VectorPayload, SearchFilter, SearchHit};
 
 pub struct VectorStore {
     dimension: usize,
@@ -37,7 +37,7 @@ impl VectorStore {
 
 #[async_trait]
 impl VectorStorage for VectorStore {
-    async fn add(&self, id: &Uuid, embedding: &[f32]) -> Result<()> {
+    async fn add(&self, id: &Uuid, embedding: &[f32], payload: VectorPayload) -> Result<()> {
         if embedding.len() != self.dimension {
             return Err(anyhow::anyhow!(
                 "Embedding dimension mismatch: expected {}, got {}",
@@ -70,7 +70,7 @@ impl VectorStorage for VectorStore {
         }
     }
     
-    async fn search(&self, query: &[f32], top_k: usize) -> Result<Vec<(Uuid, f32)>> {
+    async fn search(&self, query: &[f32], filter: SearchFilter, top_k: usize) -> Result<Vec<SearchHit>> {
         if query.len() != self.dimension {
             return Err(anyhow::anyhow!(
                 "Query dimension mismatch: expected {}, got {}",
@@ -87,12 +87,21 @@ impl VectorStorage for VectorStore {
                 let sim = Self::cosine_similarity(query, &vectors[*index]);
                 (*id, sim)
             })
+            .filter(|(_, sim)| *sim >= filter.min_score)
             .collect();
         
         similarities.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
         similarities.truncate(top_k);
         
-        Ok(similarities)
+        let hits = similarities.into_iter()
+            .map(|(id, score)| SearchHit {
+                memory_id: id,
+                score,
+                payload: VectorPayload::default(),
+            })
+            .collect();
+        
+        Ok(hits)
     }
     
     async fn get(&self, id: &Uuid) -> Result<Option<Vec<f32>>> {
@@ -122,7 +131,7 @@ mod tests {
         let id = Uuid::new_v4();
         let embedding = vec![1.0, 2.0, 3.0];
         
-        store.add(&id, &embedding).await.unwrap();
+        store.add(&id, &embedding, VectorPayload::default()).await.unwrap();
         
         let retrieved = store.get(&id).await.unwrap();
         assert!(retrieved.is_some());
@@ -137,15 +146,20 @@ mod tests {
         let id2 = Uuid::new_v4();
         let id3 = Uuid::new_v4();
         
-        store.add(&id1, &[1.0, 0.0, 0.0]).await.unwrap();
-        store.add(&id2, &[0.9, 0.1, 0.0]).await.unwrap();
-        store.add(&id3, &[0.0, 1.0, 0.0]).await.unwrap();
+        store.add(&id1, &[1.0, 0.0, 0.0], VectorPayload::default()).await.unwrap();
+        store.add(&id2, &[0.9, 0.1, 0.0], VectorPayload::default()).await.unwrap();
+        store.add(&id3, &[0.0, 1.0, 0.0], VectorPayload::default()).await.unwrap();
         
-        let results = store.search(&[1.0, 0.0, 0.0], 2).await.unwrap();
+        let filter = SearchFilter {
+            min_score: 0.0,
+            ..Default::default()
+        };
+        
+        let results = store.search(&[1.0, 0.0, 0.0], filter, 2).await.unwrap();
         
         assert_eq!(results.len(), 2);
-        assert_eq!(results[0].0, id1);
-        assert!(results[0].1 > 0.99);
+        assert_eq!(results[0].memory_id, id1);
+        assert!(results[0].score > 0.99);
     }
     
     #[tokio::test]
@@ -153,7 +167,7 @@ mod tests {
         let store = VectorStore::new(3);
         let id = Uuid::new_v4();
         
-        store.add(&id, &[1.0, 2.0, 3.0]).await.unwrap();
+        store.add(&id, &[1.0, 2.0, 3.0], VectorPayload::default()).await.unwrap();
         
         let removed = store.remove(&id).await.unwrap();
         assert!(removed);

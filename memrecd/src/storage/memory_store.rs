@@ -243,6 +243,20 @@ impl MemoryStorage for MemoryStore {
         let deleted = self.list_deleted().await?;
         Ok(deleted.len())
     }
+    
+    async fn list_by_project(&self, project_id: &Uuid) -> Result<Vec<Memory>> {
+        let all = self.list(10000).await?;
+        Ok(all.into_iter()
+            .filter(|m| m.project_id == Some(*project_id))
+            .collect())
+    }
+    
+    async fn get_chunks_by_group(&self, chunk_group_id: &Uuid) -> Result<Vec<Memory>> {
+        let all = self.list(10000).await?;
+        Ok(all.into_iter()
+            .filter(|m| m.chunk_group_id == Some(*chunk_group_id))
+            .collect())
+    }
 }
 
 #[cfg(test)]
