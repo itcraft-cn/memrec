@@ -4,6 +4,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::path::PathBuf;
 use memrec_common::{JsonRpcRequest, JsonRpcResponse};
 
+const INITIAL_BUFFER_SIZE: usize = 8192;
+const MAX_BUFFER_SIZE: usize = 1024 * 1024;  // 1MB
+
 pub struct Client {
     socket_path: PathBuf,
 }
@@ -36,12 +39,28 @@ impl Client {
             .await
             .context("Failed to flush stream")?;
         
-        let mut buffer = vec![0u8; 8192];
-        let n = stream.read(&mut buffer)
-            .await
-            .context("Failed to read response")?;
+        stream.shutdown().await.context("Failed to shutdown stream")?;
         
-        let response_json = String::from_utf8_lossy(&buffer[..n]);
+        let mut buffer = Vec::with_capacity(INITIAL_BUFFER_SIZE);
+        let mut chunk = vec![0u8; INITIAL_BUFFER_SIZE];
+        
+        loop {
+            let n = stream.read(&mut chunk)
+                .await
+                .context("Failed to read response")?;
+            
+            if n == 0 {
+                break;
+            }
+            
+            buffer.extend_from_slice(&chunk[..n]);
+            
+            if buffer.len() >= MAX_BUFFER_SIZE {
+                return Err(anyhow::anyhow!("Response too large (exceeds 1MB)"));
+            }
+        }
+        
+        let response_json = String::from_utf8_lossy(&buffer);
         let response: JsonRpcResponse = serde_json::from_str(&response_json)
             .context("Failed to parse response")?;
         

@@ -78,6 +78,11 @@ impl UnixSocketServer {
                         error!("Failed to flush stream: {}", e);
                         break;
                     }
+                    
+                    if let Err(e) = stream.shutdown().await {
+                        error!("Failed to shutdown stream: {}", e);
+                    }
+                    return;
                 }
                 Err(e) => {
                     error!("Failed to read from stream: {}", e);
