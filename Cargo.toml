@@ -17,4 +17,4 @@ anyhow = "1"
 thiserror = "1"
 
 qdrant-client = "1.7"
-fastembed = "5"
+fastembed = { version = "5", features = ["hf-hub"] }
