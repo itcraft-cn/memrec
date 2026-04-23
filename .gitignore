@@ -17,3 +17,6 @@ Cargo.lock
 
 # Test
 /test_data/
+
+# Memory
+MEMORY.md
