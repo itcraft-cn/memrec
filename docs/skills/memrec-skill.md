@@ -25,15 +25,35 @@ memrec add "内容" --mtype <type> [--tag <tag>] [--global]
 
 **记忆类型：**
 - `decision` - 关键决策（推荐--tag critical）
-- `knowledge` - 知识点/最佳实践
+- `knowledge` - 知识点（通过tag细分）
 - `context` - 项目配置/环境信息
 - `preference` - 用户偏好（推荐--global）
 - `conversation` - 对话记录（默认）
 
+**knowledge通过tag细分：**
+| tag | 用途 | 示例 |
+|-----|------|------|
+| `fact` | 物理定律、数学公式、客观事实 | `--tag fact --tag physics` |
+| `best-practice` | 最佳实践、设计模式 | `--tag best-practice` |
+| `algorithm` | 算法、公式推导 | `--tag algorithm` |
+| `tool` | 工具使用技巧 | `--tag tool --tag rust` |
+
 **示例：**
 ```bash
+# 事实类知识
+memrec add "光速c=3×10⁸m/s，真空环境中恒定" --mtype knowledge --tag fact --tag physics
+memrec add "欧拉公式：e^(iπ)+1=0" --mtype knowledge --tag fact --tag math
+
+# 最佳实践
+memrec add "RAII模式：资源获取即初始化，析构自动释放" --mtype knowledge --tag best-practice --tag rust
+
+# 决策
 memrec add "选择JWT认证方案" --mtype decision --tag auth --tag critical
+
+# 用户偏好
 memrec add "用户偏好详细输出" --mtype preference --tag output --global
+
+# 项目上下文
 memrec add "技术栈：Rust+Tokio+RocksDB" --mtype context --tag tech
 ```
 
@@ -94,6 +114,8 @@ memrec stats
 1. **决策即记录** - 做出决策后立即记录
 2. **关键用critical** - 重要信息用critical标签
 3. **偏好用global** - 用户偏好标记为公共记忆
-4. **检索优先search** - 用语义检索而非枚举
+4. **事实用fact** - 物理定律、数学公式用fact标签
+5. **检索优先search** - 用语义检索而非枚举
+6. **min_score默认0.75** - 过滤低相关度干扰项（可通过MEMREC_MIN_SCORE调整）
 
 ---
