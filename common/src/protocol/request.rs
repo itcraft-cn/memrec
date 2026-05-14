@@ -107,6 +107,8 @@ pub struct AddParams {
     pub project_id: Option<Uuid>,
     #[serde(default)]
     pub is_global: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub working_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,6 +169,8 @@ pub struct SearchMemoryParams {
     pub top_k: usize,
     #[serde(default = "default_min_score")]
     pub min_score: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub working_dir: Option<String>,
 }
 
 pub fn default_include_global() -> bool { true }
@@ -177,8 +181,11 @@ pub fn default_min_score() -> f32 {
         .unwrap_or(0.75)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetProjectInfoParams;
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GetProjectInfoParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub working_dir: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetVersionParams;
@@ -265,6 +272,7 @@ mod tests {
                 tags: vec!["tag1".to_string()],
                 project_id: None,
                 is_global: false,
+                working_dir: None,
             })),
             1,
         );
@@ -317,6 +325,7 @@ mod tests {
             memory_type: None,
             top_k: default_top_k(),
             min_score: default_min_score(),
+            working_dir: None,
         };
         
         assert_eq!(params.include_global, true);
@@ -335,6 +344,7 @@ mod tests {
             memory_type: Some(MemoryType::Decision),
             top_k: 20,
             min_score: 0.8,
+            working_dir: None,
         };
         
         let json = serde_json::to_string(&params).unwrap();

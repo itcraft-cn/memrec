@@ -64,7 +64,7 @@ impl Router {
                 let project_id = if p.is_global {
                     Some(Uuid::nil())
                 } else {
-                    p.project_id.or_else(|| detect_project_id().ok())
+                    p.project_id.or_else(|| detect_project_id(p.working_dir.as_deref()).ok())
                 };
                 
                 let mut memory = Memory::new(p.content.clone(), p.memory_type)
@@ -275,9 +275,9 @@ impl Router {
                 let project_id = if p.global_only {
                     Some(Uuid::nil())
                 } else if p.project_only {
-                    p.project_id.or_else(|| detect_project_id().ok())
+                    p.project_id.or_else(|| detect_project_id(p.working_dir.as_deref()).ok())
                 } else {
-                    p.project_id
+                    p.project_id.or_else(|| detect_project_id(p.working_dir.as_deref()).ok())
                 };
                 
                 let include_global = !p.project_only;
@@ -339,14 +339,14 @@ impl Router {
     }
     
     async fn handle_project_info(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
-        let _params: GetProjectInfoParams = match params {
+        let params: GetProjectInfoParams = match params {
             Some(RequestParams::GetProjectInfo(p)) => p,
-            _ => GetProjectInfoParams,
+            _ => GetProjectInfoParams::default(),
         };
         
-        match detect_project_id() {
+        match detect_project_id(params.working_dir.as_deref()) {
             Ok(project_id) => {
-                let project_root = find_project_root()
+                let project_root = find_project_root(params.working_dir.as_deref())
                     .unwrap_or_default()
                     .to_string_lossy()
                     .to_string();
@@ -425,6 +425,7 @@ mod tests {
                 memory_type: None,
                 top_k: 10,
                 min_score: 0.0,
+                working_dir: None,
             })),
             1,
         );
@@ -443,7 +444,7 @@ mod tests {
         
         let request = JsonRpcRequest::new(
             RequestAction::GetProjectInfo,
-            Some(RequestParams::GetProjectInfo(GetProjectInfoParams)),
+            Some(RequestParams::GetProjectInfo(GetProjectInfoParams::default())),
             1,
         );
         

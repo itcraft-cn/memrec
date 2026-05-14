@@ -8,7 +8,7 @@ use crate::client::Client;
 
 const MAX_CHUNK_SIZE: usize = 7500;  // 留余量给JSON序列化
 
-pub async fn add(client: &Client, content: String, mtype: String, tags: Vec<String>, is_global: bool) -> Result<()> {
+pub async fn add(client: &Client, content: String, mtype: String, tags: Vec<String>, is_global: bool, working_dir: Option<String>) -> Result<()> {
     let memory_type = parse_memory_type(&mtype)?;
     
     if content.len() > MAX_CHUNK_SIZE {
@@ -32,6 +32,7 @@ pub async fn add(client: &Client, content: String, mtype: String, tags: Vec<Stri
                     tags: part_tags,
                     project_id: None,
                     is_global,
+                    working_dir: working_dir.clone(),
                 })),
                 i as u64 + 1,
             );
@@ -54,6 +55,7 @@ pub async fn add(client: &Client, content: String, mtype: String, tags: Vec<Stri
                 tags,
                 project_id: None,
                 is_global,
+                working_dir,
             })),
             1,
         );

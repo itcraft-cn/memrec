@@ -9,28 +9,28 @@ use crate::client::Client;
 #[derive(Args, Debug)]
 pub struct SearchArgs {
     #[arg(required = true)]
-    query: String,
+    pub query: String,
     
     #[arg(short = 'k', long, default_value = "10")]
-    top_k: usize,
+    pub top_k: usize,
     
     #[arg(long, default_value_t = default_min_score())]
-    min_score: f32,
+    pub min_score: f32,
     
     #[arg(long)]
-    project_only: bool,
+    pub project_only: bool,
     
     #[arg(long)]
-    global_only: bool,
+    pub global_only: bool,
     
     #[arg(long)]
-    mtype: Option<String>,
+    pub mtype: Option<String>,
     
     #[arg(long)]
-    human: bool,
+    pub human: bool,
 }
 
-pub async fn execute(client: &Client, args: SearchArgs) -> anyhow::Result<()> {
+pub async fn execute(client: &Client, args: SearchArgs, working_dir: Option<String>) -> anyhow::Result<()> {
     let memory_type = args.mtype.and_then(|t| match t.to_lowercase().as_str() {
         "decision" => Some(MemoryType::Decision),
         "knowledge" => Some(MemoryType::Knowledge),
@@ -57,6 +57,7 @@ pub async fn execute(client: &Client, args: SearchArgs) -> anyhow::Result<()> {
             memory_type,
             top_k: args.top_k,
             min_score: args.min_score,
+            working_dir,
         })),
         1,
     );

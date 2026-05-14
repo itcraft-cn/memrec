@@ -63,12 +63,16 @@ impl fmt::Display for ProjectIdFile {
     }
 }
 
-pub fn find_project_root() -> Result<PathBuf> {
-    let current = std::env::current_dir()?;
+pub fn find_project_root(working_dir: Option<&str>) -> Result<PathBuf> {
+    let start_dir = if let Some(dir) = working_dir {
+        PathBuf::from(dir)
+    } else {
+        std::env::current_dir()?
+    };
     
     if let Ok(output) = std::process::Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
-        .current_dir(&current)
+        .current_dir(&start_dir)
         .output()
     {
         if output.status.success() {
@@ -79,11 +83,11 @@ pub fn find_project_root() -> Result<PathBuf> {
         }
     }
     
-    Ok(current)
+    Ok(start_dir)
 }
 
-pub fn detect_project_id() -> Result<Uuid> {
-    let project_root = find_project_root()?;
+pub fn detect_project_id(working_dir: Option<&str>) -> Result<Uuid> {
+    let project_root = find_project_root(working_dir)?;
     let mr_pid_path = project_root.join(".mr_pid");
     
     if mr_pid_path.exists() {
