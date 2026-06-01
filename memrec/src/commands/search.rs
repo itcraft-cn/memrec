@@ -24,6 +24,9 @@ pub struct SearchArgs {
     pub global_only: bool,
     
     #[arg(long)]
+    pub all: bool,
+    
+    #[arg(long)]
     pub mtype: Option<String>,
     
     #[arg(long)]
@@ -54,6 +57,7 @@ pub async fn execute(client: &Client, args: SearchArgs, working_dir: Option<Stri
             include_global: !args.project_only,
             project_only: args.project_only,
             global_only: args.global_only,
+            cross_project: args.all,
             memory_type,
             top_k: args.top_k,
             min_score: args.min_score,

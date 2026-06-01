@@ -272,7 +272,9 @@ impl Router {
                 };
                 let embed_time = start.elapsed().as_millis() as u64;
                 
-                let project_id = if p.global_only {
+                let project_id = if p.cross_project {
+                    None
+                } else if p.global_only {
                     Some(Uuid::nil())
                 } else if p.project_only {
                     p.project_id.or_else(|| detect_project_id(p.working_dir.as_deref()).ok())
@@ -280,7 +282,7 @@ impl Router {
                     p.project_id.or_else(|| detect_project_id(p.working_dir.as_deref()).ok())
                 };
                 
-                let include_global = !p.project_only;
+                let include_global = !p.project_only && !p.cross_project;
                 
                 let filter = SearchFilter {
                     project_id,
@@ -422,6 +424,7 @@ mod tests {
                 include_global: true,
                 project_only: false,
                 global_only: false,
+                cross_project: false,
                 memory_type: None,
                 top_k: 10,
                 min_score: 0.0,

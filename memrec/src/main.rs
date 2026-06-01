@@ -95,7 +95,7 @@ async fn main() -> Result<()> {
             stats(&client).await?;
         }
         Commands::Search(args) => {
-            let working_dir = if args.global_only {
+            let working_dir = if args.all || args.global_only {
                 None
             } else {
                 Some(detect_working_dir()?)

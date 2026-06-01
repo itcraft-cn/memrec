@@ -163,6 +163,8 @@ pub struct SearchMemoryParams {
     pub project_only: bool,
     #[serde(default)]
     pub global_only: bool,
+    #[serde(default)]
+    pub cross_project: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory_type: Option<MemoryType>,
     #[serde(default = "default_top_k")]
@@ -322,6 +324,7 @@ mod tests {
             include_global: default_include_global(),
             project_only: false,
             global_only: false,
+            cross_project: false,
             memory_type: None,
             top_k: default_top_k(),
             min_score: default_min_score(),
@@ -341,6 +344,7 @@ mod tests {
             include_global: true,
             project_only: false,
             global_only: false,
+            cross_project: false,
             memory_type: Some(MemoryType::Decision),
             top_k: 20,
             min_score: 0.8,
