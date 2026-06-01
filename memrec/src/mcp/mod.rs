@@ -85,7 +85,7 @@ impl McpServer {
         self.make_result(id, json!({
             "tools": [
                 {
-                    "name": "memory_add",
+                    "name": "mr_add",
                     "description": "Add a memory to MemRec. Supports project isolation and global memories.",
                     "inputSchema": {
                         "type": "object",
@@ -107,7 +107,7 @@ impl McpServer {
                     }
                 },
                 {
-                    "name": "memory_search",
+                    "name": "mr_search",
                     "description": "Search memories using semantic similarity. Returns results scored by relevance (0-1).",
                     "inputSchema": {
                         "type": "object",
@@ -128,7 +128,7 @@ impl McpServer {
                     }
                 },
                 {
-                    "name": "memory_get",
+                    "name": "mr_get",
                     "description": "Get a specific memory by ID.",
                     "inputSchema": {
                         "type": "object",
@@ -140,7 +140,7 @@ impl McpServer {
                     }
                 },
                 {
-                    "name": "memory_list",
+                    "name": "mr_list",
                     "description": "List memories with optional filtering.",
                     "inputSchema": {
                         "type": "object",
@@ -152,7 +152,7 @@ impl McpServer {
                     }
                 },
                 {
-                    "name": "memory_delete",
+                    "name": "mr_delete",
                     "description": "Delete a memory by ID (soft delete).",
                     "inputSchema": {
                         "type": "object",
@@ -163,7 +163,7 @@ impl McpServer {
                     }
                 },
                 {
-                    "name": "memory_stats",
+                    "name": "mr_stats",
                     "description": "Get memory statistics.",
                     "inputSchema": { "type": "object", "properties": {} }
                 }
@@ -176,12 +176,12 @@ impl McpServer {
         let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
 
         let result = match tool_name {
-            "memory_add" => self.tool_add(&arguments).await,
-            "memory_search" => self.tool_search(&arguments).await,
-            "memory_get" => self.tool_get(&arguments).await,
-            "memory_list" => self.tool_list(&arguments).await,
-            "memory_delete" => self.tool_delete(&arguments).await,
-            "memory_stats" => self.tool_stats().await,
+            "mr_add" => self.tool_add(&arguments).await,
+            "mr_search" => self.tool_search(&arguments).await,
+            "mr_get" => self.tool_get(&arguments).await,
+            "mr_list" => self.tool_list(&arguments).await,
+            "mr_delete" => self.tool_delete(&arguments).await,
+            "mr_stats" => self.tool_stats().await,
             _ => Err(format!("Unknown tool: {}", tool_name)),
         };
 
