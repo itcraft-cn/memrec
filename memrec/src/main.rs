@@ -1,5 +1,6 @@
 mod client;
 mod commands;
+mod mcp;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -31,8 +32,11 @@ fn detect_working_dir() -> Result<String> {
 #[command(about = "Memory persistence CLI for AI tools", long_about = None)]
 #[command(version)]
 struct Cli {
+    #[arg(long)]
+    mcp: bool,
+    
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -71,9 +75,15 @@ enum Commands {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     
+    if cli.mcp {
+        let server = mcp::McpServer::new();
+        return server.run().await;
+    }
+    
+    let command = cli.command.unwrap_or(Commands::Stats);
     let client = Client::new()?;
     
-    match cli.command {
+    match command {
         Commands::Add { content, mtype, tag, global } => {
             let working_dir = if global {
                 None
