@@ -1,6 +1,8 @@
 [中文版](README_cn.md) | English
 
-# MemRec - AI Memory Persistence System
+# MemRec — AI Memory Persistence System
+
+> Local-first AI memory with project isolation — for terminal, for private use
 
 Local memory persistence system for AI CLI tools, providing cross-session memory recovery, knowledge accumulation, and conversation archival.
 
