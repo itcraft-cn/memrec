@@ -1,6 +1,20 @@
 ---
 name: memrec
 description: AI记忆持久化系统。使用memrec存储、检索、管理跨会话记忆。支持项目隔离和语义检索。触发场景：(1)重要决策需记录，(2)关键知识需保存，(3)项目上下文需跨会话保持，(4)用户偏好需记忆，(5)检索历史知识辅助当前任务。
+---
+
+# MemRec - AI记忆持久化系统
+
+为AI CLI工具提供跨会话记忆能力，支持项目隔离和语义检索。
+
+## 触发场景
+
+1. 重要决策需记录 → `memrec add --mtype decision --tag critical`
+2. 关键知识需保存 → `memrec add --mtype knowledge`
+3. 项目上下文需跨会话保持 → 自动关联项目ID
+4. 用户偏好需记忆 → `memrec add --mtype preference --global`
+5. 检索历史知识辅助当前任务 → `memrec search "关键词"`
+
 ## MCP Server
 
 MemRec 可作为 MCP Server 直接被 AI 客户端（Claude Code、Codex、OpenCode）调用，无需 CLI 命令。
@@ -48,20 +62,6 @@ MemRec 可作为 MCP Server 直接被 AI 客户端（Claude Code、Codex、OpenC
 // mr_search 跨项目
 {"name": "mr_search", "arguments": {"query": "xlsb", "cross_project": true}}
 ```
-
----
-
-# MemRec - AI记忆持久化系统
-
-为AI CLI工具提供跨会话记忆能力，支持项目隔离和语义检索。
-
-## 触发场景
-
-1. 重要决策需记录 → `memrec add --mtype decision --tag critical`
-2. 关键知识需保存 → `memrec add --mtype knowledge`
-3. 项目上下文需跨会话保持 → 自动关联项目ID
-4. 用户偏好需记忆 → `memrec add --mtype preference --global`
-5. 检索历史知识辅助当前任务 → `memrec search "关键词"`
 
 ## 核心命令
 
