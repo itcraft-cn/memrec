@@ -1,6 +1,8 @@
-[English](README_en.md) | 中文
+[English](README.md) | 中文
 
-# MemRec - AI记忆持久化系统
+# MemRec — AI记忆持久化系统
+
+> 本地优先的AI记忆，项目隔离 — 为终端而生，为私密而用
 
 本地化记忆持久化系统，为AI CLI工具提供跨会话记忆恢复、知识积累、对话存档能力。
 
