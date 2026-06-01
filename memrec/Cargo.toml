@@ -8,7 +8,7 @@ name = "memrec"
 path = "src/main.rs"
 
 [dependencies]
-memrec-common = { path = "../common" }
+memrec-common = { path = "../common", version = "0.2.0" }
 anyhow.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
