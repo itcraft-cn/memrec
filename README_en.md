@@ -2,31 +2,33 @@
 
 # MemRec - AI Memory Persistence System
 
-Local memory persistence system for AI CLI tools (opencode, claude code, etc.), providing cross-session memory recovery, knowledge accumulation, and conversation archival capabilities.
+Local memory persistence system for AI CLI tools, providing cross-session memory recovery, knowledge accumulation, and conversation archival.
 
 ## Features
 
-- **Cross-session recovery** - Restore context, preferences, project knowledge
-- **Knowledge accumulation** - Store best practices and key decisions
-- **Conversation archival** - Complete conversation history with retrieval
-- **Smart lifecycle management** - Automatic compression and forgetting based on importance scoring
-- **Hybrid search** - Exact + semantic retrieval with RRF fusion
-- **Auto-splitting** - Long content (>7.5KB) automatically split into chunks
-- **Systemd integration** - Easy install with `systemctl --user`
+- **Project Isolation** — Auto-detect git root, .mr_pid persistence, independent memory per project
+- **Semantic Search** — Local ONNX model (384-dim), zero API cost, all data stays local
+- **Cross-Project Search** — `--all` flag to discover related knowledge across projects
+- **AI-first Design** — JSON output by default, concise commands, Skill integration
+- **High Performance** — Rust, <1ms latency, ~118MB memory (including model)
+- **Auto-splitting** — Long content (>7.5KB) automatically split into chunks
+- **Systemd Integration** — Manage daemon with `systemctl --user`
 
 ## Quick Start
 
 ### Install
 
 ```bash
-# Build release binaries
 cargo build --release
+cargo install --path memrec --locked
+cargo install --path memrecd --locked
+cp ~/.cargo/bin/memrec ~/.local/bin/
+cp ~/.cargo/bin/memrecd ~/.local/bin/
+```
 
-# Install binaries
-install -m 755 target/release/memrecd ~/.local/bin/
-install -m 755 target/release/memrec ~/.local/bin/
+### Download Model
 
-# Download Embedding Model (~90MB)
+```bash
 mkdir -p ~/.memrec/models/Qdrant--all-MiniLM-L6-v2-onnx
 cd ~/.memrec/models/Qdrant--all-MiniLM-L6-v2-onnx
 wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/model.onnx
@@ -34,120 +36,96 @@ wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/tokenizer.
 wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/config.json
 wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/special_tokens_map.json
 wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/tokenizer_config.json
-
-# Install systemd service (optional)
-./scripts/systemd/install.sh
 ```
 
-**Model Configuration:**
-- Default path: `~/.memrec/models/Qdrant--all-MiniLM-L6-v2-onnx/`
-- Custom path: Set environment variable `MEMREC_MODEL_DIR`
+### Start Service
+
+```bash
+# Foreground (debugging)
+memrecd
+
+# Or systemd service (recommended)
+systemctl --user enable memrecd
+systemctl --user start memrecd
+```
 
 ### Usage
 
 ```bash
-# Start daemon (if not using systemd)
-memrecd
-
 # Add memories
-memrec add "Key decision" --mtype decision --tag critical
-memrec add "Best practice" --mtype knowledge --tag rust
-memrec add "Project config" --mtype context --tag config
+memrec add "Choose JWT auth" --mtype decision --tag critical
+memrec add "RAII: resource acquisition is initialization" --mtype knowledge --tag best-practice --tag rust
+memrec add "User prefers verbose output" --mtype preference --tag output --global
 
-# Retrieve memories
+# Semantic search
+memrec search "auth"                        # Current project + global
+memrec search "performance" --project-only  # Current project only
+memrec search "preferences" --global-only   # Global memories only
+memrec search "xlsb" --all                  # Across all projects
+
+# Other commands
 memrec list --limit 20
 memrec get <id>
 memrec stats
-
-# Delete memories
-memrec delete <id>
+memrec version
 ```
+
+## Project Isolation
+
+MemRec automatically creates independent memory spaces for different projects:
+
+```
+project-a/           project-b/
+├── .mr_pid          ├── .mr_pid        ← Auto-created, different IDs
+├── .gitignore       ├── .gitignore     ← Add .mr_pid to .gitignore
+└── src/             └── src/
+```
+
+- **Git repos**: Auto-detect git root
+- **Non-git dirs**: Use current working directory
+- **Global memories**: `--global` flag, accessible from all projects
+- **Cross-project search**: `--all` searches across all projects
 
 ## Memory Types
 
-- `decision` - Key decisions (recommended: use `critical` tag)
-- `knowledge` - Best practices and learnings
-- `context` - Project configuration and environment
-- `preference` - User preferences
-- `conversation` - Conversation records (default)
+| Type | Flag | Purpose |
+|------|------|---------|
+| Decision | `decision` | Key technical/business decisions |
+| Knowledge | `knowledge` | Knowledge (subdivide via tags: `fact`/`best-practice`/`algorithm`/`tool`) |
+| Context | `context` | Project config, environment info |
+| Preference | `preference` | User preferences (recommend `--global`) |
+| Conversation | `conversation` | Conversation records (default) |
 
-## Memory Management
+## Data Location
 
-Automatic lifecycle management:
-- **Importance scoring**: Time decay + access frequency + tag weights + user priority
-- **Compression**: Low importance memories compressed to summaries
-- **Forgetting**: importance < 0.1 and inactive > 90 days → deletion
-
-## Service Management
-
-Two management approaches available:
-
-### Option 1: Manual Scripts (Recommended for Development)
-
-```bash
-# Start
-./scripts/start.sh
-
-# Stop
-./scripts/stop.sh
-
-# Restart
-./scripts/restart.sh
-
-# Status
-./scripts/status.sh
+```
+~/.memrec/
+├── memrecd.sock        # Unix Socket
+├── data/               # RocksDB memory metadata
+├── vectors/            # RocksDB vector storage
+└── models/             # ONNX Embedding model
 ```
 
-Features:
-- PID file management
-- Background execution
-- Log output to `~/.memrec/memrecd.log`
-- Graceful shutdown (SIGTERM, force after 10s timeout)
+## Environment Variables
 
-### Option 2: Systemd Service (Recommended for Production)
-
-```bash
-# Install
-./scripts/systemd/install.sh
-
-# Manage
-systemctl --user start memrecd
-systemctl --user stop memrecd
-systemctl --user status memrecd
-journalctl --user -u memrecd -f
-```
-
-Or use the convenience script:
-
-```bash
-./scripts/memrecctl.sh start
-./scripts/memrecctl.sh stop
-./scripts/memrecctl.sh status
-./scripts/memrecctl.sh logs
-```
-
-## Skill Integration
-
-Skill for AI CLI tools: `~/.opencode/skills/memrec/SKILL.md`
-
-AI agents can:
-- Record key decisions automatically
-- Retrieve historical knowledge
-- Maintain project context across sessions
-- Remember user preferences
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `MEMREC_MODEL_DIR` | Custom model path | `~/.memrec/models/Qdrant--all-MiniLM-L6-v2-onnx/` |
+| `MEMREC_MIN_SCORE` | Min similarity score | `0.75` |
+| `RUST_LOG` | Log level | `info` |
 
 ## Documentation
 
+- [Installation Guide](docs/installation.md)
+- [User Guide](docs/user-guide.md)
 - [Systemd Guide](docs/systemd.md)
-- [Design Spec](docs/superpowers/specs/2026-04-23-memrec-design.md)
-- [Algorithms](docs/superpowers/specs/2026-04-23-memrec-algorithms.md)
 - [Skill Documentation](docs/skills/memrec-skill.md)
 
 ## Project Structure
 
 ```
 memrec/
-├── common/       # Shared types and protocols
+├── common/       # Shared types and protocol
 ├── memrecd/      # Daemon service
 ├── memrec/       # CLI tool
 └── docs/         # Documentation
