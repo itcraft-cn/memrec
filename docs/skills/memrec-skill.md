@@ -1,6 +1,54 @@
 ---
 name: memrec
 description: AI记忆持久化系统。使用memrec存储、检索、管理跨会话记忆。支持项目隔离和语义检索。触发场景：(1)重要决策需记录，(2)关键知识需保存，(3)项目上下文需跨会话保持，(4)用户偏好需记忆，(5)检索历史知识辅助当前任务。
+## MCP Server
+
+MemRec 可作为 MCP Server 直接被 AI 客户端（Claude Code、Codex、OpenCode）调用，无需 CLI 命令。
+
+**启动方式：** `memrec --mcp`（stdio 模式）
+
+**客户端配置：**
+```json
+{
+  "mcpServers": {
+    "memrec": {
+      "command": "memrec",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
+
+**MCP Tools：**
+
+| Tool | 功能 | 必需参数 |
+|------|------|----------|
+| `mr_add` | 添加记忆 | `content`, `memory_type` |
+| `mr_search` | 语义检索 | `query` |
+| `mr_get` | 获取单条记忆 | `id` |
+| `mr_list` | 列出记忆 | - |
+| `mr_delete` | 删除记忆 | `id` |
+| `mr_stats` | 统计信息 | - |
+
+**MCP Resources：**
+
+| URI | 描述 |
+|-----|------|
+| `memrec://stats` | 记忆统计 |
+| `memrec://project` | 当前项目信息 |
+
+**示例：**
+```json
+// mr_add
+{"name": "mr_add", "arguments": {"content": "选择JWT认证", "memory_type": "decision", "tags": ["auth", "critical"]}}
+
+// mr_search
+{"name": "mr_search", "arguments": {"query": "认证方案", "min_score": 0.75, "project_only": true}}
+
+// mr_search 跨项目
+{"name": "mr_search", "arguments": {"query": "xlsb", "cross_project": true}}
+```
+
 ---
 
 # MemRec - AI记忆持久化系统
