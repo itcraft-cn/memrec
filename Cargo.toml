@@ -4,9 +4,16 @@ resolver = "2"
 
 [workspace.package]
 version = "0.3.0-dev" # managed by updgitver
+authors = ["Helly Guo <hellyguo@foxmail.com>"]
 edition = "2021"
-authors = ["MemRec Team"]
+homepage = "https://itcraft.cn/memrec/"
+repository = "https://github.com/itcraft-cn/memrec"
 license = "Apache-2.0"
+readme = "README.md"
+description = "Local-first AI memory with project isolation — for terminal, for private use"
+categories = ["command-line-utilities"]
+documentation = "https://docs.rs/crate/memrec/latest"
+keywords = ["Local", "Isolation", "Memory"]
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -15,5 +22,4 @@ uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1"
 thiserror = "1"
-
 fastembed = { version = "5", features = ["hf-hub"] }
