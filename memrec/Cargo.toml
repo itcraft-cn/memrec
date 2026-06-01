@@ -1,7 +1,7 @@
 [package]
 name = "memrec"
-version.workspace = true
-edition.workspace = true
+version = "0.2.0" # managed by updgitver
+edition = "2021"
 
 [[bin]]
 name = "memrec"
