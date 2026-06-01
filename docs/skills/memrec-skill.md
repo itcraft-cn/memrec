@@ -60,14 +60,23 @@ memrec add "技术栈：Rust+Tokio+RocksDB" --mtype context --tag tech
 ### 语义检索
 
 ```bash
-memrec search "关键词" [--project-only] [--global-only] [-k <num>]
+memrec search "关键词" [--project-only] [--global-only] [--all] [-k <num>]
 ```
+
+**搜索范围：**
+| 选项 | 范围 | 用途 |
+|------|------|------|
+| 默认 | 当前项目 + 公共记忆 | 日常使用 |
+| `--project-only` | 仅当前项目 | 精确项目内搜索 |
+| `--global-only` | 仅公共记忆 | 查找用户偏好 |
+| `--all` | 所有项目（跨项目） | 查找跨项目关联记忆 |
 
 **示例：**
 ```bash
 memrec search "认证方案"
 memrec search "Rust最佳实践" --project-only
 memrec search "用户偏好" --global-only -k 20
+memrec search "xlsb" --all                    # 跨项目搜索
 memrec search "架构" --human
 ```
 
