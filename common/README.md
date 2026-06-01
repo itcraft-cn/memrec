@@ -1,5 +1,5 @@
 # MemRec — AI Memory Persistence System
 
-memrec server
+memrec common
 
 see in [README.md](../README.md)
