@@ -21,7 +21,7 @@ name = "memrecd"
 path = "src/lib.rs"
 
 [dependencies]
-memrec-common = { path = "../common", version = "0.2.0" }
+memrec-common = { path = "../common", version = "0.3.0-dev" } # managed by updgitver
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
