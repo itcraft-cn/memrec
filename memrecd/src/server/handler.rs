@@ -141,38 +141,54 @@ impl Router {
         }
     }
     
-    async fn handle_get_with_merge(&self, chunk_group_id: &Uuid, id: u64) -> JsonRpcResponse {
-        match self.storage.get_chunks_by_group(chunk_group_id).await {
-            Ok(chunks) => {
-                if chunks.is_empty() {
-                    return JsonRpcResponse::error(
-                        JsonRpcError { code: -32005, message: "No chunks found".to_string(), data: None },
-                        id
+    async fn handle_get_with_merge(&self, id: &Uuid, rpc_id: u64) -> JsonRpcResponse {
+        match self.storage.get(id).await {
+            Ok(Some(memory)) => {
+                if !memory.is_chunked() {
+                    self.storage.update(&memory).await.ok();
+                    return JsonRpcResponse::success(
+                        ResponseResult::Memory(MemoryResult { memory }),
+                        rpc_id
                     );
                 }
-                
-                let mut sorted_chunks = chunks;
-                sorted_chunks.sort_by_key(|c| c.chunk_index.unwrap_or(0));
-                
-                let merged_content = sorted_chunks.iter()
-                    .map(|c| c.content.as_str())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                
-                let first_chunk = sorted_chunks.first().unwrap();
-                let mut merged_memory = Memory::new(merged_content, first_chunk.memory_type)
-                    .with_tags(first_chunk.tags.clone());
-                merged_memory.id = *chunk_group_id;
-                merged_memory.project_id = first_chunk.project_id;
-                
-                JsonRpcResponse::success(
-                    ResponseResult::Memory(MemoryResult { memory: merged_memory }),
-                    id
-                )
+                let group_id = memory.chunk_group_id.unwrap();
+                match self.storage.get_chunks_by_group(&group_id).await {
+                    Ok(chunks) => {
+                        if chunks.is_empty() {
+                            return JsonRpcResponse::error(
+                                JsonRpcError { code: -32005, message: "No chunks found".to_string(), data: None },
+                                rpc_id
+                            );
+                        }
+                        let mut sorted_chunks = chunks;
+                        sorted_chunks.sort_by_key(|c| c.chunk_index.unwrap_or(0));
+                        let merged_content = sorted_chunks.iter()
+                            .map(|c| c.content.as_str())
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        let first_chunk = sorted_chunks.first().unwrap();
+                        let mut merged_memory = Memory::new(merged_content, first_chunk.memory_type)
+                            .with_tags(first_chunk.tags.clone());
+                        merged_memory.id = group_id;
+                        merged_memory.project_id = first_chunk.project_id;
+                        JsonRpcResponse::success(
+                            ResponseResult::Memory(MemoryResult { memory: merged_memory }),
+                            rpc_id
+                        )
+                    }
+                    Err(e) => JsonRpcResponse::error(
+                        JsonRpcError { code: -32000, message: e.to_string(), data: None },
+                        rpc_id
+                    )
+                }
             }
+            Ok(None) => JsonRpcResponse::error(
+                JsonRpcError { code: -32001, message: "Memory not found".to_string(), data: None },
+                rpc_id
+            ),
             Err(e) => JsonRpcResponse::error(
                 JsonRpcError { code: -32000, message: e.to_string(), data: None },
-                id
+                rpc_id
             )
         }
     }
