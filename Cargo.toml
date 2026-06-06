@@ -1,5 +1,5 @@
 [workspace]
-members = ["common", "memrecd", "memrec"]
+members = ["common", "memrecd", "memrec", "mr-install"]
 resolver = "2"
 
 [workspace.package]
