@@ -5,7 +5,7 @@
 | 项目 | 要求 |
 |------|------|
 | 操作系统 | Linux / macOS / Windows |
-| Rust | 1.75+ |
+| Rust | 1.75+ (仅 mr-install 首次安装需要) |
 | 磁盘空间 | ~200MB (含模型) |
 | 内存 | ~150MB (运行时，含模型) |
 
@@ -17,82 +17,45 @@
 | macOS | `~/bin/` | `~/.memrec/` |
 | Windows | `%APPDATA%\memrec\` | `~/.memrec/` |
 
-## 快速安装（推荐）
-
-### 1. 构建并安装二进制
+## 一键安装（推荐）
 
 ```bash
-git clone https://github.com/itcraft-cn/memrec.git
-cd memrec
-
-cargo build --release
-cargo install --path memrec --locked
-cargo install --path memrecd --locked
-cargo install --path mr-install --locked
-```
-
-构建产物安装到 `~/.cargo/bin/`。
-
-### 2. 复制到系统路径
-
-**Linux:**
-
-```bash
-cp ~/.cargo/bin/memrec ~/.local/bin/
-cp ~/.cargo/bin/memrecd ~/.local/bin/
-cp ~/.cargo/bin/mr-install ~/.local/bin/
-```
-
-**macOS:**
-
-```bash
-mkdir -p ~/bin
-cp ~/.cargo/bin/memrec ~/bin/
-cp ~/.cargo/bin/memrecd ~/bin/
-cp ~/.cargo/bin/mr-install ~/bin/
-```
-
-**Windows (PowerShell):**
-
-```powershell
-$binDir = "$env:APPDATA\memrec"
-New-Item -ItemType Directory -Force -Path $binDir
-Copy-Item "$env:USERPROFILE\.cargo\bin\memrec.exe" $binDir
-Copy-Item "$env:USERPROFILE\.cargo\bin\memrecd.exe" $binDir
-Copy-Item "$env:USERPROFILE\.cargo\bin\mr-install.exe" $binDir
-```
-
-### 3. 一键配置
-
-```bash
+cargo install --git https://github.com/itcraft-cn/memrec --locked mr-install
 mr-install
 ```
 
 `mr-install` 自动完成：
-1. 创建 `~/.memrec/` 目录结构（data / vectors / models / logs）
-2. 生成 `~/.memrec/config.toml` 默认配置
-3. 下载 Embedding 模型（~90MB）
-4. 注册并启动守护进程服务
-5. 验证安装（写入/搜索/删除测试）
+1. **安装二进制** — 通过 `cargo install` 编译安装 memrec/memrecd/mr-install，复制到系统路径
+2. **创建目录** — `~/.memrec/` 目录结构（data / vectors / models / logs）
+3. **生成配置** — `~/.memrec/config.toml` 默认配置
+4. **下载模型** — ONNX Embedding 模型（~90MB），HuggingFace 失败自动回退 hf-mirror.com
+5. **注册服务** — 守护进程自动启动
+6. **验证安装** — 写入/搜索/删除测试
 
-#### 模型下载镜像
-
-默认从 HuggingFace 下载，失败时自动回退 hf-mirror.com。也可手动指定：
+### 模型下载镜像
 
 ```bash
-# 直接使用 hf-mirror.com
+# 直接使用 hf-mirror.com（中国大陆推荐）
 mr-install --use-hf-mirror
 
 # 使用自定义镜像
 mr-install --mirror-base-url https://your-mirror.example.com
 ```
 
-#### 跳过步骤
+### 自定义仓库源
 
 ```bash
-mr-install --skip-model    # 跳过模型下载
-mr-install --skip-service  # 跳过服务注册
-mr-install --skip-verify   # 跳过安装验证
+# 从 Gitee 安装
+mr-install --repo-url https://gitee.com/itcraft-cn/memrec
+```
+
+### 跳过步骤
+
+```bash
+mr-install --skip-install   # 跳过 cargo install（已手动安装二进制）
+mr-install --skip-model     # 跳过模型下载
+mr-install --skip-service   # 跳过服务注册
+mr-install --skip-verify    # 跳过安装验证
 ```
 
 ## 服务管理
@@ -120,15 +83,19 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.itcraft.memrecd.plis
 
 特性：RunAtLoad + KeepAlive，登录即启动，崩溃自动重启。
 
-### Windows (Startup)
+### Windows (Service / Startup)
 
-Windows 通过 Startup 文件夹中的 VBS 脚本启动 memrecd：
+mr-install 优先尝试 `sc create` 创建 Windows 用户级服务，需要 admin 权限。若失败则降级为 Startup 脚本。
 
-- 启动脚本：`~/.memrec/start_memrecd.ps1`
-- 启动快捷方式：`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\memrecd.vbs`
-- `mr-install` 已自动将 `%APPDATA%\memrec` 注册到用户 PATH 环境变量
+**Service 模式（需 admin）：**
 
-手动管理：
+```powershell
+sc query MemRecDaemon              # 查看状态
+sc start MemRecDaemon              # 启动
+sc stop MemRecDaemon               # 停止
+```
+
+**Startup 模式（用户级，无需 admin）：**
 
 ```powershell
 # 启动
@@ -140,6 +107,8 @@ taskkill /IM memrecd.exe /F
 # 查看状态
 tasklist /FI "IMAGENAME eq memrecd.exe"
 ```
+
+`mr-install` 已自动将 `%APPDATA%\memrec` 注册到用户 PATH 环境变量。
 
 ## 数据目录结构
 
@@ -184,32 +153,14 @@ your-project/
 ## 升级
 
 ```bash
-cd memrec
-git pull
-
-# 重新构建并安装
-cargo build --release
-cargo install --path memrec --locked
-cargo install --path memrecd --locked
-
-# 复制到系统路径（Linux）
-cp ~/.cargo/bin/memrec ~/.local/bin/
-cp ~/.cargo/bin/memrecd ~/.local/bin/
-
-# 重启服务
-mr-install --skip-model --skip-verify
-
-# 验证版本
-memrec version
+mr-install
 ```
+
+重新运行 mr-install 即可升级（cargo install 会覆盖旧版本，服务会重启）。
 
 ## 卸载
 
 ```bash
-# 停止并注销服务
-mr-install --skip-model --skip-verify
-# 然后手动：停止服务、删除服务文件、删除二进制、删除数据
-
 # Linux
 systemctl --user stop memrecd
 systemctl --user disable memrecd
@@ -223,7 +174,7 @@ rm ~/Library/LaunchAgents/com.itcraft.memrecd.plist
 rm ~/bin/memrec ~/bin/memrecd ~/bin/mr-install
 
 # Windows
-taskkill /IM memrecd.exe /F
+sc delete MemRecDaemon
 del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\memrecd.vbs"
 del "%APPDATA%\memrec\memrec.exe" "%APPDATA%\memrec\memrecd.exe" "%APPDATA%\memrec\mr-install.exe"
 # 从用户 PATH 移除 %APPDATA%\memrec

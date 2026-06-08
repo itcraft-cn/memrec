@@ -21,20 +21,17 @@ Local memory persistence system for AI CLI tools, providing cross-session memory
 ### Install
 
 ```bash
-# Build
-cargo build --release
-cargo install --path memrec --locked
-cargo install --path memrecd --locked
-cargo install --path mr-install --locked
-
-# Copy to system path (Linux: ~/.local/bin/, macOS: ~/bin/)
-cp ~/.cargo/bin/memrec ~/.local/bin/
-cp ~/.cargo/bin/memrecd ~/.local/bin/
-cp ~/.cargo/bin/mr-install ~/.local/bin/
-
-# One-click setup: directories, model, service, verification
+# One command to install everything
+cargo install --git https://github.com/itcraft-cn/memrec --locked mr-install
 mr-install
 ```
+
+`mr-install` automatically:
+1. Installs memrec/memrecd via `cargo install`
+2. Creates `~/.memrec/` directory structure
+3. Downloads ONNX embedding model (~90MB)
+4. Registers and starts the daemon service
+5. Verifies the installation
 
 | Platform | Binary Path | Data Path |
 |----------|------------|-----------|

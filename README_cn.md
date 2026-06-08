@@ -21,20 +21,17 @@
 ### 安装
 
 ```bash
-# 构建
-cargo build --release
-cargo install --path memrec --locked
-cargo install --path memrecd --locked
-cargo install --path mr-install --locked
-
-# 复制到系统路径（Linux: ~/.local/bin/，macOS: ~/bin/）
-cp ~/.cargo/bin/memrec ~/.local/bin/
-cp ~/.cargo/bin/memrecd ~/.local/bin/
-cp ~/.cargo/bin/mr-install ~/.local/bin/
-
-# 一键配置：目录、模型、服务、验证
+# 一条命令完成全部安装
+cargo install --git https://github.com/itcraft-cn/memrec --locked mr-install
 mr-install
 ```
+
+`mr-install` 自动完成：
+1. 通过 `cargo install` 安装 memrec/memrecd
+2. 创建 `~/.memrec/` 目录结构
+3. 下载 ONNX Embedding 模型（~90MB）
+4. 注册并启动守护进程服务
+5. 验证安装
 
 | 平台 | 二进制路径 | 数据路径 |
 |------|-----------|---------|
