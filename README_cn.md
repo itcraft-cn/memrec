@@ -14,41 +14,39 @@
 - **AI-first设计** — 默认JSON输出，命令简洁，Skill集成
 - **高性能** — Rust实现，<1ms延迟，~118MB内存（含模型）
 - **长文本拆分** — >7.5KB自动拆分为chunks
-- **Systemd集成** — `systemctl --user`管理守护进程
+- **守护进程管理** — Linux systemd / macOS launchd / Windows Startup
 
 ## 快速开始
 
 ### 安装
 
 ```bash
+# 构建
 cargo build --release
 cargo install --path memrec --locked
 cargo install --path memrecd --locked
+cargo install --path mr-install --locked
+
+# 复制到系统路径（Linux: ~/.local/bin/，macOS: ~/bin/）
 cp ~/.cargo/bin/memrec ~/.local/bin/
 cp ~/.cargo/bin/memrecd ~/.local/bin/
+cp ~/.cargo/bin/mr-install ~/.local/bin/
+
+# 一键配置：目录、模型、服务、验证
+mr-install
 ```
 
-### 下载模型
+| 平台 | 二进制路径 | 数据路径 |
+|------|-----------|---------|
+| Linux | `~/.local/bin/` | `~/.memrec/` |
+| macOS | `~/bin/` | `~/.memrec/` |
+| Windows | `%APPDATA%\memrec\` | `~/.memrec/` |
+
+模型下载镜像选项：
 
 ```bash
-mkdir -p ~/.memrec/models/Qdrant--all-MiniLM-L6-v2-onnx
-cd ~/.memrec/models/Qdrant--all-MiniLM-L6-v2-onnx
-wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/model.onnx
-wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/tokenizer.json
-wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/config.json
-wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/special_tokens_map.json
-wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/tokenizer_config.json
-```
-
-### 启动服务
-
-```bash
-# 前台启动（调试）
-memrecd
-
-# 或 systemd 服务（推荐）
-systemctl --user enable memrecd
-systemctl --user start memrecd
+mr-install --use-hf-mirror           # 使用 hf-mirror.com（国内）
+mr-install --mirror-base-url <URL>   # 自定义镜像
 ```
 
 ### 使用
@@ -102,10 +100,11 @@ project-a/           project-b/
 
 ```
 ~/.memrec/
-├── memrecd.sock        # Unix Socket
-├── data/               # RocksDB 记忆元数据
-├── vectors/            # RocksDB 向量存储
-└── models/             # ONNX Embedding 模型
+├── config.toml           # 配置文件
+├── memrecd.sock          # Unix Socket
+├── data/                 # RocksDB 记忆元数据
+├── vectors/              # RocksDB 向量存储
+└── models/               # ONNX Embedding 模型
 ```
 
 ## 环境变量
@@ -120,7 +119,6 @@ project-a/           project-b/
 
 - [安装部署手册](docs/installation.md)
 - [使用手册](docs/user-guide.md)
-- [Systemd指南](docs/systemd.md)
 - [Skill文档](docs/skills/memrec-skill.md)
 
 ## 项目结构
@@ -130,6 +128,7 @@ memrec/
 ├── common/       # 共享类型和协议
 ├── memrecd/      # 守护进程服务
 ├── memrec/       # CLI工具
+├── mr-install/   # 安装器
 └── docs/         # 文档
 ```
 

@@ -21,34 +21,32 @@ Local memory persistence system for AI CLI tools, providing cross-session memory
 ### Install
 
 ```bash
+# Build
 cargo build --release
 cargo install --path memrec --locked
 cargo install --path memrecd --locked
+cargo install --path mr-install --locked
+
+# Copy to system path (Linux: ~/.local/bin/, macOS: ~/bin/)
 cp ~/.cargo/bin/memrec ~/.local/bin/
 cp ~/.cargo/bin/memrecd ~/.local/bin/
+cp ~/.cargo/bin/mr-install ~/.local/bin/
+
+# One-click setup: directories, model, service, verification
+mr-install
 ```
 
-### Download Model
+| Platform | Binary Path | Data Path |
+|----------|------------|-----------|
+| Linux | `~/.local/bin/` | `~/.memrec/` |
+| macOS | `~/bin/` | `~/.memrec/` |
+| Windows | `%APPDATA%\memrec\` | `~/.memrec/` |
+
+Mirror options for model download:
 
 ```bash
-mkdir -p ~/.memrec/models/Qdrant--all-MiniLM-L6-v2-onnx
-cd ~/.memrec/models/Qdrant--all-MiniLM-L6-v2-onnx
-wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/model.onnx
-wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/tokenizer.json
-wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/config.json
-wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/special_tokens_map.json
-wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/tokenizer_config.json
-```
-
-### Start Service
-
-```bash
-# Foreground (debugging)
-memrecd
-
-# Or systemd service (recommended)
-systemctl --user enable memrecd
-systemctl --user start memrecd
+mr-install --use-hf-mirror           # Use hf-mirror.com (China)
+mr-install --mirror-base-url <URL>   # Custom mirror
 ```
 
 ### Usage
@@ -102,10 +100,11 @@ project-a/           project-b/
 
 ```
 ~/.memrec/
-├── memrecd.sock        # Unix Socket
-├── data/               # RocksDB memory metadata
-├── vectors/            # RocksDB vector storage
-└── models/             # ONNX Embedding model
+├── config.toml           # Configuration
+├── memrecd.sock          # Unix Socket
+├── data/                 # RocksDB memory metadata
+├── vectors/              # RocksDB vector storage
+└── models/               # ONNX Embedding model
 ```
 
 ## Environment Variables
@@ -120,7 +119,6 @@ project-a/           project-b/
 
 - [Installation Guide](docs/installation.md)
 - [User Guide](docs/user-guide.md)
-- [Systemd Guide](docs/systemd.md)
 - [Skill Documentation](docs/skills/memrec-skill.md)
 
 ## Project Structure
@@ -130,6 +128,7 @@ memrec/
 ├── common/       # Shared types and protocol
 ├── memrecd/      # Daemon service
 ├── memrec/       # CLI tool
+├── mr-install/   # Installer
 └── docs/         # Documentation
 ```
 

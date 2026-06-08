@@ -4,131 +4,100 @@
 
 | 项目 | 要求 |
 |------|------|
-| 操作系统 | Linux (已验证), macOS (待验证) |
+| 操作系统 | Linux / macOS / Windows |
 | Rust | 1.75+ |
 | 磁盘空间 | ~200MB (含模型) |
 | 内存 | ~150MB (运行时，含模型) |
 
-## 从源码构建
+## 安装目录
 
-### 1. 克隆仓库
+| 平台 | 二进制路径 | 数据路径 |
+|------|-----------|---------|
+| Linux | `~/.local/bin/` | `~/.memrec/` |
+| macOS | `~/bin/` | `~/.memrec/` |
+| Windows | `%APPDATA%\memrec\` | `~/.memrec/` |
+
+## 快速安装（推荐）
+
+### 1. 构建并安装二进制
 
 ```bash
-git clone https://github.com/yourname/memrec.git
+git clone https://github.com/itcraft-cn/memrec.git
 cd memrec
-```
 
-### 2. 构建
-
-```bash
 cargo build --release
-```
-
-构建产物位于 `target/release/`：
-- `memrecd` — 守护进程（约41MB）
-- `memrec` — CLI工具（约2.4MB）
-
-### 3. 安装二进制文件
-
-**方式A：cargo install（推荐）**
-
-```bash
 cargo install --path memrec --locked
 cargo install --path memrecd --locked
+cargo install --path mr-install --locked
 ```
 
-安装到 `~/.cargo/bin/`。
+构建产物安装到 `~/.cargo/bin/`。
 
-**方式B：手动复制**
+### 2. 复制到系统路径
+
+**Linux:**
 
 ```bash
-install -m 755 target/release/memrecd ~/.local/bin/
-install -m 755 target/release/memrec ~/.local/bin/
+cp ~/.cargo/bin/memrec ~/.local/bin/
+cp ~/.cargo/bin/memrecd ~/.local/bin/
+cp ~/.cargo/bin/mr-install ~/.local/bin/
 ```
 
-### 4. 下载 Embedding 模型
-
-MemRec 使用 ONNX 格式的本地模型进行语义检索，无需网络连接。
+**macOS:**
 
 ```bash
-mkdir -p ~/.memrec/models/Qdrant--all-MiniLM-L6-v2-onnx
-cd ~/.memrec/models/Qdrant--all-MiniLM-L6-v2-onnx
-
-wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/model.onnx
-wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/tokenizer.json
-wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/config.json
-wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/special_tokens_map.json
-wget https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx/resolve/main/tokenizer_config.json
+mkdir -p ~/bin
+cp ~/.cargo/bin/memrec ~/bin/
+cp ~/.cargo/bin/memrecd ~/bin/
+cp ~/.cargo/bin/mr-install ~/bin/
 ```
 
-模型信息：
-- 名称：all-MiniLM-L6-v2
-- 维度：384
-- 大小：约90MB
-- 默认路径：`~/.memrec/models/Qdrant--all-MiniLM-L6-v2-onnx/`
+**Windows (PowerShell):**
 
-**自定义模型路径：**
+```powershell
+$binDir = "$env:APPDATA\memrec"
+New-Item -ItemType Directory -Force -Path $binDir
+Copy-Item "$env:USERPROFILE\.cargo\bin\memrec.exe" $binDir
+Copy-Item "$env:USERPROFILE\.cargo\bin\memrecd.exe" $binDir
+Copy-Item "$env:USERPROFILE\.cargo\bin\mr-install.exe" $binDir
+```
+
+### 3. 一键配置
 
 ```bash
-export MEMREC_MODEL_DIR=/path/to/your/model
+mr-install
 ```
 
-### 5. 验证安装
+`mr-install` 自动完成：
+1. 创建 `~/.memrec/` 目录结构（data / vectors / models / logs）
+2. 生成 `~/.memrec/config.toml` 默认配置
+3. 下载 Embedding 模型（~90MB）
+4. 注册并启动守护进程服务
+5. 验证安装（写入/搜索/删除测试）
+
+#### 模型下载镜像
+
+默认从 HuggingFace 下载，失败时自动回退 hf-mirror.com。也可手动指定：
 
 ```bash
-memrecd --help
-memrec --help
+# 直接使用 hf-mirror.com
+mr-install --use-hf-mirror
+
+# 使用自定义镜像
+mr-install --mirror-base-url https://your-mirror.example.com
 ```
 
-## 启动守护进程
-
-### 方式一：前台启动（调试用）
+#### 跳过步骤
 
 ```bash
-memrecd
+mr-install --skip-model    # 跳过模型下载
+mr-install --skip-service  # 跳过服务注册
+mr-install --skip-verify   # 跳过安装验证
 ```
 
-按 Ctrl+C 停止。
+## 服务管理
 
-### 方式二：systemd 服务（推荐）
-
-#### 安装服务
-
-```bash
-# 创建 systemd 用户目录
-mkdir -p ~/.config/systemd/user
-
-# 创建服务文件
-cat > ~/.config/systemd/user/memrecd.service << 'EOF'
-[Unit]
-Description=MemRec Memory Persistence Daemon
-Documentation=https://github.com/yourname/memrec
-After=default.target
-
-[Service]
-Type=simple
-ExecStart=%h/.local/bin/memrecd
-ExecStopPost=/bin/rm -f %h/.memrec/memrecd.sock
-Restart=on-failure
-RestartSec=5
-
-Environment="RUST_LOG=info"
-WorkingDirectory=%h/.memrec
-
-StandardOutput=append:%h/.memrec/memrecd.log
-StandardError=append:%h/.memrec/memrecd.log
-
-[Install]
-WantedBy=default.target
-EOF
-
-# 重载并启动
-systemctl --user daemon-reload
-systemctl --user enable memrecd
-systemctl --user start memrecd
-```
-
-#### 管理服务
+### Linux (systemd)
 
 ```bash
 systemctl --user status memrecd     # 查看状态
@@ -137,40 +106,58 @@ systemctl --user restart memrecd    # 重启
 journalctl --user -u memrecd -f     # 查看日志
 ```
 
-### 方式三：脚本管理
+服务文件：`~/.config/systemd/user/memrecd.service`
+
+### macOS (launchd)
 
 ```bash
-./scripts/start.sh    # 启动
-./scripts/stop.sh     # 停止
-./scripts/restart.sh  # 重启
-./scripts/status.sh   # 状态
+launchctl list com.itcraft.memrecd               # 查看状态
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.itcraft.memrecd.plist   # 停止
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.itcraft.memrecd.plist # 启动
+```
+
+配置文件：`~/Library/LaunchAgents/com.itcraft.memrecd.plist`
+
+特性：RunAtLoad + KeepAlive，登录即启动，崩溃自动重启。
+
+### Windows (Startup)
+
+Windows 通过 Startup 文件夹中的 VBS 脚本启动 memrecd：
+
+- 启动脚本：`~/.memrec/start_memrecd.ps1`
+- 启动快捷方式：`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\memrecd.vbs`
+- `mr-install` 已自动将 `%APPDATA%\memrec` 注册到用户 PATH 环境变量
+
+手动管理：
+
+```powershell
+# 启动
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.memrec\start_memrecd.ps1"
+
+# 停止
+taskkill /IM memrecd.exe /F
+
+# 查看状态
+tasklist /FI "IMAGENAME eq memrecd.exe"
 ```
 
 ## 数据目录结构
 
-安装完成后，`~/.memrec/` 目录结构如下：
-
 ```
 ~/.memrec/
-├── memrecd.sock          # Unix Socket（运行时生成）
+├── config.toml           # 配置文件
+├── memrecd.sock          # Unix Socket（运行时生成，Linux/macOS）
 ├── memrecd.log           # 服务日志
 ├── data/                 # RocksDB 记忆元数据
-│   ├── *.sst
-│   ├── CURRENT
-│   ├── LOCK
-│   └── ...
 ├── vectors/              # RocksDB 向量存储
-│   ├── *.sst
-│   ├── CURRENT
-│   ├── LOCK
-│   └── ...
-└── models/               # ONNX Embedding 模型
-    └── Qdrant--all-MiniLM-L6-v2-onnx/
-        ├── model.onnx
-        ├── tokenizer.json
-        ├── config.json
-        ├── special_tokens_map.json
-        └── tokenizer_config.json
+├── models/               # ONNX Embedding 模型
+│   └── Qdrant--all-MiniLM-L6-v2-onnx/
+│       ├── model.onnx
+│       ├── tokenizer.json
+│       ├── config.json
+│       ├── special_tokens_map.json
+│       └── tokenizer_config.json
+└── logs/                 # 日志目录
 ```
 
 ## 项目目录结构
@@ -182,13 +169,6 @@ your-project/
 ├── .mr_pid               # 项目ID文件（勿提交git）
 ├── .gitignore            # 建议添加 .mr_pid
 └── ...
-```
-
-`.mr_pid` 文件内容示例：
-
-```
-memrec_project_id=b435a636-481b-43dd-a819-cc2cedebf365
-created_at=2026-04-23T02:45:47.828915366+00:00
 ```
 
 **重要：** 将 `.mr_pid` 添加到 `.gitignore`，避免多人项目ID冲突。
@@ -207,19 +187,17 @@ created_at=2026-04-23T02:45:47.828915366+00:00
 cd memrec
 git pull
 
-# 重新构建
+# 重新构建并安装
 cargo build --release
-
-# 重新安装
 cargo install --path memrec --locked
 cargo install --path memrecd --locked
 
-# 复制到local bin
+# 复制到系统路径（Linux）
 cp ~/.cargo/bin/memrec ~/.local/bin/
 cp ~/.cargo/bin/memrecd ~/.local/bin/
 
 # 重启服务
-systemctl --user restart memrecd
+mr-install --skip-model --skip-verify
 
 # 验证版本
 memrec version
@@ -228,14 +206,27 @@ memrec version
 ## 卸载
 
 ```bash
-# 停止服务
+# 停止并注销服务
+mr-install --skip-model --skip-verify
+# 然后手动：停止服务、删除服务文件、删除二进制、删除数据
+
+# Linux
 systemctl --user stop memrecd
 systemctl --user disable memrecd
 rm ~/.config/systemd/user/memrecd.service
 systemctl --user daemon-reload
+rm ~/.local/bin/memrec ~/.local/bin/memrecd ~/.local/bin/mr-install
 
-# 删除二进制
-rm ~/.local/bin/memrec ~/.local/bin/memrecd
+# macOS
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.itcraft.memrecd.plist
+rm ~/Library/LaunchAgents/com.itcraft.memrecd.plist
+rm ~/bin/memrec ~/bin/memrecd ~/bin/mr-install
+
+# Windows
+taskkill /IM memrecd.exe /F
+del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\memrecd.vbs"
+del "%APPDATA%\memrec\memrec.exe" "%APPDATA%\memrec\memrecd.exe" "%APPDATA%\memrec\mr-install.exe"
+# 从用户 PATH 移除 %APPDATA%\memrec
 
 # 删除数据（可选，会清除所有记忆）
 rm -rf ~/.memrec
@@ -245,7 +236,7 @@ rm -rf ~/.memrec
 
 ### Q: 启动报错 "Failed to connect to memrecd"
 
-守护进程未运行。执行 `memrecd` 或 `systemctl --user start memrecd`。
+守护进程未运行。执行 `memrecd` 或使用服务管理命令启动。
 
 ### Q: 语义搜索返回0条结果
 
@@ -258,6 +249,18 @@ rm -rf ~/.memrec
 1. 确认 `.mr_pid` 文件存在于项目根目录
 2. 确认在项目目录内执行命令（不是 `~` 或 `/tmp`）
 3. git 仓库会自动检测 git root
+
+### Q: 模型下载失败（中国大陆网络）
+
+```bash
+mr-install --use-hf-mirror
+```
+
+### Q: Windows 上 memrec 命令找不到
+
+1. 确认 `%APPDATA%\memrec` 已添加到用户 PATH（mr-install 自动完成）
+2. 新开终端窗口使 PATH 生效
+3. 手动添加：`[Environment]::SetEnvironmentVariable('Path', "$([Environment]::GetEnvironmentVariable('Path', 'User'));$env:APPDATA\memrec", 'User')`
 
 ### Q: 如何更换 Embedding 模型
 
