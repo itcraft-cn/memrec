@@ -4,8 +4,8 @@ use clap::Parser;
 use mr_install::create_directories;
 use mr_install::generate_config;
 use mr_install::download_model;
-use mr_install::download::DownloadOptions;
-use mr_install::register_service;
+use mr_install::DownloadOptions;
+use mr_install::detect_service_manager;
 use mr_install::run_verification;
 
 #[derive(Parser)]
@@ -22,7 +22,7 @@ struct Cli {
     #[arg(long, help = "Skip model download")]
     skip_model: bool,
     
-    #[arg(long, help = "Skip systemd service registration")]
+    #[arg(long, help = "Skip service registration")]
     skip_service: bool,
     
     #[arg(long, help = "Skip verification tests")]
@@ -45,6 +45,12 @@ fn fail(msg: &str) {
     println!("[FAIL] {}", msg);
 }
 
+fn bin_dir() -> std::path::PathBuf {
+    dirs::home_dir()
+        .map(|h| h.join(".local/bin"))
+        .unwrap_or_else(|| std::path::PathBuf::from("/usr/local/bin"))
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -65,11 +71,6 @@ async fn main() -> Result<()> {
         ok("memrecd found");
     } else {
         warn("memrecd not found in PATH. Build and install memrecd first.");
-    }
-    
-    if !cli.skip_service && !which_exists("systemctl") {
-        fail("systemctl not found. Use --skip-service or install systemd.");
-        std::process::exit(1);
     }
     
     // Step 1: Create directories and generate config
@@ -110,16 +111,28 @@ async fn main() -> Result<()> {
         }
     }
     
-    // Step 3: Register systemd service
+    // Step 3: Register and start service
     if cli.skip_service {
-        step("Step 3/5: Systemd service (skipped)");
+        step("Step 3/5: Service registration (skipped)");
     } else {
-        step("Step 3/5: Register systemd user service");
+        let svc = detect_service_manager();
+        let svc_name = svc.name();
+        step(&format!("Step 3/5: Register service ({})", svc_name));
         
-        match register_service() {
-            Ok(()) => ok("Service registered and started"),
+        let bin = bin_dir();
+        
+        match svc.register(&bin, &home) {
+            Ok(()) => ok(&format!("Service registered ({})", svc_name)),
             Err(e) => {
                 fail(&format!("Service registration failed: {}", e));
+                std::process::exit(1);
+            }
+        }
+        
+        match svc.start() {
+            Ok(()) => ok(&format!("Service started ({})", svc_name)),
+            Err(e) => {
+                fail(&format!("Service start failed: {}", e));
                 std::process::exit(1);
             }
         }
@@ -147,7 +160,6 @@ async fn main() -> Result<()> {
     println!("║                                                      ║");
     println!("║  Data:      {}/                             ║", home_str);
     println!("║  Config:    {}/config.toml                      ║", home_str);
-    println!("║  Service:   systemctl --user (memrecd)               ║");
     println!("║  Socket:    {}/memrecd.sock                ║", home_str);
     println!("║                                                      ║");
     println!("╠══════════════════════════════════════════════════════╣");
