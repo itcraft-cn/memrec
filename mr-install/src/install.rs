@@ -1,8 +1,6 @@
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 
-const REPO_URL: &str = "https://github.com/itcraft-cn/memrec";
-
 pub struct InstallOptions {
     pub repo_url: Option<String>,
 }
@@ -17,21 +15,20 @@ pub fn install_binaries(opts: &InstallOptions) -> Result<PathBuf> {
     let cargo = which_cargo()?;
     println!("  Using cargo: {}", cargo.display());
     
-    let repo_url = opts.repo_url.as_deref().unwrap_or(REPO_URL);
-    println!("  Repository: {}", repo_url);
-    
     let crates = ["memrec-common", "memrecd", "memrec", "mr-install"];
     
     for crate_name in &crates {
         println!("  Installing {} ...", crate_name);
         
-        let output = std::process::Command::new(&cargo)
-            .args([
-                "install",
-                "--git", repo_url,
-                "--locked",
-                crate_name,
-            ])
+        let mut cmd = std::process::Command::new(&cargo);
+        cmd.args(["install", "--locked", crate_name]);
+        
+        if let Some(ref url) = opts.repo_url {
+            cmd.args(["--git", url]);
+            println!("    Source: {} ({})", crate_name, url);
+        }
+        
+        let output = cmd
             .output()
             .with_context(|| format!("Failed to run cargo install {}", crate_name))?;
         
@@ -95,11 +92,6 @@ mod tests {
     use super::*;
     
     #[test]
-    fn test_default_repo_url() {
-        assert_eq!(REPO_URL, "https://github.com/itcraft-cn/memrec");
-    }
-    
-    #[test]
     fn test_cargo_bin_path() {
         let path = cargo_bin().unwrap();
         assert!(path.to_string_lossy().contains(".cargo/bin"));
@@ -109,5 +101,11 @@ mod tests {
     fn test_install_options_default() {
         let opts = InstallOptions { repo_url: None };
         assert!(opts.repo_url.is_none());
+    }
+    
+    #[test]
+    fn test_install_options_custom_repo() {
+        let opts = InstallOptions { repo_url: Some("https://gitee.com/itcraft-cn/memrec".to_string()) };
+        assert_eq!(opts.repo_url.as_deref().unwrap(), "https://gitee.com/itcraft-cn/memrec");
     }
 }

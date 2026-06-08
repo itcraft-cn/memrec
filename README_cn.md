@@ -22,7 +22,7 @@
 
 ```bash
 # 一条命令完成全部安装
-cargo install --git https://github.com/itcraft-cn/memrec --locked mr-install
+cargo install --locked mr-install
 mr-install
 ```
 

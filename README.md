@@ -22,7 +22,7 @@ Local memory persistence system for AI CLI tools, providing cross-session memory
 
 ```bash
 # One command to install everything
-cargo install --git https://github.com/itcraft-cn/memrec --locked mr-install
+cargo install --locked mr-install
 mr-install
 ```
 

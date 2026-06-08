@@ -20,7 +20,7 @@
 ## 一键安装（推荐）
 
 ```bash
-cargo install --git https://github.com/itcraft-cn/memrec --locked mr-install
+cargo install --locked mr-install
 mr-install
 ```
 
