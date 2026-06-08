@@ -1,9 +1,9 @@
 use anyhow::Result;
 
+use crate::dirs::default_bin_dir;
+
 pub fn run_verification() -> Result<()> {
-    let bin_dir = dirs::home_dir()
-        .ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?
-        .join(".local/bin");
+    let bin_dir = default_bin_dir();
     
     let memrec = bin_dir.join("memrec");
     

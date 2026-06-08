@@ -14,6 +14,7 @@ pub mod launchd;
 pub mod windows_service;
 
 pub use dirs::create_directories;
+pub use dirs::default_bin_dir;
 pub use config::generate_config;
 pub use download::download_model;
 pub use download::DownloadOptions;

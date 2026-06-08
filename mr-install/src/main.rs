@@ -6,6 +6,7 @@ use mr_install::generate_config;
 use mr_install::download_model;
 use mr_install::DownloadOptions;
 use mr_install::detect_service_manager;
+use mr_install::default_bin_dir;
 use mr_install::run_verification;
 
 #[derive(Parser)]
@@ -43,12 +44,6 @@ fn warn(msg: &str) {
 
 fn fail(msg: &str) {
     println!("[FAIL] {}", msg);
-}
-
-fn bin_dir() -> std::path::PathBuf {
-    dirs::home_dir()
-        .map(|h| h.join(".local/bin"))
-        .unwrap_or_else(|| std::path::PathBuf::from("/usr/local/bin"))
 }
 
 #[tokio::main]
@@ -119,7 +114,7 @@ async fn main() -> Result<()> {
         let svc_name = svc.name();
         step(&format!("Step 3/5: Register service ({})", svc_name));
         
-        let bin = bin_dir();
+        let bin = default_bin_dir();
         
         match svc.register(&bin, &home) {
             Ok(()) => ok(&format!("Service registered ({})", svc_name)),
@@ -174,11 +169,23 @@ async fn main() -> Result<()> {
 }
 
 fn which_exists(cmd: &str) -> bool {
-    std::process::Command::new("which")
-        .arg(cmd)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    #[cfg(target_family = "unix")]
+    {
+        std::process::Command::new("which")
+            .arg(cmd)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+    
+    #[cfg(target_family = "windows")]
+    {
+        std::process::Command::new("where")
+            .arg(cmd)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
 }
 
 fn confirm(msg: &str) -> bool {

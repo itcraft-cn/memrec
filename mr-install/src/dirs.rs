@@ -7,20 +7,32 @@ pub fn memrec_home() -> Result<PathBuf> {
     Ok(home.join(".memrec"))
 }
 
-pub fn create_directories() -> Result<PathBuf> {
-    let home = memrec_home()?;
-    
-    let dirs_to_create = [
-        home.join("data"),
-        home.join("vectors"),
-        home.join("models"),
-        home.join("logs"),
-    ];
-    
-    for dir in &dirs_to_create {
-        std::fs::create_dir_all(dir)?;
+pub fn default_bin_dir() -> PathBuf {
+    #[cfg(target_os = "linux")]
+    {
+        dirs::home_dir()
+            .map(|h| h.join(".local/bin"))
+            .unwrap_or_else(|| std::path::PathBuf::from("/usr/local/bin"))
     }
     
+    #[cfg(target_os = "macos")]
+    {
+        dirs::home_dir()
+            .map(|h| h.join("bin"))
+            .unwrap_or_else(|| std::path::PathBuf::from("/usr/local/bin"))
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        dirs::data_dir()
+            .map(|d| d.join("memrec"))
+            .unwrap_or_else(|| std::path::PathBuf::from("C:\\ProgramData\\memrec"))
+    }
+}
+
+pub fn create_directories() -> Result<PathBuf> {
+    let home = memrec_home()?;
+    create_directories_at(&home)?;
     Ok(home)
 }
 
