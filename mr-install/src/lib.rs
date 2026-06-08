@@ -11,9 +11,6 @@ pub mod systemd;
 #[cfg(target_os = "macos")]
 pub mod launchd;
 
-#[cfg(target_os = "windows")]
-pub mod windows_service;
-
 pub use dirs::create_directories;
 pub use dirs::default_bin_dir;
 pub use config::generate_config;

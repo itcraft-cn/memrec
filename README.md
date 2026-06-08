@@ -37,7 +37,6 @@ mr-install
 |----------|------------|-----------|
 | Linux | `~/.local/bin/` | `~/.memrec/` |
 | macOS | `~/bin/` | `~/.memrec/` |
-| Windows | `%APPDATA%\memrec\` | `~/.memrec/` |
 
 Mirror options for model download:
 

@@ -4,7 +4,7 @@
 
 | 项目 | 要求 |
 |------|------|
-| 操作系统 | Linux / macOS / Windows |
+| 操作系统 | Linux / macOS |
 | Rust | 1.75+ (仅 mr-install 首次安装需要) |
 | 磁盘空间 | ~200MB (含模型) |
 | 内存 | ~150MB (运行时，含模型) |
@@ -15,7 +15,6 @@
 |------|-----------|---------|
 | Linux | `~/.local/bin/` | `~/.memrec/` |
 | macOS | `~/bin/` | `~/.memrec/` |
-| Windows | `%APPDATA%\memrec\` | `~/.memrec/` |
 
 ## 一键安装（推荐）
 
@@ -83,33 +82,6 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.itcraft.memrecd.plis
 
 特性：RunAtLoad + KeepAlive，登录即启动，崩溃自动重启。
 
-### Windows (Service / Startup)
-
-mr-install 优先尝试 `sc create` 创建 Windows 用户级服务，需要 admin 权限。若失败则降级为 Startup 脚本。
-
-**Service 模式（需 admin）：**
-
-```powershell
-sc query MemRecDaemon              # 查看状态
-sc start MemRecDaemon              # 启动
-sc stop MemRecDaemon               # 停止
-```
-
-**Startup 模式（用户级，无需 admin）：**
-
-```powershell
-# 启动
-powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.memrec\start_memrecd.ps1"
-
-# 停止
-taskkill /IM memrecd.exe /F
-
-# 查看状态
-tasklist /FI "IMAGENAME eq memrecd.exe"
-```
-
-`mr-install` 已自动将 `%APPDATA%\memrec` 注册到用户 PATH 环境变量。
-
 ## 数据目录结构
 
 ```
@@ -173,12 +145,6 @@ launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.itcraft.memrecd.plist
 rm ~/Library/LaunchAgents/com.itcraft.memrecd.plist
 rm ~/bin/memrec ~/bin/memrecd ~/bin/mr-install
 
-# Windows
-sc delete MemRecDaemon
-del "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\memrecd.vbs"
-del "%APPDATA%\memrec\memrec.exe" "%APPDATA%\memrec\memrecd.exe" "%APPDATA%\memrec\mr-install.exe"
-# 从用户 PATH 移除 %APPDATA%\memrec
-
 # 删除数据（可选，会清除所有记忆）
 rm -rf ~/.memrec
 ```
@@ -206,12 +172,6 @@ rm -rf ~/.memrec
 ```bash
 mr-install --use-hf-mirror
 ```
-
-### Q: Windows 上 memrec 命令找不到
-
-1. 确认 `%APPDATA%\memrec` 已添加到用户 PATH（mr-install 自动完成）
-2. 新开终端窗口使 PATH 生效
-3. 手动添加：`[Environment]::SetEnvironmentVariable('Path', "$([Environment]::GetEnvironmentVariable('Path', 'User'));$env:APPDATA\memrec", 'User')`
 
 ### Q: 如何更换 Embedding 模型
 

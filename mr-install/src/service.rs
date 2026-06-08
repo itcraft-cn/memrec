@@ -1,9 +1,10 @@
 use anyhow::Result;
+use std::path::Path;
 
 pub trait ServiceManager {
     fn name(&self) -> &str;
     
-    fn register(&self, bin_path: &std::path::Path, home_dir: &std::path::Path) -> Result<()>;
+    fn register(&self, bin_path: &Path, home_dir: &Path) -> Result<()>;
     
     fn start(&self) -> Result<()>;
     
@@ -25,13 +26,8 @@ pub fn detect_service_manager() -> Box<dyn ServiceManager> {
         Box::new(crate::launchd::LaunchdService)
     }
     
-    #[cfg(target_os = "windows")]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
-        Box::new(crate::windows_service::WindowsService)
-    }
-    
-    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-    {
-        compile_error!("Unsupported platform. Only Linux, macOS, and Windows are supported.");
+        compile_error!("Unsupported platform. Only Linux and macOS are supported.");
     }
 }

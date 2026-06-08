@@ -195,23 +195,11 @@ async fn main() -> Result<()> {
 }
 
 fn which_exists(cmd: &str) -> bool {
-    #[cfg(target_family = "unix")]
-    {
-        std::process::Command::new("which")
-            .arg(cmd)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    }
-    
-    #[cfg(target_family = "windows")]
-    {
-        std::process::Command::new("where")
-            .arg(cmd)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    }
+    std::process::Command::new("which")
+        .arg(cmd)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 fn confirm(msg: &str) -> bool {

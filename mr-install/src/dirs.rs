@@ -22,11 +22,9 @@ pub fn default_bin_dir() -> PathBuf {
             .unwrap_or_else(|| std::path::PathBuf::from("/usr/local/bin"))
     }
     
-    #[cfg(target_os = "windows")]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
-        dirs::data_dir()
-            .map(|d| d.join("memrec"))
-            .unwrap_or_else(|| std::path::PathBuf::from("C:\\ProgramData\\memrec"))
+        compile_error!("Unsupported platform. Only Linux and macOS are supported.");
     }
 }
 

@@ -48,8 +48,6 @@ pub fn install_binaries(opts: &InstallOptions) -> Result<PathBuf> {
     let binaries = ["memrec", "memrecd", "mr-install"];
     for bin in &binaries {
         let src = cargo_bin_dir.join(bin);
-        #[cfg(target_family = "windows")]
-        let src = cargo_bin_dir.join(format!("{}.exe", bin));
         
         if src.exists() {
             std::fs::copy(&src, system_bin_dir.join(bin))
@@ -62,26 +60,13 @@ pub fn install_binaries(opts: &InstallOptions) -> Result<PathBuf> {
 }
 
 fn which_cargo() -> Result<PathBuf> {
-    #[cfg(target_family = "unix")]
-    {
-        let output = std::process::Command::new("which")
-            .arg("cargo")
-            .output()?;
-        if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            return Ok(PathBuf::from(path));
-        }
-    }
+    let output = std::process::Command::new("which")
+        .arg("cargo")
+        .output()?;
     
-    #[cfg(target_family = "windows")]
-    {
-        let output = std::process::Command::new("where")
-            .arg("cargo")
-            .output()?;
-        if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).lines().next().unwrap_or("").trim().to_string();
-            return Ok(PathBuf::from(path));
-        }
+    if output.status.success() {
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        return Ok(PathBuf::from(path));
     }
     
     anyhow::bail!("cargo not found. Install Rust first: https://rustup.rs")
