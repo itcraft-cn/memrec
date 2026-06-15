@@ -1,4 +1,5 @@
 pub mod fastembed;
+pub mod bge_m3;
 
 pub use fastembed::FastEmbedGenerator;
 
@@ -21,7 +22,9 @@ impl GeneratorFactory {
                 Ok(Arc::new(FastEmbedGenerator::new(config)?))
             }
             memrec_common::ModelType::BGEM3 => {
-                anyhow::bail!("BGE-M3 model is not yet supported. Please use MiniLML6V2.")
+                // BGE-M3实验性支持
+                tracing::warn!("BGE-M3 is experimental. Implementation may be incomplete.");
+                Ok(Arc::new(bge_m3::BGEM3Generator::new(config)?))
             }
             memrec_common::ModelType::Custom { .. } => {
                 anyhow::bail!("Custom models are not yet supported. Please use MiniLML6V2.")

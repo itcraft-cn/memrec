@@ -36,7 +36,15 @@ impl ModelType {
     pub fn huggingface_repo(&self) -> Option<String> {
         match self {
             Self::MiniLML6V2 => Some("Qdrant/all-MiniLM-L6-v2-onnx".to_string()),
-            Self::BGEM3 => Some("BAAI/bge-m3".to_string()), // 可能需要转换到ONNX
+            Self::BGEM3 => Some("BAAI/bge-m3".to_string()),
+            Self::Custom { .. } => None,
+        }
+    }
+    
+    pub fn huggingface_subpath(&self) -> Option<String> {
+        match self {
+            Self::MiniLML6V2 => None, // 默认根目录
+            Self::BGEM3 => Some("onnx".to_string()), // 在onnx子目录
             Self::Custom { .. } => None,
         }
     }
@@ -44,8 +52,15 @@ impl ModelType {
     pub fn is_supported(&self) -> bool {
         match self {
             Self::MiniLML6V2 => true,
-            Self::BGEM3 => false, // 暂时不支持
+            Self::BGEM3 => true, // 现在支持BGE-M3
             Self::Custom { .. } => false, // 需要用户提供配置
+        }
+    }
+    
+    pub fn warning(&self) -> Option<String> {
+        match self {
+            Self::BGEM3 => Some("BGE-M3 is experimental and requires 2.3GB additional disk space".to_string()),
+            _ => None,
         }
     }
 }
@@ -89,9 +104,48 @@ impl ModelFile {
     }
     
     pub fn for_bge_m3() -> Vec<Self> {
-        // TODO: 确认BGE-M3 ONNX文件
-        // 目前返回空列表，表示不支持
-        vec![]
+        vec![
+            ModelFile {
+                filename: "model.onnx".to_string(),
+                sha256: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+                required: true,
+            },
+            ModelFile {
+                filename: "model.onnx_data".to_string(),
+                sha256: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+                required: true,
+            },
+            ModelFile {
+                filename: "sentencepiece.bpe.model".to_string(),
+                sha256: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+                required: true,
+            },
+            ModelFile {
+                filename: "tokenizer.json".to_string(),
+                sha256: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+                required: true,
+            },
+            ModelFile {
+                filename: "tokenizer_config.json".to_string(),
+                sha256: "7e4c1cc848840aeccdd763458c18dd525eb0f795c992e00ebe9c28554e7db2d4".to_string(),
+                required: true,
+            },
+            ModelFile {
+                filename: "special_tokens_map.json".to_string(),
+                sha256: "8c785abebea9ae3257b61681b4e6fd8365ceafde980c21970d001e834cf10835".to_string(),
+                required: true,
+            },
+            ModelFile {
+                filename: "config.json".to_string(),
+                sha256: "f24afd5de914fba8c668426c43d208a1a54022500c63b2c160be20891686fce8".to_string(),
+                required: true,
+            },
+            ModelFile {
+                filename: "Constant_7_attr__value".to_string(),
+                sha256: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+                required: true,
+            },
+        ]
     }
 }
 

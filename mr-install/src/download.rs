@@ -3,13 +3,25 @@ use indicatif::{ProgressBar, ProgressStyle};
 use sha2::{Sha256, Digest};
 use std::path::{Path, PathBuf};
 
-const MODEL_REPO: &str = "Qdrant/all-MiniLM-L6-v2-onnx";
-const MODEL_FILES: &[(&str, &str)] = &[
+const MINILM_MODEL_REPO: &str = "Qdrant/all-MiniLM-L6-v2-onnx";
+const MINILM_MODEL_FILES: &[(&str, &str)] = &[
     ("model.onnx", "bbd7b466f6d58e646fdc2bd5fd67b2f5e93c0b687011bd4548c420f7bd46f0c5"),
     ("tokenizer.json", "da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0"),
     ("config.json", "1b4d8e2a3988377ed8b519a31d8d31025a25f1c5f8606998e8014111438efcd7"),
     ("special_tokens_map.json", "5d5b662e421ea9fac075174bb0688ee0d9431699900b90662acd44b2a350503a"),
     ("tokenizer_config.json", "bd2e06a5b20fd1b13ca988bedc8763d332d242381b4fbc98f8fead4524158f79"),
+];
+
+const BGEM3_MODEL_REPO: &str = "BAAI/bge-m3";
+const BGEM3_MODEL_FILES: &[(&str, &str)] = &[
+    ("model.onnx", "0000000000000000000000000000000000000000000000000000000000000000"),
+    ("model.onnx_data", "0000000000000000000000000000000000000000000000000000000000000000"),
+    ("sentencepiece.bpe.model", "0000000000000000000000000000000000000000000000000000000000000000"),
+    ("tokenizer.json", "0000000000000000000000000000000000000000000000000000000000000000"),
+    ("tokenizer_config.json", "7e4c1cc848840aeccdd763458c18dd525eb0f795c992e00ebe9c28554e7db2d4"),
+    ("special_tokens_map.json", "8c785abebea9ae3257b61681b4e6fd8365ceafde980c21970d001e834cf10835"),
+    ("config.json", "f24afd5de914fba8c668426c43d208a1a54022500c63b2c160be20891686fce8"),
+    ("Constant_7_attr__value", "0000000000000000000000000000000000000000000000000000000000000000"),
 ];
 
 const HF_BASE_URL: &str = "https://huggingface.co";
