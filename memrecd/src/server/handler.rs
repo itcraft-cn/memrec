@@ -11,26 +11,31 @@ use memrec_common::{
 };
 use uuid::Uuid;
 use crate::storage::{MemoryStorage, VectorStorage, SearchFilter};
-use crate::embedding::FastEmbedGenerator;
+use crate::embedding::EmbeddingGenerator;
 use crate::project::{detect_project_id, find_project_root};
 
 pub struct Router {
     storage: Arc<dyn MemoryStorage>,
     vector_store: Arc<dyn VectorStorage>,
-    embedder: Arc<FastEmbedGenerator>,
+    embedder: Arc<dyn EmbeddingGenerator>,
 }
 
 impl Router {
     pub fn new(
         storage: Arc<dyn MemoryStorage>,
         vector_store: Arc<dyn VectorStorage>,
-        embedder: Arc<FastEmbedGenerator>,
+        embedder: Arc<dyn EmbeddingGenerator>,
     ) -> Self {
         Self { storage, vector_store, embedder }
     }
     
-    pub fn new_simple(storage: Arc<dyn MemoryStorage>) -> Self {
-        let embedder = Arc::new(FastEmbedGenerator::new().unwrap_or_default());
+    #[cfg(test)]
+pub fn new_simple(storage: Arc<dyn MemoryStorage>) -> Self {
+        use crate::embedding::GeneratorFactory;
+        use memrec_common::ModelConfig;
+        
+        let model_config = ModelConfig::default();
+        let embedder = GeneratorFactory::create(model_config).unwrap();
         let vector_store = Arc::new(crate::storage::VectorStore::new(embedder.dimension()));
         Self { storage, vector_store, embedder }
     }
@@ -76,19 +81,23 @@ impl Router {
                 
                 match self.storage.save(&memory).await {
                     Ok(_) => {
-                        let embedding = self.embedder.embed(&p.content).ok();
-                        if let Some(embed) = embedding {
-                            let payload = crate::storage::VectorPayload {
-                                project_id: memory.project_id,
-                                memory_type: memory.memory_type.to_string(),
-                                tags: memory.tags.clone(),
-                                content_preview: p.content.chars().take(200).collect(),
-                                importance: memory.importance,
-                                chunk_group_id: memory.chunk_group_id,
-                                chunk_index: memory.chunk_index,
-                                chunk_total: memory.chunk_total,
-                            };
-                            self.vector_store.add(&memory.id, &embed, payload).await.ok();
+                        match self.embedder.embed(&p.content) {
+                            Ok(embed) => {
+                                let payload = crate::storage::VectorPayload {
+                                    project_id: memory.project_id,
+                                    memory_type: memory.memory_type.to_string(),
+                                    tags: memory.tags.clone(),
+                                    content_preview: p.content.chars().take(200).collect(),
+                                    importance: memory.importance,
+                                    chunk_group_id: memory.chunk_group_id,
+                                    chunk_index: memory.chunk_index,
+                                    chunk_total: memory.chunk_total,
+                                };
+                                self.vector_store.add(&memory.id, &embed, payload).await.ok();
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to generate embedding: {}", e);
+                            }
                         }
                         
                         JsonRpcResponse::success(
@@ -419,6 +428,7 @@ mod tests {
     use super::*;
     use crate::storage::{MemoryStore, VectorStore};
     use crate::storage::rocksdb::RocksDBStore;
+    use crate::embedding::FastEmbedGenerator;
     use tempfile::tempdir;
     use memrec_common::protocol::{SearchMemoryParams, GetProjectInfoParams};
     
@@ -427,7 +437,8 @@ mod tests {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
         let storage = Arc::new(MemoryStore::new(rocksdb));
-        let embedder = Arc::new(FastEmbedGenerator::new().unwrap());
+        let model_config = memrec_common::ModelConfig::default();
+        let embedder = Arc::new(FastEmbedGenerator::new(model_config).unwrap());
         let vector_store = Arc::new(VectorStore::new(embedder.dimension()));
         
         let router = Router::new(storage, vector_store, embedder);

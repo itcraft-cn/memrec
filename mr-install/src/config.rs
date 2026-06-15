@@ -1,18 +1,22 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use memrec_common::{ModelConfig as CommonModelConfig, ModelType};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstallConfig {
     pub version: String,
-    pub model: ModelConfig,
+    pub model: CommonModelConfig,
     pub server: ServerConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelConfig {
+    #[deprecated = "Use memrec_common::ModelConfig instead"]
     pub name: String,
+    #[deprecated = "Use memrec_common::ModelConfig instead"]
     pub source: String,
+    #[deprecated = "Use memrec_common::ModelConfig instead"]
     pub dimension: usize,
 }
 
@@ -28,11 +32,7 @@ impl Default for InstallConfig {
     fn default() -> Self {
         Self {
             version: env!("CARGO_PKG_VERSION").to_string(),
-            model: ModelConfig {
-                name: "Qdrant/all-MiniLM-L6-v2-onnx".to_string(),
-                source: "huggingface".to_string(),
-                dimension: 384,
-            },
+            model: CommonModelConfig::default(),
             server: ServerConfig {
                 socket_path: "~/.memrec/memrecd.sock".to_string(),
                 data_dir: "~/.memrec/data".to_string(),
@@ -61,9 +61,9 @@ mod tests {
     #[test]
     fn test_config_default() {
         let config = InstallConfig::default();
-        assert_eq!(config.model.name, "Qdrant/all-MiniLM-L6-v2-onnx");
         assert_eq!(config.model.dimension, 384);
         assert_eq!(config.model.source, "huggingface");
+        assert_eq!(config.model.model_type.name(), "minilm-l6-v2");
     }
     
     #[test]
@@ -72,7 +72,6 @@ mod tests {
         let toml_str = toml::to_string_pretty(&config).unwrap();
         let parsed: InstallConfig = toml::from_str(&toml_str).unwrap();
         assert_eq!(config.version, parsed.version);
-        assert_eq!(config.model.name, parsed.model.name);
         assert_eq!(config.model.dimension, parsed.model.dimension);
         assert_eq!(config.server.socket_path, parsed.server.socket_path);
     }
@@ -86,8 +85,11 @@ mod tests {
         assert!(config_path.exists());
         
         let content = std::fs::read_to_string(&config_path).unwrap();
-        assert!(content.contains("Qdrant/all-MiniLM-L6-v2-onnx"));
+        println!("Generated config content:\n{}", content);
         assert!(content.contains("dimension = 384"));
+        
+        // 检查序列化格式
+        assert!(content.contains("model_type"));
         
         let parsed: InstallConfig = toml::from_str(&content).unwrap();
         assert_eq!(parsed.model.dimension, 384);

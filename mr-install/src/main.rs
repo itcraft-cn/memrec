@@ -36,6 +36,12 @@ struct Cli {
     
     #[arg(long, help = "Skip verification tests")]
     skip_verify: bool,
+    
+    #[arg(long, help = "Skip model hash verification (security risk)")]
+    skip_hash_verify: bool,
+    
+    #[arg(long, help = "Allow any Git repository URL (security risk)")]
+    allow_any_repo: bool,
 }
 
 fn step(msg: &str) {
@@ -81,6 +87,7 @@ async fn main() -> Result<()> {
         
         let install_opts = InstallOptions {
             repo_url: cli.repo_url.clone(),
+            allow_any_repo: cli.allow_any_repo,
         };
         
         match install_binaries(&install_opts) {
@@ -110,6 +117,7 @@ async fn main() -> Result<()> {
         let opts = DownloadOptions {
             use_hf_mirror: cli.use_hf_mirror,
             mirror_base_url: cli.mirror_base_url.clone(),
+            skip_hash_verify: cli.skip_hash_verify,
         };
         
         match download_model(&opts).await {

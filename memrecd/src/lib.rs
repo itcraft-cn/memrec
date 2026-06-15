@@ -5,3 +5,4 @@ pub mod importance;
 pub mod lifecycle;
 pub mod project;
 pub mod embedding;
+pub mod config;

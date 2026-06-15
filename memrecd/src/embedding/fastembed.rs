@@ -2,21 +2,32 @@ use anyhow::Result;
 use fastembed::{TextEmbedding, UserDefinedEmbeddingModel, TokenizerFiles};
 use std::sync::Mutex;
 use std::path::PathBuf;
+use memrec_common::ModelConfig;
 
-const DEFAULT_MODEL_DIR: &str = ".memrec/models/Qdrant--all-MiniLM-L6-v2-onnx";
+use super::EmbeddingGenerator;
+
 const ENV_MODEL_DIR: &str = "MEMREC_MODEL_DIR";
 
 pub struct FastEmbedGenerator {
     model: Mutex<TextEmbedding>,
-    dimension: usize,
+    model_config: ModelConfig,
 }
 
 impl FastEmbedGenerator {
-    pub fn new() -> Result<Self> {
-        let model_dir = Self::get_model_dir()?;
+    pub fn new(model_config: ModelConfig) -> Result<Self> {
+        let model_dir = Self::get_model_dir(&model_config)?;
+        
+        // 检查模型文件
+        for file in &model_config.files {
+            let file_path = model_dir.join(&file.filename);
+            if !file_path.exists() {
+                anyhow::bail!("Model file missing: {} from {:?}. Download required.", 
+                    file.filename, model_dir);
+            }
+        }
         
         let onnx_file = std::fs::read(model_dir.join("model.onnx"))
-            .map_err(|e| anyhow::anyhow!("Failed to read model.onnx from {:?}: {}. Download from https://huggingface.co/Qdrant/all-MiniLM-L6-v2-onnx", model_dir, e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to read model.onnx from {:?}: {}", model_dir, e))?;
         
         let tokenizer_files = TokenizerFiles {
             tokenizer_file: std::fs::read(model_dir.join("tokenizer.json"))?,
@@ -26,16 +37,16 @@ impl FastEmbedGenerator {
         };
         
         let user_model = UserDefinedEmbeddingModel::new(onnx_file, tokenizer_files);
-        
         let model = TextEmbedding::try_new_from_user_defined(user_model, Default::default())?;
         
         Ok(Self {
             model: Mutex::new(model),
-            dimension: 384,
+            model_config,
         })
     }
     
-    fn get_model_dir() -> Result<PathBuf> {
+    fn get_model_dir(model_config: &ModelConfig) -> Result<PathBuf> {
+        // 1. 环境变量优先
         if let Ok(env_path) = std::env::var(ENV_MODEL_DIR) {
             let path = PathBuf::from(env_path);
             if path.is_absolute() {
@@ -46,16 +57,41 @@ impl FastEmbedGenerator {
             return Ok(home.join(path));
         }
         
+        // 2. 配置中的model_dir
+        if let Some(ref model_dir) = model_config.model_dir {
+            let path = PathBuf::from(model_dir);
+            if path.is_absolute() {
+                return Ok(path);
+            }
+            let home = dirs::home_dir()
+                .ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
+            return Ok(home.join(path));
+        }
+        
+        // 3. 默认路径
         let home = dirs::home_dir()
             .ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
-        Ok(home.join(DEFAULT_MODEL_DIR))
+        let dir_name = model_config.local_dir_name();
+        Ok(home.join(".memrec/models").join(dir_name))
     }
     
     pub fn dimension(&self) -> usize {
-        self.dimension
+        self.model_config.dimension
     }
     
-    pub fn embed(&self, text: &str) -> Result<Vec<f32>> {
+    pub fn model_config(&self) -> &ModelConfig {
+        &self.model_config
+    }
+    
+    
+}
+
+impl EmbeddingGenerator for FastEmbedGenerator {
+    fn dimension(&self) -> usize {
+        self.model_config.dimension
+    }
+    
+    fn embed(&self, text: &str) -> Result<Vec<f32>> {
         let mut model = self.model.lock().map_err(|_| anyhow::anyhow!("Model lock poisoned"))?;
         let embeddings = model.embed(vec![text], None)?;
         
@@ -65,7 +101,7 @@ impl FastEmbedGenerator {
             .ok_or_else(|| anyhow::anyhow!("No embedding returned"))
     }
     
-    pub fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+    fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
         let mut model = self.model.lock().map_err(|_| anyhow::anyhow!("Model lock poisoned"))?;
         let embeddings = model.embed(texts, None)?;
         
@@ -77,7 +113,8 @@ impl FastEmbedGenerator {
 
 impl Default for FastEmbedGenerator {
     fn default() -> Self {
-        Self::new().expect("Failed to initialize FastEmbed")
+        let model_config = ModelConfig::default();
+        Self::new(model_config).expect("Failed to initialize FastEmbed")
     }
 }
 
@@ -87,13 +124,15 @@ mod tests {
     
     #[test]
     fn test_embedding_dimension() {
-        let generator = FastEmbedGenerator::new().unwrap();
+        let model_config = ModelConfig::default();
+        let generator = FastEmbedGenerator::new(model_config).unwrap();
         assert_eq!(generator.dimension(), 384);
     }
     
     #[test]
     fn test_single_embedding() {
-        let generator = FastEmbedGenerator::new().unwrap();
+        let model_config = ModelConfig::default();
+        let generator = FastEmbedGenerator::new(model_config).unwrap();
         let embedding = generator.embed("test text").unwrap();
         
         assert_eq!(embedding.len(), 384);
@@ -104,7 +143,8 @@ mod tests {
     
     #[test]
     fn test_semantic_similarity() {
-        let generator = FastEmbedGenerator::new().unwrap();
+        let model_config = ModelConfig::default();
+        let generator = FastEmbedGenerator::new(model_config).unwrap();
         
         let emb1 = generator.embed("狗是动物").unwrap();
         let emb2 = generator.embed("猫是动物").unwrap();

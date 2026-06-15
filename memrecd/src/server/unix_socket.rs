@@ -102,7 +102,8 @@ mod tests {
         
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
         let storage = Arc::new(MemoryStore::new(rocksdb));
-        let embedder = Arc::new(FastEmbedGenerator::new().unwrap());
+        let model_config = memrec_common::ModelConfig::default();
+        let embedder = Arc::new(FastEmbedGenerator::new(model_config).unwrap());
         let vector_store = Arc::new(VectorStore::new(embedder.dimension()));
         let router = Arc::new(Router::new(storage, vector_store, embedder));
         

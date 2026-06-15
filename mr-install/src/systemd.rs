@@ -42,7 +42,7 @@ impl ServiceManager for SystemdService {
         let service_content = format!(
             r#"[Unit]
 Description=MemRec Memory Persistence Daemon
-Documentation=https://github.com/anomalyco/memrec
+Documentation=https://github.com/itcraft-cn/memrec
 After=default.target
 
 [Service]
