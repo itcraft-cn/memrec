@@ -1,6 +1,6 @@
 [package]
 name = "memrec"
-version = "0.3.0" # managed by updgitver
+version = "0.4.0-dev" # managed by updgitver
 edition = "2021"
 authors = ["Helly Guo <hellyguo@foxmail.com>"]
 homepage = "https://itcraft.cn/memrec/"
@@ -17,7 +17,7 @@ name = "memrec"
 path = "src/main.rs"
 
 [dependencies]
-memrec-common = { path = "../common", version = "0.3.0" } # managed by updgitver
+memrec-common = { path = "../common", version = "0.4.0-dev" } # managed by updgitver
 anyhow.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
