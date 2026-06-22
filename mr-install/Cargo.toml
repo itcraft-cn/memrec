@@ -6,7 +6,11 @@ authors = ["Helly Guo <hellyguo@foxmail.com>"]
 homepage = "https://itcraft.cn/memrec/"
 repository = "https://github.com/itcraft-cn/memrec"
 license = "Apache-2.0"
+readme = "README.md"
 description = "Installer for MemRec — Local-first AI memory with project isolation"
+categories = ["command-line-utilities"]
+documentation = "https://docs.rs/crate/memrec/latest"
+keywords = ["Local", "Isolation", "Memory"]
 
 [[bin]]
 name = "mr-install"
