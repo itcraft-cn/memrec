@@ -1,9 +1,9 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
 
-use crate::types::{Memory, MemoryType, Project};
 use super::error::JsonRpcError;
+use crate::types::{Memory, MemoryType, Project};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JsonRpcResponse {
@@ -24,7 +24,7 @@ impl JsonRpcResponse {
             id,
         }
     }
-    
+
     pub fn error(err: JsonRpcError, id: u64) -> Self {
         Self {
             jsonrpc: "2.0".to_string(),
@@ -140,7 +140,11 @@ pub struct SuccessResult {
 impl From<bool> for SuccessResult {
     fn from(success: bool) -> Self {
         Self {
-            message: if success { "Success".to_string() } else { "Failed".to_string() },
+            message: if success {
+                "Success".to_string()
+            } else {
+                "Failed".to_string()
+            },
         }
     }
 }
@@ -149,20 +153,17 @@ impl From<bool> for SuccessResult {
 mod tests {
     use super::*;
     use crate::types::MemoryType;
-    
+
     #[test]
     fn test_success_response() {
         let memory = Memory::new("test".to_string(), MemoryType::Knowledge);
-        let resp = JsonRpcResponse::success(
-            ResponseResult::Memory(MemoryResult { memory }),
-            1,
-        );
-        
+        let resp = JsonRpcResponse::success(ResponseResult::Memory(MemoryResult { memory }), 1);
+
         assert_eq!(resp.jsonrpc, "2.0");
         assert!(resp.result.is_some());
         assert!(resp.error.is_none());
     }
-    
+
     #[test]
     fn test_error_response() {
         let err = JsonRpcError {
@@ -171,25 +172,22 @@ mod tests {
             data: None,
         };
         let resp = JsonRpcResponse::error(err, 1);
-        
+
         assert!(resp.result.is_none());
         assert!(resp.error.is_some());
     }
-    
+
     #[test]
     fn test_response_serde() {
         let memory = Memory::new("test".to_string(), MemoryType::Knowledge);
-        let resp = JsonRpcResponse::success(
-            ResponseResult::Memory(MemoryResult { memory }),
-            1,
-        );
-        
+        let resp = JsonRpcResponse::success(ResponseResult::Memory(MemoryResult { memory }), 1);
+
         let json = serde_json::to_string(&resp).unwrap();
         let parsed: JsonRpcResponse = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(resp.id, parsed.id);
     }
-    
+
     #[test]
     fn test_semantic_search_result_serde() {
         let result = SemanticSearchResult {
@@ -210,10 +208,10 @@ mod tests {
             query_embedding_time_ms: 10,
             search_time_ms: 5,
         };
-        
+
         let json = serde_json::to_string(&result).unwrap();
         let parsed: SemanticSearchResult = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(result.total, parsed.total);
     }
 }

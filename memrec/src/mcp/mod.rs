@@ -1,5 +1,5 @@
-use anyhow::{Result, Context};
-use serde_json::{Value, json};
+use anyhow::{Context, Result};
+use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 pub struct McpServer;
@@ -17,7 +17,10 @@ impl McpServer {
 
         loop {
             line.clear();
-            let n = reader.read_line(&mut line).await.context("Failed to read from stdin")?;
+            let n = reader
+                .read_line(&mut line)
+                .await
+                .context("Failed to read from stdin")?;
             if n == 0 {
                 break;
             }
@@ -60,7 +63,10 @@ impl McpServer {
 
             let mut out = serde_json::to_string(&response).unwrap_or_default();
             out.push('\n');
-            stdout.write_all(out.as_bytes()).await.context("Failed to write to stdout")?;
+            stdout
+                .write_all(out.as_bytes())
+                .await
+                .context("Failed to write to stdout")?;
             stdout.flush().await.context("Failed to flush stdout")?;
         }
 
@@ -68,17 +74,20 @@ impl McpServer {
     }
 
     fn handle_initialize(&self, id: Option<Value>, _params: &Value) -> Value {
-        self.make_result(id, json!({
-            "protocolVersion": "2025-03-26",
-            "capabilities": {
-                "tools": { "listChanged": false },
-                "resources": { "subscribe": false, "listChanged": false }
-            },
-            "serverInfo": {
-                "name": "memrec",
-                "version": env!("CARGO_PKG_VERSION")
-            }
-        }))
+        self.make_result(
+            id,
+            json!({
+                "protocolVersion": "2025-03-26",
+                "capabilities": {
+                    "tools": { "listChanged": false },
+                    "resources": { "subscribe": false, "listChanged": false }
+                },
+                "serverInfo": {
+                    "name": "memrec",
+                    "version": env!("CARGO_PKG_VERSION")
+                }
+            }),
+        )
     }
 
     fn handle_tools_list(&self, id: Option<Value>) -> Value {
@@ -114,7 +123,7 @@ impl McpServer {
                         "properties": {
                             "query": { "type": "string", "description": "Search query" },
                             "top_k": { "type": "integer", "description": "Max results to return", "default": 10 },
-                            "min_score": { "type": "number", "description": "Minimum similarity score (0-1)", "default": 0.75 },
+                            "min_score": { "type": "number", "description": "Minimum similarity score (0-1)", "default": 0.5 },
                             "project_only": { "type": "boolean", "description": "Search only current project" },
                             "global_only": { "type": "boolean", "description": "Search only global memories" },
                             "cross_project": { "type": "boolean", "description": "Search across all projects" },
@@ -186,72 +195,91 @@ impl McpServer {
         };
 
         match result {
-            Ok(content) => self.make_result(id, json!({
-                "content": [{"type": "text", "text": content}],
-                "isError": false
-            })),
-            Err(msg) => self.make_result(id, json!({
-                "content": [{"type": "text", "text": msg}],
-                "isError": true
-            })),
+            Ok(content) => self.make_result(
+                id,
+                json!({
+                    "content": [{"type": "text", "text": content}],
+                    "isError": false
+                }),
+            ),
+            Err(msg) => self.make_result(
+                id,
+                json!({
+                    "content": [{"type": "text", "text": msg}],
+                    "isError": true
+                }),
+            ),
         }
     }
 
     fn handle_resources_list(&self, id: Option<Value>) -> Value {
-        self.make_result(id, json!({
-            "resources": [
-                {
-                    "uri": "memrec://stats",
-                    "name": "Memory Statistics",
-                    "description": "Current memory statistics",
-                    "mimeType": "application/json"
-                },
-                {
-                    "uri": "memrec://project",
-                    "name": "Project Info",
-                    "description": "Current project information",
-                    "mimeType": "application/json"
-                }
-            ]
-        }))
+        self.make_result(
+            id,
+            json!({
+                "resources": [
+                    {
+                        "uri": "memrec://stats",
+                        "name": "Memory Statistics",
+                        "description": "Current memory statistics",
+                        "mimeType": "application/json"
+                    },
+                    {
+                        "uri": "memrec://project",
+                        "name": "Project Info",
+                        "description": "Current project information",
+                        "mimeType": "application/json"
+                    }
+                ]
+            }),
+        )
     }
 
     async fn handle_resources_read(&self, id: Option<Value>, params: &Value) -> Value {
         let uri = params.get("uri").and_then(|v| v.as_str()).unwrap_or("");
 
         let content = match uri {
-            "memrec://stats" => {
-                match self.call_daemon("stats", json!({})).await {
-                    Ok(resp) => serde_json::to_string_pretty(&resp).unwrap_or_default(),
-                    Err(e) => e,
-                }
-            }
-            "memrec://project" => {
-                match self.call_daemon("get_project_info", json!({})).await {
-                    Ok(resp) => serde_json::to_string_pretty(&resp).unwrap_or_default(),
-                    Err(e) => e,
-                }
-            }
+            "memrec://stats" => match self.call_daemon("stats", json!({})).await {
+                Ok(resp) => serde_json::to_string_pretty(&resp).unwrap_or_default(),
+                Err(e) => e,
+            },
+            "memrec://project" => match self.call_daemon("get_project_info", json!({})).await {
+                Ok(resp) => serde_json::to_string_pretty(&resp).unwrap_or_default(),
+                Err(e) => e,
+            },
             _ => format!("Unknown resource: {}", uri),
         };
 
-        self.make_result(id, json!({
-            "contents": [{
-                "uri": uri,
-                "mimeType": "application/json",
-                "text": content
-            }]
-        }))
+        self.make_result(
+            id,
+            json!({
+                "contents": [{
+                    "uri": uri,
+                    "mimeType": "application/json",
+                    "text": content
+                }]
+            }),
+        )
     }
 
     async fn tool_add(&self, args: &Value) -> Result<String, String> {
         let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
-        let memory_type = args.get("memory_type").and_then(|v| v.as_str()).unwrap_or("conversation");
-        let tags: Vec<String> = args.get("tags")
+        let memory_type = args
+            .get("memory_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("conversation");
+        let tags: Vec<String> = args
+            .get("tags")
             .and_then(|v| v.as_array())
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
-        let is_global = args.get("is_global").and_then(|v| v.as_bool()).unwrap_or(false);
+        let is_global = args
+            .get("is_global")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         let params = json!({
             "content": content,
@@ -262,22 +290,38 @@ impl McpServer {
 
         let resp = self.call_daemon("add", params).await?;
 
-        let memory_id = resp.get("result")
+        let memory_id = resp
+            .get("result")
             .and_then(|r| r.get("memory"))
             .and_then(|m| m.get("id"))
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
 
-        Ok(format!("Added memory: {} (type: {}, global: {})", memory_id, memory_type, is_global))
+        Ok(format!(
+            "Added memory: {} (type: {}, global: {})",
+            memory_id, memory_type, is_global
+        ))
     }
 
     async fn tool_search(&self, args: &Value) -> Result<String, String> {
         let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
         let top_k = args.get("top_k").and_then(|v| v.as_u64()).unwrap_or(10);
-        let min_score = args.get("min_score").and_then(|v| v.as_f64()).unwrap_or(0.75);
-        let project_only = args.get("project_only").and_then(|v| v.as_bool()).unwrap_or(false);
-        let global_only = args.get("global_only").and_then(|v| v.as_bool()).unwrap_or(false);
-        let cross_project = args.get("cross_project").and_then(|v| v.as_bool()).unwrap_or(false);
+        let min_score = args
+            .get("min_score")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.5);
+        let project_only = args
+            .get("project_only")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let global_only = args
+            .get("global_only")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let cross_project = args
+            .get("cross_project")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let memory_type = args.get("memory_type").and_then(|v| v.as_str());
 
         let mut params = json!({
@@ -311,10 +355,17 @@ impl McpServer {
 
     async fn tool_list(&self, args: &Value) -> Result<String, String> {
         let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(20);
-        let project_only = args.get("project_only").and_then(|v| v.as_bool()).unwrap_or(false);
-        let global_only = args.get("global_only").and_then(|v| v.as_bool()).unwrap_or(false);
+        let project_only = args
+            .get("project_only")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let global_only = args
+            .get("global_only")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
-        let params = json!({ "limit": limit, "project_only": project_only, "global_only": global_only });
+        let params =
+            json!({ "limit": limit, "project_only": project_only, "global_only": global_only });
         let resp = self.call_daemon("list", params).await?;
 
         Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
@@ -335,43 +386,56 @@ impl McpServer {
     }
 
     async fn call_daemon(&self, method: &str, mut params: Value) -> Result<Value, String> {
-        use tokio::net::UnixStream;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::UnixStream;
 
         let home = dirs::home_dir().ok_or("Failed to get home directory")?;
         let socket_path = home.join(".memrec").join("memrecd.sock");
 
-        let mut stream = UnixStream::connect(&socket_path).await
+        let mut stream = UnixStream::connect(&socket_path)
+            .await
             .map_err(|e| format!("Connect error: {}", e))?;
 
         let (method_str, typed_params) = match method {
             "add" => ("add", {
-                if !params.is_object() { params = json!({}); }
+                if !params.is_object() {
+                    params = json!({});
+                }
                 params["type"] = json!("add");
                 Some(params)
             }),
             "get" => ("get", {
-                if !params.is_object() { params = json!({}); }
+                if !params.is_object() {
+                    params = json!({});
+                }
                 params["type"] = json!("get");
                 Some(params)
             }),
             "delete" => ("delete", {
-                if !params.is_object() { params = json!({}); }
+                if !params.is_object() {
+                    params = json!({});
+                }
                 params["type"] = json!("delete");
                 Some(params)
             }),
             "list" => ("list", {
-                if !params.is_object() { params = json!({}); }
+                if !params.is_object() {
+                    params = json!({});
+                }
                 params["type"] = json!("list");
                 Some(params)
             }),
             "search_memory" => ("search_memory", {
-                if !params.is_object() { params = json!({}); }
+                if !params.is_object() {
+                    params = json!({});
+                }
                 params["type"] = json!("search_memory");
                 Some(params)
             }),
             "get_project_info" => ("get_project_info", {
-                if !params.is_object() { params = json!({}); }
+                if !params.is_object() {
+                    params = json!({});
+                }
                 params["type"] = json!("get_project_info");
                 Some(params)
             }),
@@ -387,27 +451,40 @@ impl McpServer {
             "id": 1
         });
 
-        let request_json = serde_json::to_string(&request)
-            .map_err(|e| format!("Serialize error: {}", e))?;
+        let request_json =
+            serde_json::to_string(&request).map_err(|e| format!("Serialize error: {}", e))?;
 
-        stream.write_all(request_json.as_bytes()).await
+        stream
+            .write_all(request_json.as_bytes())
+            .await
             .map_err(|e| format!("Write error: {}", e))?;
-        stream.flush().await.map_err(|e| format!("Flush error: {}", e))?;
-        stream.shutdown().await.map_err(|e| format!("Shutdown error: {}", e))?;
+        stream
+            .flush()
+            .await
+            .map_err(|e| format!("Flush error: {}", e))?;
+        stream
+            .shutdown()
+            .await
+            .map_err(|e| format!("Shutdown error: {}", e))?;
 
         let mut buffer = Vec::with_capacity(8192);
         let mut chunk = vec![0u8; 8192];
         loop {
-            let n = stream.read(&mut chunk).await.map_err(|e| format!("Read error: {}", e))?;
-            if n == 0 { break; }
+            let n = stream
+                .read(&mut chunk)
+                .await
+                .map_err(|e| format!("Read error: {}", e))?;
+            if n == 0 {
+                break;
+            }
             buffer.extend_from_slice(&chunk[..n]);
             if buffer.len() > 1024 * 1024 {
                 return Err("Response too large".to_string());
             }
         }
 
-        let response: Value = serde_json::from_slice(&buffer)
-            .map_err(|e| format!("Parse error: {}", e))?;
+        let response: Value =
+            serde_json::from_slice(&buffer).map_err(|e| format!("Parse error: {}", e))?;
 
         Ok(response)
     }

@@ -14,19 +14,19 @@ pub enum RequestAction {
     Search,
     List,
     Tag,
-    
+
     SearchMemory,
     GetProjectInfo,
     GetVersion,
-    
+
     ProjectCreate,
     ProjectList,
     ProjectSwitch,
     ProjectDelete,
-    
+
     ConfigGet,
     ConfigSet,
-    
+
     Stats,
 }
 
@@ -84,15 +84,15 @@ pub enum RequestParams {
     Search(SearchParams),
     List(ListParams),
     Tag(TagParams),
-    
+
     SearchMemory(SearchMemoryParams),
     GetProjectInfo(GetProjectInfoParams),
     GetVersion(GetVersionParams),
-    
+
     ProjectCreate(ProjectCreateParams),
     ProjectSwitch(ProjectSwitchParams),
     ProjectDelete(ProjectDeleteParams),
-    
+
     ConfigSet(ConfigSetParams),
 }
 
@@ -175,12 +175,14 @@ pub struct SearchMemoryParams {
     pub working_dir: Option<String>,
 }
 
-pub fn default_include_global() -> bool { true }
+pub fn default_include_global() -> bool {
+    true
+}
 pub fn default_min_score() -> f32 {
     std::env::var("MEMREC_MIN_SCORE")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(0.75)
+        .unwrap_or(0.5)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -202,14 +204,15 @@ pub enum SearchMode {
     Hybrid,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimeRange {
     pub start: DateTime<Utc>,
     pub end: DateTime<Utc>,
 }
 
-fn default_top_k() -> usize { 10 }
+fn default_top_k() -> usize {
+    10
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListParams {
@@ -227,7 +230,9 @@ pub struct ListParams {
     pub project_id: Option<Uuid>,
 }
 
-fn default_limit() -> usize { 20 }
+fn default_limit() -> usize {
+    20
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TagParams {
@@ -263,7 +268,7 @@ pub struct ConfigSetParams {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_request_creation() {
         let req = JsonRpcRequest::new(
@@ -278,11 +283,11 @@ mod tests {
             })),
             1,
         );
-        
+
         assert_eq!(req.jsonrpc, "2.0");
         assert_eq!(req.id, 1);
     }
-    
+
     #[test]
     fn test_request_serde() {
         let req = JsonRpcRequest::new(
@@ -293,13 +298,13 @@ mod tests {
             })),
             1,
         );
-        
+
         let json = serde_json::to_string(&req).unwrap();
         let parsed: JsonRpcRequest = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(req.jsonrpc, parsed.jsonrpc);
     }
-    
+
     #[test]
     fn test_search_params_defaults() {
         let params = SearchParams {
@@ -311,11 +316,11 @@ mod tests {
             top_k: default_top_k(),
             min_importance: 0.0,
         };
-        
+
         assert_eq!(params.mode, SearchMode::Hybrid);
         assert_eq!(params.top_k, 10);
     }
-    
+
     #[test]
     fn test_search_memory_params_defaults() {
         let params = SearchMemoryParams {
@@ -330,12 +335,12 @@ mod tests {
             min_score: default_min_score(),
             working_dir: None,
         };
-        
+
         assert_eq!(params.include_global, true);
         assert_eq!(params.top_k, 10);
-        assert_eq!(params.min_score, 0.75);
+        assert_eq!(params.min_score, 0.5);
     }
-    
+
     #[test]
     fn test_search_memory_params_serde() {
         let params = SearchMemoryParams {
@@ -350,10 +355,10 @@ mod tests {
             min_score: 0.8,
             working_dir: None,
         };
-        
+
         let json = serde_json::to_string(&params).unwrap();
         let parsed: SearchMemoryParams = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(params.query, parsed.query);
         assert_eq!(params.top_k, parsed.top_k);
     }

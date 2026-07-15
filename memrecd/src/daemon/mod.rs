@@ -1,63 +1,85 @@
 use anyhow::Result;
 use std::sync::Arc;
-use std::path::PathBuf;
 use std::time::Duration;
 use tokio::signal;
 use tokio::time::interval;
 use tracing::{info, warn};
 
-use crate::storage::{RocksDBStore, MemoryStore, RocksDBVectorStore, MemoryStorage, VectorStorage};
-use crate::embedding::FastEmbedGenerator;
-use crate::server::{UnixSocketServer, Router};
+use crate::config::DaemonConfig;
+use crate::embedding::{EmbeddingGenerator, GeneratorFactory};
+use crate::server::{Router, UnixSocketServer};
+use crate::storage::{MemoryStorage, MemoryStore, RocksDBStore, RocksDBVectorStore, VectorStorage};
 
 const SYNC_INTERVAL_SECS: u64 = 30;
 
 pub struct Daemon {
-    socket_path: PathBuf,
-    data_dir: PathBuf,
-    vectors_dir: PathBuf,
+    config: DaemonConfig,
 }
 
 impl Daemon {
     pub fn new() -> Result<Self> {
-        let home = dirs::home_dir()
-            .ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
-        
-        let base_dir = home.join(".memrec");
-        let data_dir = base_dir.join("data");
-        let vectors_dir = base_dir.join("vectors");
-        let socket_path = base_dir.join("memrecd.sock");
-        
-        std::fs::create_dir_all(&data_dir)?;
-        std::fs::create_dir_all(&vectors_dir)?;
-        
-        Ok(Self {
-            socket_path,
-            data_dir,
-            vectors_dir,
-        })
+        let config = DaemonConfig::load()?;
+        Ok(Self { config })
     }
-    
+
+    pub fn with_config(config: DaemonConfig) -> Self {
+        Self { config }
+    }
+
+    pub fn from_args(
+        model_type: Option<memrec_common::ModelType>,
+        model_dir: Option<String>,
+    ) -> Result<Self> {
+        let mut config = DaemonConfig::load()?;
+
+        if let Some(mt) = model_type {
+            config = config.with_model(mt);
+        }
+
+        if let Some(dir) = model_dir {
+            config = config.with_model_dir(dir);
+        }
+
+        Ok(Self { config })
+    }
+
     pub async fn run(&self) -> Result<()> {
-        info!("MemRec daemon starting");
-        
-        let rocksdb = RocksDBStore::open(&self.data_dir)?;
+        info!(
+            "MemRec daemon starting with model: {}",
+            self.config.model.model_type.name()
+        );
+
+        info!("Data dir: {:?}", self.config.server.data_dir);
+        info!("Vectors dir: {:?}", self.config.server.vectors_dir);
+        info!("Socket: {:?}", self.config.server.socket_path);
+
+        if !self.config.model.is_ready() {
+            anyhow::bail!(
+                "Model configuration is not ready. Please run mr-install to download the model."
+            );
+        }
+
+        let rocksdb = RocksDBStore::open(&self.config.server.data_dir)?;
         let storage = Arc::new(MemoryStore::new(rocksdb));
-        
-        let embedder = Arc::new(FastEmbedGenerator::new()?);
-        let vector_store = Arc::new(RocksDBVectorStore::open(&self.vectors_dir, embedder.dimension())?);
-        
-        self.rebuild_missing_embeddings(&storage, &vector_store, &embedder).await?;
-        
+
+        let embedder = GeneratorFactory::create(self.config.model.clone())?;
+        let vector_store = Arc::new(RocksDBVectorStore::open(
+            &self.config.server.vectors_dir,
+            embedder.dimension(),
+        )?);
+
+        self.rebuild_missing_embeddings(&storage, &vector_store, &embedder)
+            .await?;
+
         let router = Arc::new(Router::new(storage.clone(), vector_store.clone(), embedder));
-        
-        let server = UnixSocketServer::bind(&self.socket_path, router).await?;
-        
+
+        let server = UnixSocketServer::bind(&self.config.server.socket_path, router).await?;
+
         let sync_task = tokio::spawn(Self::sync_loop(vector_store.clone()));
-        
+
         let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())?;
         let mut sigint = signal::unix::signal(signal::unix::SignalKind::interrupt())?;
-        
+
         tokio::select! {
             _ = server.run() => {
                 info!("Server stopped");
@@ -69,29 +91,32 @@ impl Daemon {
                 info!("Received SIGINT");
             }
         }
-        
+
         sync_task.abort();
-        
+
         self.shutdown(&vector_store)
     }
-    
+
     async fn rebuild_missing_embeddings(
         &self,
         storage: &Arc<MemoryStore>,
         vector_store: &Arc<RocksDBVectorStore>,
-        embedder: &Arc<FastEmbedGenerator>,
+        embedder: &Arc<dyn EmbeddingGenerator>,
     ) -> Result<()> {
         let memories = storage.list(1000).await?;
         let existing_count = vector_store.count_cached();
-        
+
         if existing_count >= memories.len() {
             info!("All {} memories have embeddings", memories.len());
             return Ok(());
         }
-        
-        info!("Rebuilding embeddings for {} memories (existing: {})", 
-            memories.len() - existing_count, existing_count);
-        
+
+        info!(
+            "Rebuilding embeddings for {} memories (existing: {})",
+            memories.len() - existing_count,
+            existing_count
+        );
+
         for memory in &memories {
             if vector_store.get(&memory.id).await?.is_none() {
                 let embedding = embedder.embed(&memory.content)?;
@@ -108,19 +133,22 @@ impl Daemon {
                 vector_store.add(&memory.id, &embedding, payload).await?;
             }
         }
-        
+
         vector_store.save()?;
-        info!("Rebuild complete, saved {} embeddings", vector_store.count_cached());
-        
+        info!(
+            "Rebuild complete, saved {} embeddings",
+            vector_store.count_cached()
+        );
+
         Ok(())
     }
-    
+
     async fn sync_loop(vector_store: Arc<RocksDBVectorStore>) {
         let mut ticker = interval(Duration::from_secs(SYNC_INTERVAL_SECS));
-        
+
         loop {
             ticker.tick().await;
-            
+
             if let Err(e) = vector_store.save() {
                 warn!("Failed to sync vector store: {}", e);
             } else {
@@ -128,20 +156,20 @@ impl Daemon {
             }
         }
     }
-    
+
     fn shutdown(&self, vector_store: &Arc<RocksDBVectorStore>) -> Result<()> {
         info!("Shutting down daemon");
-        
+
         if let Err(e) = vector_store.save() {
             warn!("Failed to save vector store on shutdown: {}", e);
         } else {
             info!("Vector store saved on shutdown");
         }
-        
-        if self.socket_path.exists() {
-            std::fs::remove_file(&self.socket_path)?;
+
+        if self.config.server.socket_path.exists() {
+            std::fs::remove_file(&self.config.server.socket_path)?;
         }
-        
+
         Ok(())
     }
 }

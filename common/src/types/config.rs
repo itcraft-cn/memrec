@@ -66,31 +66,34 @@ impl Default for ServerConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_memory_config_defaults() {
         let config = MemoryConfig::default();
-        
+
         assert_eq!(config.soft_delete_recovery_days, 30);
         assert_eq!(config.hard_delete_importance, 0.1);
         assert_eq!(config.max_storage_gb, 10);
         assert_eq!(config.high_watermark, 0.9);
     }
-    
+
     #[test]
     fn test_importance_config_defaults() {
         let config = ImportanceConfig::default();
-        
+
         assert_eq!(config.lambda, 0.05);
         assert_eq!(config.weight_recency, 0.3);
     }
-    
+
     #[test]
     fn test_config_serde() {
         let config = MemoryConfig::default();
         let json = serde_json::to_string(&config).unwrap();
         let parsed: MemoryConfig = serde_json::from_str(&json).unwrap();
-        
-        assert_eq!(config.soft_delete_recovery_days, parsed.soft_delete_recovery_days);
+
+        assert_eq!(
+            config.soft_delete_recovery_days,
+            parsed.soft_delete_recovery_days
+        );
     }
 }
