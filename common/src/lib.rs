@@ -3,7 +3,7 @@ pub mod protocol;
 
 pub use types::{Memory, MemoryType, Project, ProjectConfig};
 pub use types::{MemoryConfig, ImportanceConfig, ServerConfig};
-pub use types::{ModelType, ModelConfig, ModelFile};
+pub use types::{ModelType, ModelConfig, ModelFile, ModelFileType, PoolingStrategy};
 
 pub use protocol::{MemRecError, JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 pub use protocol::{RequestAction, RequestParams, ResponseResult};

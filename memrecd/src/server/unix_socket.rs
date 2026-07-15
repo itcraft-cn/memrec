@@ -92,7 +92,7 @@ impl UnixSocketServer {
 mod tests {
     use super::*;
     use crate::storage::{MemoryStore, RocksDBStore, VectorStore};
-    use crate::embedding::FastEmbedGenerator;
+    use crate::embedding::{EmbeddingGenerator, FastEmbedGenerator};
     use tempfile::tempdir;
     
     #[tokio::test]

@@ -11,16 +11,6 @@ pub struct InstallConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelConfig {
-    #[deprecated = "Use memrec_common::ModelConfig instead"]
-    pub name: String,
-    #[deprecated = "Use memrec_common::ModelConfig instead"]
-    pub source: String,
-    #[deprecated = "Use memrec_common::ModelConfig instead"]
-    pub dimension: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
     pub socket_path: String,
     pub data_dir: String,
@@ -28,11 +18,11 @@ pub struct ServerConfig {
     pub log_file: String,
 }
 
-impl Default for InstallConfig {
-    fn default() -> Self {
+impl InstallConfig {
+    pub fn new(model_type: ModelType) -> Self {
         Self {
             version: env!("CARGO_PKG_VERSION").to_string(),
-            model: CommonModelConfig::default(),
+            model: CommonModelConfig::new(model_type),
             server: ServerConfig {
                 socket_path: "~/.memrec/memrecd.sock".to_string(),
                 data_dir: "~/.memrec/data".to_string(),
@@ -43,8 +33,14 @@ impl Default for InstallConfig {
     }
 }
 
-pub fn generate_config(home: &Path) -> Result<()> {
-    let config = InstallConfig::default();
+impl Default for InstallConfig {
+    fn default() -> Self {
+        Self::new(ModelType::default())
+    }
+}
+
+pub fn generate_config(home: &Path, model_type: &ModelType) -> Result<()> {
+    let config = InstallConfig::new(model_type.clone());
     let config_path = home.join("config.toml");
     
     let toml_str = toml::to_string_pretty(&config)?;
@@ -67,6 +63,13 @@ mod tests {
     }
     
     #[test]
+    fn test_config_bge_m3() {
+        let config = InstallConfig::new(ModelType::BGEM3);
+        assert_eq!(config.model.dimension, 1024);
+        assert_eq!(config.model.model_type.name(), "bge-m3");
+    }
+    
+    #[test]
     fn test_config_toml_roundtrip() {
         let config = InstallConfig::default();
         let toml_str = toml::to_string_pretty(&config).unwrap();
@@ -79,19 +82,29 @@ mod tests {
     #[test]
     fn test_generate_config() {
         let dir = tempdir().unwrap();
-        generate_config(dir.path()).unwrap();
+        generate_config(dir.path(), &ModelType::MiniLML6V2).unwrap();
         
         let config_path = dir.path().join("config.toml");
         assert!(config_path.exists());
         
         let content = std::fs::read_to_string(&config_path).unwrap();
-        println!("Generated config content:\n{}", content);
         assert!(content.contains("dimension = 384"));
-        
-        // 检查序列化格式
         assert!(content.contains("model_type"));
         
         let parsed: InstallConfig = toml::from_str(&content).unwrap();
         assert_eq!(parsed.model.dimension, 384);
+    }
+    
+    #[test]
+    fn test_generate_config_bge_m3() {
+        let dir = tempdir().unwrap();
+        generate_config(dir.path(), &ModelType::BGEM3).unwrap();
+        
+        let config_path = dir.path().join("config.toml");
+        assert!(config_path.exists());
+        
+        let content = std::fs::read_to_string(&config_path).unwrap();
+        assert!(content.contains("dimension = 1024"));
+        assert!(content.contains("bge-m3"));
     }
 }

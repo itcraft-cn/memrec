@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
+use memrec_common::ModelType;
 
 use mr_install::create_directories;
 use mr_install::generate_config;
@@ -24,6 +25,9 @@ struct Cli {
     
     #[arg(long, help = "Git repository URL for cargo install")]
     repo_url: Option<String>,
+    
+    #[arg(long, value_name = "MODEL", help = "Embedding model: minilm-l6-v2 (default, 384d, English) or bge-m3 (1024d, multilingual/Chinese)")]
+    model: Option<String>,
     
     #[arg(long, help = "Skip binary installation (cargo install)")]
     skip_install: bool,
@@ -67,6 +71,13 @@ async fn main() -> Result<()> {
     println!("mr-install v{}", env!("CARGO_PKG_VERSION"));
     println!();
     
+    let model_type = parse_model_type(cli.model.as_deref())?;
+    let model_config = memrec_common::ModelConfig::new(model_type.clone());
+    
+    if let Some(w) = model_type.warning() {
+        warn(&w);
+    }
+    
     // Step 0: Pre-check
     step("Step 0/6: Pre-check");
     
@@ -75,6 +86,7 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
     ok("cargo found");
+    ok(&format!("Model: {} ({}d)", model_type.name(), model_type.dimension()));
     
     // Step 1: Install binaries
     if cli.skip_install {
@@ -105,14 +117,14 @@ async fn main() -> Result<()> {
     let home = create_directories()?;
     ok(&format!("Directories created: {}", home.display()));
     
-    generate_config(&home)?;
+    generate_config(&home, &model_type)?;
     ok(&format!("Config generated: {}/config.toml", home.display()));
     
     // Step 3: Download model
     if cli.skip_model {
         step("Step 3/6: Model download (skipped)");
     } else {
-        step("Step 3/6: Download embedding model (~90MB)");
+        step("Step 3/6: Download embedding model");
         
         let opts = DownloadOptions {
             use_hf_mirror: cli.use_hf_mirror,
@@ -120,7 +132,7 @@ async fn main() -> Result<()> {
             skip_hash_verify: cli.skip_hash_verify,
         };
         
-        match download_model(&opts).await {
+        match download_model(&model_config, &opts).await {
             Ok(path) => ok(&format!("Model ready: {}", path.display())),
             Err(e) => {
                 warn(&format!("Model download failed: {}", e));
@@ -215,4 +227,15 @@ fn confirm(msg: &str) -> bool {
     let mut input = String::new();
     std::io::stdin().read_line(&mut input).ok();
     input.trim().eq_ignore_ascii_case("y")
+}
+
+fn parse_model_type(model: Option<&str>) -> Result<ModelType> {
+    match model {
+        None | Some("minilm-l6-v2") => Ok(ModelType::MiniLML6V2),
+        Some("bge-m3") => Ok(ModelType::BGEM3),
+        Some(other) => anyhow::bail!(
+            "Unknown model '{}'. Supported: minilm-l6-v2, bge-m3",
+            other
+        ),
+    }
 }
