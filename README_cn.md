@@ -139,8 +139,6 @@ project-a/           project-b/
 
 - [使用手册](MANUAL_cn.md)
 - [Manual (English)](MANUAL.md)
-- [安装部署手册](docs/installation.md)
-- [使用手册](docs/user-guide.md)
 - [Skill文档](docs/skills/memrec-skill.md)
 
 ## 项目结构

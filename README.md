@@ -139,8 +139,6 @@ project-a/           project-b/
 
 - [Manual](MANUAL.md)
 - [Manual (Chinese)](MANUAL_cn.md)
-- [Installation Guide](docs/installation.md)
-- [User Guide](docs/user-guide.md)
 - [Skill Documentation](docs/skills/memrec-skill.md)
 
 ## Project Structure
