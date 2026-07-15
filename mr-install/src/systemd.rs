@@ -1,15 +1,22 @@
+//! # Linux systemd 用户服务
+//!
+//! 生成 `~/.config/systemd/user/memrecd.service` 并通过 systemctl 管理。
+
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
 use crate::service::ServiceManager;
 
+/// systemd 服务名
 const SERVICE_NAME: &str = "memrecd";
 
+/// 返回 systemd 用户服务文件路径
 fn service_file_path() -> Result<PathBuf> {
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
     Ok(home.join(".config/systemd/user/memrecd.service"))
 }
 
+/// 执行 systemctl 命令
 fn systemctl(args: &[&str]) -> Result<()> {
     let output = std::process::Command::new("systemctl")
         .args(args)
@@ -24,6 +31,7 @@ fn systemctl(args: &[&str]) -> Result<()> {
     Ok(())
 }
 
+/// systemd 服务管理器实现
 pub struct SystemdService;
 
 impl ServiceManager for SystemdService {

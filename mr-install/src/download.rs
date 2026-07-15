@@ -1,18 +1,31 @@
+//! # 模型文件下载
+//!
+//! 从 HuggingFace 或镜像下载 ONNX 嵌入模型文件，支持：
+//!
+//! - 哈希校验（SHA-256）
+//! - 镜像回退（主源失败后尝试 hf-mirror.com）
+//! - 断点续传（已存在且校验通过则跳过）
+//! - 进度条显示
+
 use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use memrec_common::{ModelConfig, ModelFile};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
+/// HuggingFace 主站基础 URL
 const HF_BASE_URL: &str = "https://huggingface.co";
+/// HuggingFace 镜像站基础 URL
 const HF_MIRROR_BASE_URL: &str = "https://hf-mirror.com";
 
+/// 下载选项
 pub struct DownloadOptions {
     pub use_hf_mirror: bool,
     pub mirror_base_url: Option<String>,
     pub skip_hash_verify: bool,
 }
 
+/// 构建下载基础 URL，优先级：自定义镜像 > hf-mirror > 官方
 fn build_base_url(opts: &DownloadOptions) -> String {
     if let Some(ref url) = opts.mirror_base_url {
         return url.trim_end_matches('/').to_string();
@@ -23,6 +36,7 @@ fn build_base_url(opts: &DownloadOptions) -> String {
     HF_BASE_URL.to_string()
 }
 
+/// 根据模型配置计算本地模型目录路径
 fn model_dir_for_config(model_config: &ModelConfig) -> Result<PathBuf> {
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
     Ok(home
@@ -30,6 +44,7 @@ fn model_dir_for_config(model_config: &ModelConfig) -> Result<PathBuf> {
         .join(model_config.local_dir_name()))
 }
 
+/// 检查所有必需文件是否已存在
 fn all_files_exist(model_dir: &Path, files: &[ModelFile]) -> bool {
     files
         .iter()
@@ -37,6 +52,7 @@ fn all_files_exist(model_dir: &Path, files: &[ModelFile]) -> bool {
         .all(|f| model_dir.join(&f.filename).exists())
 }
 
+/// 校验文件 SHA-256 哈希
 fn verify_file_hash(file_path: &Path, expected_hash: &str) -> Result<bool> {
     let mut file = std::fs::File::open(file_path)?;
     let mut hasher = Sha256::new();
@@ -46,6 +62,7 @@ fn verify_file_hash(file_path: &Path, expected_hash: &str) -> Result<bool> {
     Ok(actual_hash == expected_hash)
 }
 
+/// 尝试下载单个文件，带进度条
 async fn attempt_download_file(url: &str, dest: &Path, filename: &str) -> Result<()> {
     let response = reqwest::get(url)
         .await
@@ -83,10 +100,12 @@ async fn attempt_download_file(url: &str, dest: &Path, filename: &str) -> Result
     Ok(())
 }
 
+/// 检查是否为占位哈希（全零）
 fn is_placeholder_hash(hash: &str) -> bool {
     hash.chars().all(|c| c == '0')
 }
 
+/// 下载模型文件，支持哈希校验和镜像回退
 pub async fn download_model(model_config: &ModelConfig, opts: &DownloadOptions) -> Result<PathBuf> {
     let model_dir = model_dir_for_config(model_config)?;
     let repo = model_config

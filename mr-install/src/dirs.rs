@@ -1,11 +1,17 @@
+//! # 目录管理
+//!
+//! 创建 `~/.memrec/` 及其子目录（data、vectors、models、logs）。
+
 use anyhow::Result;
 use std::path::PathBuf;
 
+/// 返回 `~/.memrec/` 路径
 pub fn memrec_home() -> Result<PathBuf> {
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
     Ok(home.join(".memrec"))
 }
 
+/// 默认二进制目录：Linux `~/.local/bin`，macOS `~/bin`
 pub fn default_bin_dir() -> PathBuf {
     #[cfg(target_os = "linux")]
     {
@@ -27,12 +33,14 @@ pub fn default_bin_dir() -> PathBuf {
     }
 }
 
+/// 创建 `~/.memrec/` 及子目录
 pub fn create_directories() -> Result<PathBuf> {
     let home = memrec_home()?;
     create_directories_at(&home)?;
     Ok(home)
 }
 
+/// 在指定基路径下创建 data/vectors/models/logs 子目录
 pub fn create_directories_at(base: &std::path::Path) -> Result<()> {
     let dirs_to_create = [
         base.join("data"),

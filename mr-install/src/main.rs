@@ -1,3 +1,14 @@
+//! # mr-install — MemRec 安装器
+//!
+//! 一键安装 MemRec 全套组件，六步流程：
+//!
+//! 1. 预检查（cargo 可用性、模型选择）
+//! 2. 安装二进制（`cargo install`）
+//! 3. 创建目录 + 生成配置
+//! 4. 下载嵌入模型（HuggingFace/镜像）
+//! 5. 注册并启动系统服务（systemd/launchd）
+//! 6. 验证安装
+
 use anyhow::Result;
 use clap::Parser;
 use memrec_common::ModelType;
@@ -12,20 +23,25 @@ use mr_install::run_verification;
 use mr_install::DownloadOptions;
 use mr_install::InstallOptions;
 
+/// 安装器命令行参数
 #[derive(Parser)]
 #[command(name = "mr-install")]
 #[command(about = "Installer for MemRec — Local-first AI memory with project isolation", long_about = None)]
 #[command(version)]
 struct Cli {
+    /// 使用 hf-mirror.com 替代 huggingface.co
     #[arg(long, help = "Use hf-mirror.com instead of huggingface.co")]
     use_hf_mirror: bool,
 
+    /// 自定义镜像基础 URL
     #[arg(long, help = "Custom mirror base URL for model download")]
     mirror_base_url: Option<String>,
 
+    /// 自定义 Git 仓库 URL（用于 cargo install --git）
     #[arg(long, help = "Git repository URL for cargo install")]
     repo_url: Option<String>,
 
+    /// 嵌入模型选择：minilm-l6-v2（默认，384d，英文）或 bge-m3（1024d，多语言/中文）
     #[arg(
         long,
         value_name = "MODEL",
@@ -33,37 +49,47 @@ struct Cli {
     )]
     model: Option<String>,
 
+    /// 跳过二进制安装
     #[arg(long, help = "Skip binary installation (cargo install)")]
     skip_install: bool,
 
+    /// 跳过模型下载
     #[arg(long, help = "Skip model download")]
     skip_model: bool,
 
+    /// 跳过服务注册
     #[arg(long, help = "Skip service registration")]
     skip_service: bool,
 
+    /// 跳过验证测试
     #[arg(long, help = "Skip verification tests")]
     skip_verify: bool,
 
+    /// 跳过哈希校验（安全风险）
     #[arg(long, help = "Skip model hash verification (security risk)")]
     skip_hash_verify: bool,
 
+    /// 允许任意 Git 仓库 URL（安全风险）
     #[arg(long, help = "Allow any Git repository URL (security risk)")]
     allow_any_repo: bool,
 }
 
+/// 打印步骤标题
 fn step(msg: &str) {
     println!("\n>>> {}\n", msg);
 }
 
+/// 打印成功消息
 fn ok(msg: &str) {
     println!("[OK] {}", msg);
 }
 
+/// 打印警告消息
 fn warn(msg: &str) {
     println!("[WARN] {}", msg);
 }
 
+/// 打印失败消息
 fn fail(msg: &str) {
     println!("[FAIL] {}", msg);
 }
@@ -225,6 +251,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// 检查命令是否存在于 PATH 中
 fn which_exists(cmd: &str) -> bool {
     std::process::Command::new("which")
         .arg(cmd)
@@ -233,6 +260,7 @@ fn which_exists(cmd: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// 交互式确认提示，默认为否
 fn confirm(msg: &str) -> bool {
     println!("{} (y/N) ", msg);
     let mut input = String::new();
@@ -240,6 +268,7 @@ fn confirm(msg: &str) -> bool {
     input.trim().eq_ignore_ascii_case("y")
 }
 
+/// 解析模型类型字符串，支持 minilm-l6-v2 和 bge-m3
 fn parse_model_type(model: Option<&str>) -> Result<ModelType> {
     match model {
         None | Some("minilm-l6-v2") => Ok(ModelType::MiniLML6V2),

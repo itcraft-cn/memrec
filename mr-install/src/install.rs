@@ -1,25 +1,35 @@
+//! # 二进制安装
+//!
+//! 通过 `cargo install` 安装 memrec 系列二进制，并复制到系统 bin 目录。
+//! 支持 Git 仓库 URL 白名单校验。
+
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 
+/// 安装选项
 pub struct InstallOptions {
     pub repo_url: Option<String>,
     pub allow_any_repo: bool,
 }
 
+/// 返回 `~/.cargo/bin` 路径
 fn cargo_bin() -> Result<PathBuf> {
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
     Ok(home.join(".cargo/bin"))
 }
 
+/// 允许的 Git 仓库白名单
 const ALLOWED_GIT_REPOS: &[&str] = &[
     "https://github.com/itcraft-cn/memrec",
     "https://gitee.com/itcraft-cn/memrec",
 ];
 
+/// 校验 Git 仓库 URL 是否在白名单中
 fn validate_repo_url(url: &str) -> bool {
     ALLOWED_GIT_REPOS.contains(&url)
 }
 
+/// 安装 memrec 系列二进制，返回安装目录
 pub fn install_binaries(opts: &InstallOptions) -> Result<PathBuf> {
     let cargo = which_cargo()?;
     println!("  Using cargo: {}", cargo.display());
@@ -79,6 +89,7 @@ pub fn install_binaries(opts: &InstallOptions) -> Result<PathBuf> {
     Ok(system_bin_dir)
 }
 
+/// 查找 cargo 可执行文件路径
 fn which_cargo() -> Result<PathBuf> {
     let output = std::process::Command::new("which").arg("cargo").output()?;
 

@@ -1,8 +1,13 @@
+//! # 安装配置生成
+//!
+//! 生成 `~/.memrec/config.toml` 配置文件，包含模型参数和服务器路径。
+
 use anyhow::Result;
 use memrec_common::{ModelConfig as CommonModelConfig, ModelType};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+/// 安装配置，序列化为 TOML
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstallConfig {
     pub version: String,
@@ -10,6 +15,7 @@ pub struct InstallConfig {
     pub server: ServerConfig,
 }
 
+/// 服务器路径配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
     pub socket_path: String,
@@ -19,6 +25,7 @@ pub struct ServerConfig {
 }
 
 impl InstallConfig {
+    /// 根据模型类型创建安装配置
     pub fn new(model_type: ModelType) -> Self {
         Self {
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -39,6 +46,7 @@ impl Default for InstallConfig {
     }
 }
 
+/// 生成配置文件到 `home/config.toml`
 pub fn generate_config(home: &Path, model_type: &ModelType) -> Result<()> {
     let config = InstallConfig::new(model_type.clone());
     let config_path = home.join("config.toml");

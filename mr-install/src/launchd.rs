@@ -1,10 +1,16 @@
+//! # macOS LaunchAgent 服务
+//!
+//! 生成 `~/Library/LaunchAgents/com.itcraft.memrecd.plist` 并通过 launchctl 管理。
+
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
 use crate::service::ServiceManager;
 
+/// LaunchAgent 标签
 const LABEL: &str = "com.itcraft.memrecd";
 
+/// 返回 plist 文件路径
 fn plist_path() -> Result<PathBuf> {
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
     Ok(home
@@ -12,6 +18,7 @@ fn plist_path() -> Result<PathBuf> {
         .join(format!("{}.plist", LABEL)))
 }
 
+/// 执行 launchctl 命令
 fn launchctl(args: &[&str]) -> Result<()> {
     let output = std::process::Command::new("launchctl")
         .args(args)
@@ -26,6 +33,7 @@ fn launchctl(args: &[&str]) -> Result<()> {
     Ok(())
 }
 
+/// 获取当前用户 UID（用于 launchctl bootstrap/unload）
 fn get_uid() -> String {
     std::process::Command::new("id")
         .arg("-u")
@@ -36,6 +44,7 @@ fn get_uid() -> String {
         .unwrap_or_else(|| std::env::var("UID").unwrap_or_else(|_| "501".to_string()))
 }
 
+/// LaunchAgent 服务管理器实现
 pub struct LaunchdService;
 
 impl ServiceManager for LaunchdService {

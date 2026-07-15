@@ -1,3 +1,18 @@
+//! # mr-install — MemRec 安装器库
+//!
+//! 提供二进制安装、模型下载、配置生成、服务注册、安装验证等功能。
+//!
+//! ## 模块
+//!
+//! - `config`：安装配置生成（TOML）
+//! - `dirs`：目录创建（`~/.memrec/`）
+//! - `download`：模型文件下载（HuggingFace/镜像）
+//! - `install`：二进制安装（cargo install）
+//! - `service`：服务管理 trait + 平台检测
+//! - `systemd`：Linux systemd 用户服务
+//! - `launchd`：macOS LaunchAgent 服务
+//! - `verify`：安装后验证
+
 pub mod config;
 pub mod dirs;
 pub mod download;

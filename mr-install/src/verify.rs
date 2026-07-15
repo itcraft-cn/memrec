@@ -1,7 +1,12 @@
+//! # 安装验证
+//!
+//! 安装完成后执行端到端测试：写入 → 搜索 → 删除 → 版本检查。
+
 use anyhow::Result;
 
 use crate::dirs::default_bin_dir;
 
+/// 运行安装验证流程
 pub fn run_verification() -> Result<()> {
     let bin_dir = default_bin_dir();
 
@@ -80,6 +85,7 @@ pub fn run_verification() -> Result<()> {
     Ok(())
 }
 
+/// 从 memrec add 输出中提取记忆 UUID
 fn extract_memory_id(output: &str) -> Option<String> {
     for line in output.lines() {
         if line.contains("Added memory:") {
