@@ -1,8 +1,24 @@
+//! # 语义搜索命令
+//!
+//! 通过向量相似度搜索记忆，支持项目/全局/跨项目过滤。
+
 use crate::client::Client;
 use clap::Args;
 use memrec_common::{JsonRpcRequest, MemoryType, RequestAction, RequestParams, SearchMemoryParams};
 use uuid::Uuid;
 
+/// 搜索命令参数
+///
+/// | 参数 | 说明 | 默认值 |
+/// |------|------|--------|
+/// | `query` | 搜索查询（必填） | — |
+/// | `top_k` | 返回数量 | 10 |
+/// | `min_score` | 最低相似度 | 0.5 |
+/// | `project_only` | 仅当前项目 | false |
+/// | `global_only` | 仅全局记忆 | false |
+/// | `all` | 跨项目搜索 | false |
+/// | `mtype` | 记忆类型过滤 | None |
+/// | `human` | 人类可读输出 | false |
 #[derive(Args, Debug)]
 pub struct SearchArgs {
     #[arg(required = true)]
@@ -30,6 +46,7 @@ pub struct SearchArgs {
     pub human: bool,
 }
 
+/// 执行语义搜索，发送请求到守护进程并输出结果。
 pub async fn execute(
     client: &Client,
     args: SearchArgs,
@@ -78,6 +95,7 @@ pub async fn execute(
     Ok(())
 }
 
+/// 人类可读格式输出搜索结果。
 fn print_human_output(response: &memrec_common::JsonRpcResponse) {
     if let Some(result) = &response.result {
         match result {
@@ -117,6 +135,7 @@ fn print_human_output(response: &memrec_common::JsonRpcResponse) {
     }
 }
 
+/// 截断字符串，超出部分用 `...` 替代。
 fn truncate(s: &str, max_len: usize) -> String {
     if s.len() > max_len {
         s.chars().take(max_len).collect::<String>() + "..."

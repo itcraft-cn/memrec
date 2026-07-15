@@ -1,3 +1,12 @@
+//! # 记忆管理命令
+//!
+//! 实现 `add`、`get`、`list`、`delete`、`stats`、`version` 子命令。
+//!
+//! ## 分块机制
+//!
+//! `add` 命令在内容超过 [`MAX_CHUNK_SIZE`]（7500 字节）时自动分块，
+//! 优先在句子边界拆分，每块添加 `part:N-M` 标签。
+
 use crate::client::Client;
 use anyhow::Result;
 use memrec_common::{
@@ -8,8 +17,12 @@ use memrec_common::{
     JsonRpcRequest, MemoryType,
 };
 
-const MAX_CHUNK_SIZE: usize = 7500; // 留余量给JSON序列化
+/// 单块最大字节数，留余量给 JSON 序列化开销
+const MAX_CHUNK_SIZE: usize = 7500;
 
+/// 添加记忆命令。
+///
+/// 内容超长时自动分块，每块独立发送 Add 请求。
 pub async fn add(
     client: &Client,
     content: String,
@@ -90,6 +103,7 @@ pub async fn add(
     Ok(())
 }
 
+/// 按最大尺寸拆分内容为多个块。
 fn split_content(content: &str, max_size: usize) -> Vec<String> {
     let mut chunks = Vec::new();
     let mut start = 0;
@@ -103,6 +117,10 @@ fn split_content(content: &str, max_size: usize) -> Vec<String> {
     chunks
 }
 
+/// 查找分块边界，优先在句子结束符处拆分。
+///
+/// 拆分优先级：句号/感叹号/问号/换行 → UTF-8 字符边界。
+/// 每块至少 1KB 内容。
 fn find_chunk_boundary(content: &str, start: usize, max_size: usize) -> usize {
     let max_end = std::cmp::min(start + max_size, content.len());
 
@@ -133,6 +151,7 @@ fn find_chunk_boundary(content: &str, start: usize, max_size: usize) -> usize {
     boundary
 }
 
+/// 为分块添加 part 标签（`part:N-M`、`part:first`、`part:last`）。
 fn format_part_tags(original_tags: &[String], part_num: usize, total_parts: usize) -> Vec<String> {
     let mut tags = original_tags.to_vec();
     tags.push(format!("part:{}-{}", part_num, total_parts));
@@ -145,6 +164,7 @@ fn format_part_tags(original_tags: &[String], part_num: usize, total_parts: usiz
     tags
 }
 
+/// 获取记忆命令，支持分块合并（`--merge`）。
 pub async fn get(client: &Client, id: String, merge: bool) -> Result<()> {
     let uuid = uuid::Uuid::parse_str(&id).map_err(|e| anyhow::anyhow!("Invalid UUID: {}", e))?;
 
@@ -179,6 +199,7 @@ pub async fn get(client: &Client, id: String, merge: bool) -> Result<()> {
     Ok(())
 }
 
+/// 列出记忆命令，支持项目/全局过滤。
 pub async fn list(
     client: &Client,
     limit: usize,
@@ -224,6 +245,7 @@ pub async fn list(
     Ok(())
 }
 
+/// 删除记忆命令（软删除）。
 pub async fn delete(client: &Client, id: String) -> Result<()> {
     let uuid = uuid::Uuid::parse_str(&id).map_err(|e| anyhow::anyhow!("Invalid UUID: {}", e))?;
 
@@ -252,6 +274,7 @@ pub async fn delete(client: &Client, id: String) -> Result<()> {
     Ok(())
 }
 
+/// 统计信息命令。
 pub async fn stats(client: &Client) -> Result<()> {
     let request = JsonRpcRequest::new(RequestAction::Stats, None, 1);
 
@@ -274,6 +297,7 @@ pub async fn stats(client: &Client) -> Result<()> {
     Ok(())
 }
 
+/// 版本号命令，对比 CLI 和守护进程版本。
 pub async fn version(client: &Client) -> Result<()> {
     let cli_version = env!("CARGO_PKG_VERSION");
 
@@ -308,6 +332,7 @@ pub async fn version(client: &Client) -> Result<()> {
     Ok(())
 }
 
+/// 解析记忆类型字符串。
 fn parse_memory_type(s: &str) -> Result<MemoryType> {
     match s.to_lowercase().as_str() {
         "conversation" => Ok(MemoryType::Conversation),

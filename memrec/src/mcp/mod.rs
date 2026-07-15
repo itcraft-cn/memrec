@@ -1,14 +1,42 @@
+//! # MCP（Model Context Protocol）服务器
+//!
+//! 通过 stdin/stdout 与 AI 工具通信的 JSON-RPC 服务器，
+//! 将 MCP 请求翻译为 memrecd 守护进程调用。
+//!
+//! ## 支持的 MCP 方法
+//!
+//! - `initialize`：协议握手
+//! - `tools/list`：列出可用工具（mr_add, mr_search, mr_get, mr_list, mr_delete, mr_stats）
+//! - `tools/call`：调用工具
+//! - `resources/list`：列出资源（stats, project）
+//! - `resources/read`：读取资源
+//! - `ping`：心跳
+//!
+//! ## 工具列表
+//!
+//! | 工具 | 说明 |
+//! |------|------|
+//! | `mr_add` | 添加记忆 |
+//! | `mr_search` | 语义搜索 |
+//! | `mr_get` | 获取记忆 |
+//! | `mr_list` | 列出记忆 |
+//! | `mr_delete` | 删除记忆 |
+//! | `mr_stats` | 统计信息 |
+
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+/// MCP 服务器，通过 stdin/stdout 与 AI 工具通信。
 pub struct McpServer;
 
 impl McpServer {
+    /// 创建 MCP 服务器实例。
     pub fn new() -> Self {
         Self
     }
 
+    /// 主循环：从 stdin 逐行读取 JSON-RPC 请求，处理后写入 stdout。
     pub async fn run(self) -> Result<()> {
         let stdin = tokio::io::stdin();
         let mut stdout = tokio::io::stdout();
@@ -73,6 +101,7 @@ impl McpServer {
         Ok(())
     }
 
+    /// 处理 `initialize` 方法，返回协议版本和服务器能力。
     fn handle_initialize(&self, id: Option<Value>, _params: &Value) -> Value {
         self.make_result(
             id,
@@ -90,6 +119,7 @@ impl McpServer {
         )
     }
 
+    /// 处理 `tools/list` 方法，返回 6 个可用工具的 schema。
     fn handle_tools_list(&self, id: Option<Value>) -> Value {
         self.make_result(id, json!({
             "tools": [
@@ -180,6 +210,7 @@ impl McpServer {
         }))
     }
 
+    /// 处理 `tools/call` 方法，分发到具体工具实现。
     async fn handle_tools_call(&self, id: Option<Value>, params: &Value) -> Value {
         let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
         let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
@@ -212,6 +243,7 @@ impl McpServer {
         }
     }
 
+    /// 处理 `resources/list` 方法，返回 stats 和 project 两个资源。
     fn handle_resources_list(&self, id: Option<Value>) -> Value {
         self.make_result(
             id,
@@ -234,6 +266,7 @@ impl McpServer {
         )
     }
 
+    /// 处理 `resources/read` 方法，读取指定 URI 的资源内容。
     async fn handle_resources_read(&self, id: Option<Value>, params: &Value) -> Value {
         let uri = params.get("uri").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -261,6 +294,7 @@ impl McpServer {
         )
     }
 
+    /// `mr_add` 工具实现：添加记忆。
     async fn tool_add(&self, args: &Value) -> Result<String, String> {
         let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
         let memory_type = args
@@ -303,6 +337,7 @@ impl McpServer {
         ))
     }
 
+    /// `mr_search` 工具实现：语义搜索。
     async fn tool_search(&self, args: &Value) -> Result<String, String> {
         let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
         let top_k = args.get("top_k").and_then(|v| v.as_u64()).unwrap_or(10);
@@ -343,6 +378,7 @@ impl McpServer {
         Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
     }
 
+    /// `mr_get` 工具实现：获取记忆。
     async fn tool_get(&self, args: &Value) -> Result<String, String> {
         let id = args.get("id").and_then(|v| v.as_str()).unwrap_or("");
         let merge = args.get("merge").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -353,6 +389,7 @@ impl McpServer {
         Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
     }
 
+    /// `mr_list` 工具实现：列出记忆。
     async fn tool_list(&self, args: &Value) -> Result<String, String> {
         let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(20);
         let project_only = args
@@ -371,6 +408,7 @@ impl McpServer {
         Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
     }
 
+    /// `mr_delete` 工具实现：删除记忆。
     async fn tool_delete(&self, args: &Value) -> Result<String, String> {
         let id = args.get("id").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -380,11 +418,15 @@ impl McpServer {
         Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
     }
 
+    /// `mr_stats` 工具实现：统计信息。
     async fn tool_stats(&self) -> Result<String, String> {
         let resp = self.call_daemon("stats", json!({})).await?;
         Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
     }
 
+    /// 通过 Unix Socket 调用 memrecd 守护进程。
+    ///
+    /// 流程：连接 → 发送请求 → 关闭写端 → 读取响应（最大 1MB）→ 解析。
     async fn call_daemon(&self, method: &str, mut params: Value) -> Result<Value, String> {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use tokio::net::UnixStream;
@@ -489,6 +531,7 @@ impl McpServer {
         Ok(response)
     }
 
+    /// 构造 JSON-RPC 成功响应。
     fn make_result(&self, id: Option<Value>, result: Value) -> Value {
         json!({
             "jsonrpc": "2.0",
@@ -497,6 +540,7 @@ impl McpServer {
         })
     }
 
+    /// 构造 JSON-RPC 错误响应。
     fn make_error(&self, id: Option<Value>, code: i32, message: &str) -> Value {
         json!({
             "jsonrpc": "2.0",

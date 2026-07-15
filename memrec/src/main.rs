@@ -1,3 +1,22 @@
+//! # memrec — MemRec CLI 工具
+//!
+//! 命令行客户端，通过 Unix Socket 与 memrecd 守护进程通信。
+//!
+//! ## 子命令
+//!
+//! - `add`：添加记忆（支持自动分块）
+//! - `get`：获取记忆（支持分块合并）
+//! - `list`：列出记忆
+//! - `delete`：删除记忆
+//! - `search`：语义搜索
+//! - `stats`：统计信息
+//! - `version`：版本号
+//!
+//! ## MCP 模式
+//!
+//! 使用 `--mcp` 启动 MCP（Model Context Protocol）服务器，
+//! 通过 stdin/stdout 与 AI 工具通信。
+
 mod client;
 mod commands;
 mod mcp;
@@ -8,6 +27,7 @@ use clap::{Parser, Subcommand};
 use client::Client;
 use commands::{add, delete, get, list, search_execute, stats, version, SearchArgs};
 
+/// 检测当前工作目录，优先使用 Git 仓库根目录。
 fn detect_working_dir() -> Result<String> {
     let current = std::env::current_dir()?;
 
