@@ -3,7 +3,7 @@ members = ["common", "memrecd", "memrec", "mr-install"]
 resolver = "2"
 
 [workspace.package]
-version = "0.4.0" # managed by updgitver
+version = "0.5.0-dev" # managed by updgitver
 authors = ["Helly Guo <hellyguo@foxmail.com>"]
 edition = "2021"
 homepage = "https://itcraft.cn/memrec/"
