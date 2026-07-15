@@ -158,4 +158,4 @@ Apache-2.0
 
 ## 更新日志
 
-详见 [CHANGELOG.md](CHANGELOG.md)
+详见 [CHANGELOG_cn.md](CHANGELOG_cn.md)
