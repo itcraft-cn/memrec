@@ -47,6 +47,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.0] - 2026-06-23
+
+### Added
+
+- `mr-install` crate: one-stop installer with `cargo install`, model download, service registration, and verification
+- `ServiceManager` trait with Linux (systemd) and macOS (launchd) implementations
+- Platform-specific default bin directories (`~/.local/bin/` on Linux, `~/bin/` on macOS)
+- Install from crates.io by default, `--repo-url` for git source
+- Security hardening for `mr-install`: SHA-256 model verification, repo URL whitelist, `--allow-any-repo` override
+- `--version` flag on `memrecd`
+- Comprehensive README documents for all subprojects (common, memrec, memrecd, mr-install)
+- Security analysis documentation: `SECURITY_ANALYSIS.md`, `SECURITY_HIGHLIGHTS.md`, `SECURITY_SUMMARY.md`
+
+### Changed
+
+- Installation method: `install.sh` → `mr-install` (Rust-based, cross-platform)
+- `docs/installation.md` updated for `mr-install` workflow
+
+### Fixed
+
+- `memrec get --merge` on non-chunked memory returns content directly instead of error
+- Server handler improvements
+
+### Removed
+
+- Windows support (removed due to rocksdb bindgen/clang requirement)
+- `install.sh` (replaced by `mr-install`)
+- `docs/systemd.md` (consolidated into `docs/installation.md`)
+
+---
+
 ## [0.2.0] - 2026-05-14
 
 ### Added
