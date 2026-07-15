@@ -1,3 +1,21 @@
+//! # FastEmbed 嵌入生成器
+//!
+//! 基于 [FastEmbed](https://github.com/Anush008/fastembed-rs) 库，
+//! 使用 ONNX Runtime 加载本地模型文件进行嵌入向量推理。
+//!
+//! ## 模型加载流程
+//!
+//! 1. 确定模型目录（环境变量 > 配置项 > 默认路径）
+//! 2. 校验必需模型文件存在
+//! 3. 读取 ONNX 模型 + Tokenizer 文件
+//! 4. 加载外部数据文件（如模型权重分片）
+//! 5. 配置池化策略（CLS / Mean）
+//! 6. 初始化 `TextEmbedding` 推理引擎
+//!
+//! ## 线程安全
+//!
+//! ONNX Runtime 会话非线程安全，使用 `Mutex` 包装以支持多任务共享。
+
 use anyhow::Result;
 use fastembed::{Pooling, TextEmbedding, TokenizerFiles, UserDefinedEmbeddingModel};
 use memrec_common::{ModelConfig, ModelFileType, PoolingStrategy};
@@ -6,14 +24,23 @@ use std::sync::Mutex;
 
 use super::EmbeddingGenerator;
 
+/// 环境变量名，用于覆盖模型目录路径
 const ENV_MODEL_DIR: &str = "MEMREC_MODEL_DIR";
 
+/// 基于 FastEmbed 的嵌入向量生成器。
+///
+/// 内部持有 ONNX Runtime 推理会话（`Mutex<TextEmbedding>`），
+/// 支持单条和批量文本嵌入生成。
 pub struct FastEmbedGenerator {
     model: Mutex<TextEmbedding>,
     model_config: ModelConfig,
 }
 
 impl FastEmbedGenerator {
+    /// 根据模型配置创建生成器。
+    ///
+    /// 加载本地模型文件并初始化 ONNX Runtime 推理会话。
+    /// 若必需文件缺失则返回错误，提示运行 `mr-install` 下载模型。
     pub fn new(model_config: ModelConfig) -> Result<Self> {
         let model_dir = Self::get_model_dir(&model_config)?;
 
@@ -72,6 +99,9 @@ impl FastEmbedGenerator {
         })
     }
 
+    /// 确定模型目录路径。
+    ///
+    /// 优先级：`MEMREC_MODEL_DIR` 环境变量 > 配置项 `model_dir` > 默认 `~/.memrec/models/<dir_name>`
     fn get_model_dir(model_config: &ModelConfig) -> Result<PathBuf> {
         if let Ok(env_path) = std::env::var(ENV_MODEL_DIR) {
             let path = PathBuf::from(env_path);
@@ -100,6 +130,7 @@ impl FastEmbedGenerator {
     }
 }
 
+/// 从模型目录读取指定类型的模型文件。
 fn read_model_file(
     model_dir: &Path,
     model_config: &ModelConfig,
@@ -115,10 +146,14 @@ fn read_model_file(
 }
 
 impl EmbeddingGenerator for FastEmbedGenerator {
+    /// 返回嵌入向量维度（由模型配置决定）。
     fn dimension(&self) -> usize {
         self.model_config.dimension
     }
 
+    /// 生成单条文本的嵌入向量。
+    ///
+    /// 内部加锁访问 ONNX Runtime 会话，返回 384 维（默认模型）浮点向量。
     fn embed(&self, text: &str) -> Result<Vec<f32>> {
         let mut model = self
             .model
@@ -133,6 +168,7 @@ impl EmbeddingGenerator for FastEmbedGenerator {
             .ok_or_else(|| anyhow::anyhow!("No embedding returned"))
     }
 
+    /// 批量生成嵌入向量，比逐条调用更高效。
     fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
         let mut model = self
             .model

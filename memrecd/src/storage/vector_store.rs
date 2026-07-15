@@ -1,3 +1,8 @@
+//! # 内存向量存储
+//!
+//! [`VectorStore`] 是纯内存的向量存储实现，使用暴力余弦相似度搜索。
+//! 适用于测试和小规模场景，生产环境应使用 [`RocksDBVectorStore`]。
+
 use super::traits::{SearchFilter, SearchHit, VectorPayload, VectorStorage};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -5,6 +10,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
+/// 纯内存向量存储，使用暴力余弦搜索。
+///
+/// 向量存储在 `Vec<Vec<f32>>` 中，通过 UUID ↔ 索引映射进行寻址。
 pub struct VectorStore {
     dimension: usize,
     id_to_index: Arc<Mutex<HashMap<Uuid, usize>>>,
@@ -13,6 +21,7 @@ pub struct VectorStore {
 }
 
 impl VectorStore {
+    /// 创建指定维度的向量存储。
     pub fn new(dimension: usize) -> Self {
         Self {
             dimension,
@@ -22,6 +31,7 @@ impl VectorStore {
         }
     }
 
+    /// 计算余弦相似度。
     fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
         let dot = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum::<f32>();
         let norm_a = (a.iter().map(|x| x * x).sum::<f32>()).sqrt();

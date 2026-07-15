@@ -1,3 +1,12 @@
+//! # 生命周期管理器
+//!
+//! [`LifecycleManager`] 执行两类清理操作：
+//!
+//! 1. **软删除清理**：已软删除超过恢复天数的记忆执行硬删除
+//! 2. **低重要性清理**：重要性低于阈值且长期未访问的记忆执行硬删除
+//!
+//! 还支持全量重要性重算，确保评分随时间推移保持准确。
+
 use anyhow::Result;
 use chrono::Utc;
 use std::sync::Arc;
@@ -7,6 +16,7 @@ use crate::importance::ImportanceCalculator;
 use crate::storage::MemoryStorage;
 use memrec_common::MemoryConfig;
 
+/// 生命周期管理器，协调记忆的保留与删除策略。
 pub struct LifecycleManager {
     storage: Arc<dyn MemoryStorage>,
     calculator: ImportanceCalculator,
@@ -14,6 +24,7 @@ pub struct LifecycleManager {
 }
 
 impl LifecycleManager {
+    /// 创建生命周期管理器。
     pub fn new(
         storage: Arc<dyn MemoryStorage>,
         calculator: ImportanceCalculator,
@@ -26,6 +37,7 @@ impl LifecycleManager {
         }
     }
 
+    /// 重算所有记忆的重要性分数，更新有变化的记录。
     pub async fn recalculate_importance(&self) -> Result<()> {
         info!("Recalculating importance for all memories");
 
@@ -45,6 +57,7 @@ impl LifecycleManager {
         Ok(())
     }
 
+    /// 执行一轮清理：先清理已软删除的记忆，再清理低重要性记忆。
     pub async fn cleanup_cycle(&self) -> Result<()> {
         info!("Starting cleanup cycle");
 
@@ -55,6 +68,7 @@ impl LifecycleManager {
         Ok(())
     }
 
+    /// 清理已软删除且超过恢复天数的记忆（硬删除）。
     async fn cleanup_deleted(&self) -> Result<()> {
         let deleted = self.storage.list_deleted().await?;
         let now = Utc::now();
@@ -76,6 +90,7 @@ impl LifecycleManager {
         Ok(())
     }
 
+    /// 清理重要性低于阈值且长期未访问的记忆（硬删除）。
     async fn cleanup_low_importance(&self) -> Result<()> {
         let low_importance = self
             .storage

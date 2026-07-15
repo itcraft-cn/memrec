@@ -1,3 +1,13 @@
+//! # 守护进程主循环
+//!
+//! [`Daemon`] 是 memrecd 的核心结构，负责：
+//!
+//! 1. 加载配置并校验模型就绪状态
+//! 2. 初始化 RocksDB 存储、向量存储和嵌入生成器
+//! 3. 启动 Unix Socket 服务器接收 JSON-RPC 请求
+//! 4. 运行定时同步任务（向量存储持久化）
+//! 5. 监听 SIGTERM/SIGINT 信号优雅关闭
+
 use anyhow::Result;
 use std::sync::Arc;
 use std::time::Duration;
@@ -10,22 +20,27 @@ use crate::embedding::{EmbeddingGenerator, GeneratorFactory};
 use crate::server::{Router, UnixSocketServer};
 use crate::storage::{MemoryStorage, MemoryStore, RocksDBStore, RocksDBVectorStore, VectorStorage};
 
+/// 向量存储定时同步间隔（秒）
 const SYNC_INTERVAL_SECS: u64 = 30;
 
+/// 守护进程主结构，持有配置并协调各子系统生命周期。
 pub struct Daemon {
     config: DaemonConfig,
 }
 
 impl Daemon {
+    /// 从默认配置路径加载配置创建守护进程。
     pub fn new() -> Result<Self> {
         let config = DaemonConfig::load()?;
         Ok(Self { config })
     }
 
+    /// 使用指定配置创建守护进程。
     pub fn with_config(config: DaemonConfig) -> Self {
         Self { config }
     }
 
+    /// 从命令行参数创建守护进程，支持覆盖模型类型和模型目录。
     pub fn from_args(
         model_type: Option<memrec_common::ModelType>,
         model_dir: Option<String>,
@@ -43,6 +58,9 @@ impl Daemon {
         Ok(Self { config })
     }
 
+    /// 运行守护进程主循环。
+    ///
+    /// 流程：校验模型 → 打开存储 → 重建缺失嵌入 → 启动服务器 → 等待信号 → 关闭清理
     pub async fn run(&self) -> Result<()> {
         info!(
             "MemRec daemon starting with model: {}",
@@ -97,6 +115,10 @@ impl Daemon {
         self.shutdown(&vector_store)
     }
 
+    /// 重建缺失的嵌入向量。
+    ///
+    /// 启动时对比记忆数量与向量存储缓存数量，
+    /// 为缺失嵌入的记忆重新生成向量并持久化。
     async fn rebuild_missing_embeddings(
         &self,
         storage: &Arc<MemoryStore>,
@@ -143,6 +165,7 @@ impl Daemon {
         Ok(())
     }
 
+    /// 向量存储定时同步循环，每 [`SYNC_INTERVAL_SECS`] 秒将缓存刷盘。
     async fn sync_loop(vector_store: Arc<RocksDBVectorStore>) {
         let mut ticker = interval(Duration::from_secs(SYNC_INTERVAL_SECS));
 
@@ -157,6 +180,7 @@ impl Daemon {
         }
     }
 
+    /// 优雅关闭：保存向量存储、清理 Unix Socket 文件。
     fn shutdown(&self, vector_store: &Arc<RocksDBVectorStore>) -> Result<()> {
         info!("Shutting down daemon");
 

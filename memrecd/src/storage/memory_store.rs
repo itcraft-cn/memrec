@@ -1,3 +1,20 @@
+//! # 记忆存储实现
+//!
+//! [`MemoryStore`] 基于 [`RocksDBStore`] 实现 [`MemoryStorage`] trait，
+//! 提供记忆的完整生命周期管理。
+//!
+//! ## 存储结构
+//!
+//! - **memories 列族**：UUID → JSON 序列化的 `Memory`
+//! - **by_tag 列族**：`tag:uuid` → UUID（标签索引）
+//! - **deleted 列族**：UUID → UUID（软删除索引）
+//! - **importance 列族**：UUID → 重要性分数字符串
+//!
+//! ## 软删除机制
+//!
+//! 首次删除时标记 `is_deleted=true` 并记录 `deleted_at`，
+//! 第二次删除（硬删除）才真正从存储中移除。
+
 use super::rocksdb::RocksDBStore;
 use super::traits::MemoryStorage;
 use anyhow::{Context, Result};
@@ -6,31 +23,38 @@ use chrono::Utc;
 use memrec_common::{Memory, MemoryType};
 use uuid::Uuid;
 
+/// 基于 RocksDB 的记忆存储实现。
 pub struct MemoryStore {
     rocksdb: RocksDBStore,
 }
 
 impl MemoryStore {
+    /// 创建记忆存储实例。
     pub fn new(rocksdb: RocksDBStore) -> Self {
         Self { rocksdb }
     }
 
+    /// 生成记忆主键（UUID 字符串的字节表示）。
     fn memory_key(id: &Uuid) -> Vec<u8> {
         id.to_string().into_bytes()
     }
 
+    /// 生成标签索引键（`tag:uuid` 格式）。
     fn tag_key(tag: &str, id: &Uuid) -> Vec<u8> {
         format!("{}:{}", tag, id).into_bytes()
     }
 
+    /// JSON 序列化记忆。
     fn serialize_memory(memory: &Memory) -> Result<Vec<u8>> {
         serde_json::to_vec(memory).context("Failed to serialize memory")
     }
 
+    /// JSON 反序列化记忆。
     fn deserialize_memory(data: &[u8]) -> Result<Memory> {
         serde_json::from_slice(data).context("Failed to deserialize memory")
     }
 
+    /// 从迭代器中收集记忆，支持跳过已删除项。
     fn collect_memories_from_iter(
         mut iter: rocksdb::DBRawIterator<'_>,
         limit: usize,

@@ -1,3 +1,21 @@
+//! # JSON-RPC 请求路由器
+//!
+//! [`Router`] 是 memrecd 的请求分发核心，将 JSON-RPC 2.0 请求
+//! 路由到对应的处理器方法。
+//!
+//! ## 支持的方法
+//!
+//! | 方法 | 说明 |
+//! |------|------|
+//! | `Add` | 添加记忆（自动生成嵌入向量） |
+//! | `Get` | 获取记忆（支持分块合并） |
+//! | `List` | 列出记忆（支持项目/全局过滤） |
+//! | `Delete` | 删除记忆（软删除/硬删除） |
+//! | `Stats` | 统计信息 |
+//! | `SearchMemory` | 语义搜索（嵌入+向量检索） |
+//! | `GetProjectInfo` | 项目信息 |
+//! | `GetVersion` | 版本号 |
+
 use crate::embedding::EmbeddingGenerator;
 use crate::project::{detect_project_id, find_project_root};
 use crate::storage::{MemoryStorage, SearchFilter, VectorStorage};
@@ -14,6 +32,10 @@ use std::sync::Arc;
 use std::time::Instant;
 use uuid::Uuid;
 
+/// JSON-RPC 请求路由器。
+///
+/// 持有存储、向量存储和嵌入生成器的共享引用，
+/// 将请求分发到对应的处理方法。
 pub struct Router {
     storage: Arc<dyn MemoryStorage>,
     vector_store: Arc<dyn VectorStorage>,
@@ -21,6 +43,7 @@ pub struct Router {
 }
 
 impl Router {
+    /// 创建路由器，注入存储、向量存储和嵌入生成器。
     pub fn new(
         storage: Arc<dyn MemoryStorage>,
         vector_store: Arc<dyn VectorStorage>,
@@ -33,6 +56,7 @@ impl Router {
         }
     }
 
+    /// 测试用：仅注入存储，自动创建默认嵌入生成器和内存向量存储。
     #[cfg(test)]
     pub fn new_simple(storage: Arc<dyn MemoryStorage>) -> Self {
         use crate::embedding::GeneratorFactory;
@@ -48,6 +72,7 @@ impl Router {
         }
     }
 
+    /// 路由 JSON-RPC 请求到对应处理器。
     pub async fn route(&self, request: JsonRpcRequest) -> JsonRpcResponse {
         match request.method {
             RequestAction::Add => self.handle_add(request.params, request.id).await,
@@ -75,6 +100,9 @@ impl Router {
         }
     }
 
+    /// 处理 Add 请求：保存记忆并生成嵌入向量。
+    ///
+    /// 全局记忆使用 nil UUID 作为项目 ID；项目记忆自动检测项目 ID。
     async fn handle_add(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
         match params {
             Some(RequestParams::Add(p)) => {
@@ -141,6 +169,9 @@ impl Router {
         }
     }
 
+    /// 处理 Get 请求：获取单条记忆。
+    ///
+    /// 若 `merge=true` 且记忆为分块记忆，合并所有分块返回完整内容。
     async fn handle_get(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
         match params {
             Some(RequestParams::Get(p)) => {
@@ -185,6 +216,7 @@ impl Router {
         }
     }
 
+    /// 处理 Get 请求（合并模式）：将分块记忆按 chunk_index 排序后拼接。
     async fn handle_get_with_merge(&self, id: &Uuid, rpc_id: u64) -> JsonRpcResponse {
         match self.storage.get(id).await {
             Ok(Some(memory)) => {
@@ -257,6 +289,7 @@ impl Router {
         }
     }
 
+    /// 处理 List 请求：列出记忆，支持项目/全局过滤。
     async fn handle_list(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
         let (limit, project_only, global_only, project_id) = match params {
             Some(RequestParams::List(p)) => (p.limit, p.project_only, p.global_only, p.project_id),
@@ -297,6 +330,9 @@ impl Router {
         )
     }
 
+    /// 处理 Delete 请求：删除记忆。
+    ///
+    /// 返回消息区分硬删除（已过恢复期）和软删除。
     async fn handle_delete(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
         match params {
             Some(RequestParams::Delete(p)) => match self.storage.delete(&p.id).await {
@@ -333,6 +369,7 @@ impl Router {
         }
     }
 
+    /// 处理 Stats 请求：返回记忆统计信息。
     async fn handle_stats(&self, id: u64) -> JsonRpcResponse {
         match (
             self.storage.count().await,
@@ -359,6 +396,10 @@ impl Router {
         }
     }
 
+    /// 处理 SearchMemory 请求：语义搜索。
+    ///
+    /// 流程：生成查询嵌入 → 向量检索 → 补充记忆元数据 → 返回结果。
+    /// 返回结果包含嵌入耗时和搜索耗时。
     async fn handle_search_memory(
         &self,
         params: Option<RequestParams>,
@@ -466,6 +507,7 @@ impl Router {
         }
     }
 
+    /// 处理 GetProjectInfo 请求：返回项目 ID、根目录和记忆数量。
     async fn handle_project_info(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
         let params: GetProjectInfoParams = match params {
             Some(RequestParams::GetProjectInfo(p)) => p,
@@ -511,6 +553,7 @@ impl Router {
         }
     }
 
+    /// 处理 GetVersion 请求：返回守护进程版本号。
     async fn handle_version(&self, id: u64) -> JsonRpcResponse {
         JsonRpcResponse::success(
             ResponseResult::Version(VersionResult {
@@ -520,10 +563,12 @@ impl Router {
         )
     }
 
+    /// 解析原始 JSON-RPC 请求字符串。
     pub fn parse_request(&self, raw: &str) -> Result<JsonRpcRequest> {
         serde_json::from_str(raw).map_err(|e| anyhow::anyhow!("Failed to parse request: {}", e))
     }
 
+    /// 序列化 JSON-RPC 响应为字符串。
     pub fn serialize_response(&self, response: &JsonRpcResponse) -> Result<String> {
         serde_json::to_string(response)
             .map_err(|e| anyhow::anyhow!("Failed to serialize response: {}", e))

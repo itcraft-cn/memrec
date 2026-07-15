@@ -1,9 +1,17 @@
+//! # 存储层 trait 定义
+//!
+//! 定义记忆存储、项目存储、配置存储和向量存储的抽象接口，
+//! 便于替换底层实现（如未来支持其他数据库后端）。
+
 use anyhow::Result;
 use async_trait::async_trait;
 use memrec_common::{Memory, MemoryType};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// 记忆存储 trait。
+///
+/// 提供记忆的 CRUD、按类型/标签/重要性/项目查询、软删除管理等功能。
 #[async_trait]
 pub trait MemoryStorage: Send + Sync {
     async fn save(&self, memory: &Memory) -> Result<()>;
@@ -25,6 +33,7 @@ pub trait MemoryStorage: Send + Sync {
     async fn get_chunks_by_group(&self, chunk_group_id: &Uuid) -> Result<Vec<Memory>>;
 }
 
+/// 项目存储 trait。
 #[async_trait]
 pub trait ProjectStorage: Send + Sync {
     async fn save(&self, project: &memrec_common::Project) -> Result<()>;
@@ -35,12 +44,14 @@ pub trait ProjectStorage: Send + Sync {
     async fn list(&self) -> Result<Vec<memrec_common::Project>>;
 }
 
+/// 配置存储 trait（键值对）。
 #[async_trait]
 pub trait ConfigStorage: Send + Sync {
     async fn get(&self, key: &str) -> Result<Option<String>>;
     async fn set(&self, key: &str, value: &str) -> Result<()>;
 }
 
+/// 向量搜索附加载荷，存储在向量索引中用于过滤和结果展示。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct VectorPayload {
     pub project_id: Option<Uuid>,
@@ -53,6 +64,7 @@ pub struct VectorPayload {
     pub chunk_total: Option<u32>,
 }
 
+/// 语义搜索过滤条件。
 #[derive(Debug, Clone, Default)]
 pub struct SearchFilter {
     pub project_id: Option<Uuid>,
@@ -61,6 +73,7 @@ pub struct SearchFilter {
     pub min_score: f32,
 }
 
+/// 语义搜索命中结果。
 #[derive(Debug, Clone)]
 pub struct SearchHit {
     pub memory_id: Uuid,
@@ -68,6 +81,9 @@ pub struct SearchHit {
     pub payload: VectorPayload,
 }
 
+/// 向量存储 trait。
+///
+/// 提供向量的增删查和余弦相似度搜索。
 #[async_trait]
 pub trait VectorStorage: Send + Sync {
     async fn add(&self, id: &Uuid, embedding: &[f32], payload: VectorPayload) -> Result<()>;

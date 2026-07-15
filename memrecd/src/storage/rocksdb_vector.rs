@@ -1,3 +1,18 @@
+//! # RocksDB 持久化向量存储
+//!
+//! [`RocksDBVectorStore`] 使用 RocksDB 持久化嵌入向量，同时维护内存缓存
+//! 用于高速搜索。写入时仅更新缓存并标记 dirty，定时或关闭时批量刷盘。
+//!
+//! ## 写入策略
+//!
+//! - `add()` → 更新内存缓存 + 标记 dirty
+//! - `save()` → 仅在 dirty 时执行 WriteBatch 批量写入
+//! - 守护进程每 30 秒调用 `save()` 同步
+//!
+//! ## 搜索
+//!
+//! 使用暴力余弦相似度搜索，支持项目 ID、记忆类型和最低分数过滤。
+
 use super::traits::{SearchFilter, SearchHit, VectorPayload, VectorStorage};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -7,15 +22,22 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
+/// 向量列族名
 const CF_VECTORS: &str = "vectors";
+/// 载荷列族名
 const CF_PAYLOADS: &str = "payloads";
 
+/// RocksDB 中存储的向量记录，包含嵌入向量和载荷。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredVector {
     embedding: Vec<f32>,
     payload: VectorPayload,
 }
 
+/// 基于 RocksDB 的持久化向量存储。
+///
+/// 启动时从 RocksDB 加载全部向量到内存缓存，搜索在内存中执行，
+/// 写入先更新缓存，定时批量持久化。
 pub struct RocksDBVectorStore {
     db: Arc<DB>,
     dimension: usize,
@@ -24,6 +46,7 @@ pub struct RocksDBVectorStore {
 }
 
 impl RocksDBVectorStore {
+    /// 打开 RocksDB 向量存储，加载已有数据到内存缓存。
     pub fn open(path: &std::path::Path, dimension: usize) -> Result<Self> {
         let mut opts = Options::default();
         opts.create_if_missing(true);
@@ -60,6 +83,9 @@ impl RocksDBVectorStore {
         })
     }
 
+    /// 将脏数据批量写入 RocksDB。
+    ///
+    /// 仅在 dirty 标记为 true 时执行写入，写入后清除 dirty 标记。
     pub fn save(&self) -> Result<()> {
         let dirty = *self.dirty.lock().unwrap();
         if !dirty {
@@ -84,6 +110,7 @@ impl RocksDBVectorStore {
         Ok(())
     }
 
+    /// 计算余弦相似度。
     fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
         let dot = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum::<f32>();
         let norm_a = (a.iter().map(|x| x * x).sum::<f32>()).sqrt();
@@ -96,6 +123,7 @@ impl RocksDBVectorStore {
         }
     }
 
+    /// 返回内存缓存中的向量数量。
     pub fn count_cached(&self) -> usize {
         self.cache.lock().unwrap().len()
     }

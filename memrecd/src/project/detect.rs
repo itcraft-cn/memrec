@@ -1,3 +1,20 @@
+//! # 项目 ID 检测与 `.mr_pid` 文件管理
+//!
+//! 每个项目通过 `.mr_pid` 文件持有唯一 UUID，实现记忆的项目级隔离。
+//!
+//! ## `.mr_pid` 文件格式
+//!
+//! ```ini
+//! memrec_project_id=550e8400-e29b-41d4-a716-446655440000
+//! created_at=2024-01-01T00:00:00Z
+//! project_name=my-project   # 可选
+//! ```
+//!
+//! ## 项目根目录检测
+//!
+//! 优先使用 `git rev-parse --show-toplevel` 确定项目根目录，
+//! 若不在 Git 仓库中则使用当前工作目录。
+
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use std::fmt;
@@ -5,6 +22,9 @@ use std::fs;
 use std::path::PathBuf;
 use uuid::Uuid;
 
+/// `.mr_pid` 文件内容模型。
+///
+/// 存储项目的唯一标识、创建时间和可选的项目名称。
 pub struct ProjectIdFile {
     pub project_id: Uuid,
     pub created_at: DateTime<Utc>,
@@ -12,6 +32,7 @@ pub struct ProjectIdFile {
 }
 
 impl ProjectIdFile {
+    /// 创建新的项目 ID 文件，生成随机 UUID。
     pub fn new(project_name: Option<String>) -> Self {
         Self {
             project_id: Uuid::new_v4(),
@@ -20,6 +41,10 @@ impl ProjectIdFile {
         }
     }
 
+    /// 从 `.mr_pid` 文件内容解析项目信息。
+    ///
+    /// 要求 `memrec_project_id` 和 `created_at` 字段必须存在，
+    /// `project_name` 为可选项。
     pub fn parse(content: &str) -> Result<Self> {
         let mut project_id: Option<Uuid> = None;
         let mut created_at: Option<DateTime<Utc>> = None;
@@ -69,6 +94,9 @@ impl fmt::Display for ProjectIdFile {
     }
 }
 
+/// 查找项目根目录。
+///
+/// 优先使用 `git rev-parse --show-toplevel`，失败时回退到当前工作目录。
 pub fn find_project_root(working_dir: Option<&str>) -> Result<PathBuf> {
     let start_dir = if let Some(dir) = working_dir {
         PathBuf::from(dir)
@@ -92,6 +120,11 @@ pub fn find_project_root(working_dir: Option<&str>) -> Result<PathBuf> {
     Ok(start_dir)
 }
 
+/// 检测或创建项目 ID。
+///
+/// 在项目根目录查找 `.mr_pid` 文件：
+/// - 若存在则解析返回已有 UUID
+/// - 若不存在则创建新文件并返回新生成的 UUID
 pub fn detect_project_id(working_dir: Option<&str>) -> Result<Uuid> {
     let project_root = find_project_root(working_dir)?;
     let mr_pid_path = project_root.join(".mr_pid");

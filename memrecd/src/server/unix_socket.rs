@@ -1,3 +1,8 @@
+//! # Unix 域套接字服务器
+//!
+//! 监听 Unix Socket 接受客户端连接，每个连接独立 tokio 任务处理。
+//! 通信协议为 JSON-RPC 2.0，单次请求-响应模式。
+
 use anyhow::{Context, Result};
 use std::path::Path;
 use std::sync::Arc;
@@ -7,12 +12,19 @@ use tracing::{debug, error, info};
 
 use super::handler::Router;
 
+/// Unix 域套接字服务器。
+///
+/// 绑定到指定路径的 Unix Socket，接受连接后读取请求、
+/// 路由处理、写回响应，然后关闭连接。
 pub struct UnixSocketServer {
     listener: UnixListener,
     router: Arc<Router>,
 }
 
 impl UnixSocketServer {
+    /// 绑定到指定 Socket 路径。
+    ///
+    /// 若路径已存在则先删除旧文件，然后创建新的监听器。
     pub async fn bind(socket_path: &Path, router: Arc<Router>) -> Result<Self> {
         if socket_path.exists() {
             std::fs::remove_file(socket_path).context("Failed to remove existing socket file")?;
@@ -25,6 +37,9 @@ impl UnixSocketServer {
         Ok(Self { listener, router })
     }
 
+    /// 运行服务器主循环，持续接受连接。
+    ///
+    /// 每个连接在独立的 tokio 任务中处理，不会阻塞后续连接。
     pub async fn run(&self) -> Result<()> {
         info!("Unix socket server started");
 
@@ -44,6 +59,7 @@ impl UnixSocketServer {
         }
     }
 
+    /// 处理单个连接：读取请求 → 路由 → 写回响应 → 关闭。
     async fn handle_connection(mut stream: tokio::net::UnixStream, router: Arc<Router>) {
         let mut buffer = vec![0u8; 8192];
 
