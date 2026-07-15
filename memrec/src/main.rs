@@ -55,6 +55,10 @@ struct Cli {
     #[arg(long)]
     mcp: bool,
 
+    /// 人类可读输出（默认输出 JSON-RPC）
+    #[arg(long, global = true)]
+    human: bool,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -102,6 +106,7 @@ async fn main() -> Result<()> {
 
     let command = cli.command.unwrap_or(Commands::Stats);
     let client = Client::new()?;
+    let human = cli.human;
 
     match command {
         Commands::Add {
@@ -115,23 +120,23 @@ async fn main() -> Result<()> {
             } else {
                 Some(detect_working_dir()?)
             };
-            add(&client, content, mtype, tag, global, working_dir).await?;
+            add(&client, content, mtype, tag, global, working_dir, human).await?;
         }
         Commands::Get { id, merge } => {
-            get(&client, id, merge).await?;
+            get(&client, id, merge, human).await?;
         }
         Commands::List {
             limit,
             project_only,
             global_only,
         } => {
-            list(&client, limit, project_only, global_only).await?;
+            list(&client, limit, project_only, global_only, human).await?;
         }
         Commands::Delete { id } => {
-            delete(&client, id).await?;
+            delete(&client, id, human).await?;
         }
         Commands::Stats => {
-            stats(&client).await?;
+            stats(&client, human).await?;
         }
         Commands::Search(args) => {
             let working_dir = if args.all || args.global_only {
@@ -139,10 +144,10 @@ async fn main() -> Result<()> {
             } else {
                 Some(detect_working_dir()?)
             };
-            search_execute(&client, args, working_dir).await?;
+            search_execute(&client, args, working_dir, human).await?;
         }
         Commands::Version => {
-            version(&client).await?;
+            version(&client, human).await?;
         }
     }
 

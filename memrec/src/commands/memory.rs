@@ -23,6 +23,7 @@ const MAX_CHUNK_SIZE: usize = 7500;
 /// 添加记忆命令。
 ///
 /// 内容超长时自动分块，每块独立发送 Add 请求。
+/// 默认输出 JSON-RPC 响应，`human=true` 时输出人类可读格式。
 pub async fn add(
     client: &Client,
     content: String,
@@ -30,20 +31,26 @@ pub async fn add(
     tags: Vec<String>,
     is_global: bool,
     working_dir: Option<String>,
+    human: bool,
 ) -> Result<()> {
     let memory_type = parse_memory_type(&mtype)?;
 
     if content.len() > MAX_CHUNK_SIZE {
-        eprintln!(
-            "WARN: Content too long ({:.1}KB > {:.1}KB), auto-splitting into chunks...",
-            content.len() as f64 / 1024.0,
-            MAX_CHUNK_SIZE as f64 / 1024.0
-        );
+        if human {
+            eprintln!(
+                "WARN: Content too long ({:.1}KB > {:.1}KB), auto-splitting into chunks...",
+                content.len() as f64 / 1024.0,
+                MAX_CHUNK_SIZE as f64 / 1024.0
+            );
+        }
 
         let chunks = split_content(&content, MAX_CHUNK_SIZE);
-        eprintln!("WARN: Split into {} parts", chunks.len());
+        if human {
+            eprintln!("WARN: Split into {} parts", chunks.len());
+        }
 
         let mut ids = Vec::new();
+        let mut last_response = None;
         for (i, chunk) in chunks.iter().enumerate() {
             let part_tags = format_part_tags(&tags, i + 1, chunks.len());
 
@@ -61,14 +68,21 @@ pub async fn add(
             );
 
             let response = client.send(&request).await?;
+            last_response = Some(response.clone());
 
             if let Some(ResponseResult::Memory(m)) = response.result {
                 ids.push(m.memory.id);
-                println!("Part {}: Added {}", i + 1, m.memory.id);
+                if human {
+                    println!("Part {}: Added {}", i + 1, m.memory.id);
+                }
             }
         }
 
-        println!("All {} parts added: {:?}", ids.len(), ids);
+        if human {
+            println!("All {} parts added: {:?}", ids.len(), ids);
+        } else if let Some(resp) = last_response {
+            println!("{}", serde_json::to_string_pretty(&resp)?);
+        }
     } else {
         let request = JsonRpcRequest::new(
             RequestAction::Add,
@@ -85,18 +99,22 @@ pub async fn add(
 
         let response = client.send(&request).await?;
 
-        if let Some(result) = response.result {
-            match result {
-                ResponseResult::Memory(m) => {
-                    println!("Added memory: {}", m.memory.id);
-                    println!("Content: {}", m.memory.content);
-                    println!("Type: {:?}", m.memory.memory_type);
-                    println!("Tags: {:?}", m.memory.tags);
+        if human {
+            if let Some(result) = response.result {
+                match result {
+                    ResponseResult::Memory(m) => {
+                        println!("Added memory: {}", m.memory.id);
+                        println!("Content: {}", m.memory.content);
+                        println!("Type: {:?}", m.memory.memory_type);
+                        println!("Tags: {:?}", m.memory.tags);
+                    }
+                    _ => println!("Unexpected response type"),
                 }
-                _ => println!("Unexpected response type"),
+            } else if let Some(err) = response.error {
+                println!("Error: {}", err.message);
             }
-        } else if let Some(err) = response.error {
-            println!("Error: {}", err.message);
+        } else {
+            println!("{}", serde_json::to_string_pretty(&response)?);
         }
     }
 
@@ -165,7 +183,7 @@ fn format_part_tags(original_tags: &[String], part_num: usize, total_parts: usiz
 }
 
 /// 获取记忆命令，支持分块合并（`--merge`）。
-pub async fn get(client: &Client, id: String, merge: bool) -> Result<()> {
+pub async fn get(client: &Client, id: String, merge: bool, human: bool) -> Result<()> {
     let uuid = uuid::Uuid::parse_str(&id).map_err(|e| anyhow::anyhow!("Invalid UUID: {}", e))?;
 
     let request = JsonRpcRequest::new(
@@ -176,24 +194,28 @@ pub async fn get(client: &Client, id: String, merge: bool) -> Result<()> {
 
     let response = client.send(&request).await?;
 
-    if let Some(result) = response.result {
-        match result {
-            ResponseResult::Memory(m) => {
-                println!("Memory ID: {}", m.memory.id);
-                println!("Content: {}", m.memory.content);
-                println!("Type: {:?}", m.memory.memory_type);
-                println!("Importance: {:.2}", m.memory.importance);
-                println!("Tags: {:?}", m.memory.tags);
-                println!("Created: {}", m.memory.created_at);
-                println!("Access count: {}", m.memory.access_count);
-                if m.memory.is_deleted {
-                    println!("Status: DELETED");
+    if human {
+        if let Some(result) = response.result {
+            match result {
+                ResponseResult::Memory(m) => {
+                    println!("Memory ID: {}", m.memory.id);
+                    println!("Content: {}", m.memory.content);
+                    println!("Type: {:?}", m.memory.memory_type);
+                    println!("Importance: {:.2}", m.memory.importance);
+                    println!("Tags: {:?}", m.memory.tags);
+                    println!("Created: {}", m.memory.created_at);
+                    println!("Access count: {}", m.memory.access_count);
+                    if m.memory.is_deleted {
+                        println!("Status: DELETED");
+                    }
                 }
+                _ => println!("Unexpected response type"),
             }
-            _ => println!("Unexpected response type"),
+        } else if let Some(err) = response.error {
+            println!("Error: {}", err.message);
         }
-    } else if let Some(err) = response.error {
-        println!("Error: {}", err.message);
+    } else {
+        println!("{}", serde_json::to_string_pretty(&response)?);
     }
 
     Ok(())
@@ -205,6 +227,7 @@ pub async fn list(
     limit: usize,
     project_only: bool,
     global_only: bool,
+    human: bool,
 ) -> Result<()> {
     let request = JsonRpcRequest::new(
         RequestAction::List,
@@ -221,32 +244,36 @@ pub async fn list(
 
     let response = client.send(&request).await?;
 
-    if let Some(result) = response.result {
-        match result {
-            ResponseResult::MemoryList(m) => {
-                println!("Found {} memories (total: {})", m.memories.len(), m.total);
-                for memory in m.memories {
-                    println!(
-                        "\n[{:?}] {}...",
-                        memory.memory_type,
-                        &memory.content.chars().take(50).collect::<String>()
-                    );
-                    println!("  ID: {}", memory.id);
-                    println!("  Tags: {:?}", memory.tags);
-                    println!("  Importance: {:.2}", memory.importance);
+    if human {
+        if let Some(result) = response.result {
+            match result {
+                ResponseResult::MemoryList(m) => {
+                    println!("Found {} memories (total: {})", m.memories.len(), m.total);
+                    for memory in m.memories {
+                        println!(
+                            "\n[{:?}] {}...",
+                            memory.memory_type,
+                            &memory.content.chars().take(50).collect::<String>()
+                        );
+                        println!("  ID: {}", memory.id);
+                        println!("  Tags: {:?}", memory.tags);
+                        println!("  Importance: {:.2}", memory.importance);
+                    }
                 }
+                _ => println!("Unexpected response type"),
             }
-            _ => println!("Unexpected response type"),
+        } else if let Some(err) = response.error {
+            println!("Error: {}", err.message);
         }
-    } else if let Some(err) = response.error {
-        println!("Error: {}", err.message);
+    } else {
+        println!("{}", serde_json::to_string_pretty(&response)?);
     }
 
     Ok(())
 }
 
 /// 删除记忆命令（软删除）。
-pub async fn delete(client: &Client, id: String) -> Result<()> {
+pub async fn delete(client: &Client, id: String, human: bool) -> Result<()> {
     let uuid = uuid::Uuid::parse_str(&id).map_err(|e| anyhow::anyhow!("Invalid UUID: {}", e))?;
 
     let request = JsonRpcRequest::new(
@@ -260,73 +287,85 @@ pub async fn delete(client: &Client, id: String) -> Result<()> {
 
     let response = client.send(&request).await?;
 
-    if let Some(result) = response.result {
-        match result {
-            ResponseResult::Success(s) => {
-                println!("{}", s.message);
+    if human {
+        if let Some(result) = response.result {
+            match result {
+                ResponseResult::Success(s) => {
+                    println!("{}", s.message);
+                }
+                _ => println!("Unexpected response type"),
             }
-            _ => println!("Unexpected response type"),
+        } else if let Some(err) = response.error {
+            println!("Error: {}", err.message);
         }
-    } else if let Some(err) = response.error {
-        println!("Error: {}", err.message);
+    } else {
+        println!("{}", serde_json::to_string_pretty(&response)?);
     }
 
     Ok(())
 }
 
 /// 统计信息命令。
-pub async fn stats(client: &Client) -> Result<()> {
+pub async fn stats(client: &Client, human: bool) -> Result<()> {
     let request = JsonRpcRequest::new(RequestAction::Stats, None, 1);
 
     let response = client.send(&request).await?;
 
-    if let Some(result) = response.result {
-        match result {
-            ResponseResult::Stats(s) => {
-                println!("Memory Statistics:");
-                println!("  Total memories: {}", s.total_memories);
-                println!("  Active memories: {}", s.active_memories);
-                println!("  Deleted memories: {}", s.deleted_memories);
+    if human {
+        if let Some(result) = response.result {
+            match result {
+                ResponseResult::Stats(s) => {
+                    println!("Memory Statistics:");
+                    println!("  Total memories: {}", s.total_memories);
+                    println!("  Active memories: {}", s.active_memories);
+                    println!("  Deleted memories: {}", s.deleted_memories);
+                }
+                _ => println!("Unexpected response type"),
             }
-            _ => println!("Unexpected response type"),
+        } else if let Some(err) = response.error {
+            println!("Error: {}", err.message);
         }
-    } else if let Some(err) = response.error {
-        println!("Error: {}", err.message);
+    } else {
+        println!("{}", serde_json::to_string_pretty(&response)?);
     }
 
     Ok(())
 }
 
 /// 版本号命令，对比 CLI 和守护进程版本。
-pub async fn version(client: &Client) -> Result<()> {
+pub async fn version(client: &Client, human: bool) -> Result<()> {
     let cli_version = env!("CARGO_PKG_VERSION");
 
     let request = JsonRpcRequest::new(RequestAction::GetVersion, None, 1);
 
     let response = client.send(&request).await?;
 
-    let server_version = if let Some(result) = response.result {
-        match result {
-            ResponseResult::Version(v) => v.version,
-            _ => {
-                println!("Error: Unexpected response type");
-                return Ok(());
+    if human {
+        let server_version = if let Some(result) = response.result {
+            match result {
+                ResponseResult::Version(v) => v.version,
+                _ => {
+                    println!("Error: Unexpected response type");
+                    return Ok(());
+                }
             }
+        } else if let Some(err) = response.error {
+            println!("Error: Failed to get server version: {}", err.message);
+            return Ok(());
+        } else {
+            println!("Error: No response from server");
+            return Ok(());
+        };
+
+        println!("CLI version:    {}", cli_version);
+        println!("Server version: {}", server_version);
+
+        if cli_version != server_version {
+            println!("\n⚠️  WARNING: Version mismatch!");
+            println!("Please update memrecd to match CLI version.");
         }
-    } else if let Some(err) = response.error {
-        println!("Error: Failed to get server version: {}", err.message);
-        return Ok(());
     } else {
-        println!("Error: No response from server");
-        return Ok(());
-    };
-
-    println!("CLI version:    {}", cli_version);
-    println!("Server version: {}", server_version);
-
-    if cli_version != server_version {
-        println!("\n⚠️  WARNING: Version mismatch!");
-        println!("Please update memrecd to match CLI version.");
+        println!("{}", serde_json::to_string_pretty(&response)?);
     }
 
     Ok(())

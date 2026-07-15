@@ -18,7 +18,6 @@ use uuid::Uuid;
 /// | `global_only` | 仅全局记忆 | false |
 /// | `all` | 跨项目搜索 | false |
 /// | `mtype` | 记忆类型过滤 | None |
-/// | `human` | 人类可读输出 | false |
 #[derive(Args, Debug)]
 pub struct SearchArgs {
     #[arg(required = true)]
@@ -41,16 +40,14 @@ pub struct SearchArgs {
 
     #[arg(long)]
     pub mtype: Option<String>,
-
-    #[arg(long)]
-    pub human: bool,
 }
 
 /// 执行语义搜索，发送请求到守护进程并输出结果。
-pub async fn execute(
+pub async fn search_execute(
     client: &Client,
     args: SearchArgs,
     working_dir: Option<String>,
+    human: bool,
 ) -> anyhow::Result<()> {
     let memory_type = args.mtype.and_then(|t| match t.to_lowercase().as_str() {
         "decision" => Some(MemoryType::Decision),
@@ -86,7 +83,7 @@ pub async fn execute(
 
     let response = client.send(&request).await?;
 
-    if args.human {
+    if human {
         print_human_output(&response);
     } else {
         println!("{}", serde_json::to_string_pretty(&response)?);
