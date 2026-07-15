@@ -141,7 +141,7 @@ impl ModelFile {
             ModelFile {
                 filename: "model.onnx".to_string(),
                 remote_path: "onnx/model.onnx".to_string(),
-                sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+                sha256: "f84251230831afb359ab26d9fd37d5936d4d9bb5d1d5410e66442f630f24435b"
                     .to_string(),
                 file_type: ModelFileType::OnnxModel,
                 required: true,
@@ -149,7 +149,7 @@ impl ModelFile {
             ModelFile {
                 filename: "model.onnx_data".to_string(),
                 remote_path: "onnx/model.onnx_data".to_string(),
-                sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+                sha256: "1eebfb28493f67bba03ce0ef64bfdc7fc5a3bd9d7493f818bb1d78cd798416b4"
                     .to_string(),
                 file_type: ModelFileType::OnnxExternalData,
                 required: true,
@@ -157,7 +157,7 @@ impl ModelFile {
             ModelFile {
                 filename: "Constant_7_attr__value".to_string(),
                 remote_path: "onnx/Constant_7_attr__value".to_string(),
-                sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+                sha256: "cdf16f72c5d07b36484056e601ed9687f78477e5d85cee85a34f2406b7fb5906"
                     .to_string(),
                 file_type: ModelFileType::OnnxExternalData,
                 required: true,
@@ -165,7 +165,7 @@ impl ModelFile {
             ModelFile {
                 filename: "tokenizer.json".to_string(),
                 remote_path: "tokenizer.json".to_string(),
-                sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+                sha256: "6710678b12670bc442b99edc952c4d996ae309a7020c1fa0096dd245c2faf790"
                     .to_string(),
                 file_type: ModelFileType::Tokenizer,
                 required: true,
@@ -193,6 +193,14 @@ impl ModelFile {
                     .to_string(),
                 file_type: ModelFileType::TokenizerConfig,
                 required: true,
+            },
+            ModelFile {
+                filename: "sentencepiece.bpe.model".to_string(),
+                remote_path: "sentencepiece.bpe.model".to_string(),
+                sha256: "cfc8146abe2a0488e9e2a0c56de7952f7c11ab059eca145a0a727afce0db2865"
+                    .to_string(),
+                file_type: ModelFileType::SentencePieceModel,
+                required: false,
             },
         ]
     }
