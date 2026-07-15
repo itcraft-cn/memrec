@@ -54,9 +54,8 @@ impl FastEmbedGenerator {
         let mut user_model = UserDefinedEmbeddingModel::new(onnx_data, tokenizer_files);
 
         for ext_file in model_config.external_data_files() {
-            let data = std::fs::read(model_dir.join(&ext_file.filename)).map_err(|e| {
-                anyhow::anyhow!("Failed to read {}: {}", ext_file.filename, e)
-            })?;
+            let data = std::fs::read(model_dir.join(&ext_file.filename))
+                .map_err(|e| anyhow::anyhow!("Failed to read {}: {}", ext_file.filename, e))?;
             user_model = user_model.with_external_initializer(ext_file.filename.clone(), data);
         }
 
@@ -79,8 +78,8 @@ impl FastEmbedGenerator {
             if path.is_absolute() {
                 return Ok(path);
             }
-            let home = dirs::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
+            let home =
+                dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
             return Ok(home.join(path));
         }
 
@@ -89,13 +88,13 @@ impl FastEmbedGenerator {
             if path.is_absolute() {
                 return Ok(path);
             }
-            let home = dirs::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
+            let home =
+                dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
             return Ok(home.join(path));
         }
 
-        let home = dirs::home_dir()
-            .ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
+        let home =
+            dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
         let dir_name = model_config.local_dir_name();
         Ok(home.join(".memrec/models").join(dir_name))
     }
@@ -200,9 +199,6 @@ mod tests {
         println!("狗-猫相似度: {}", sim12);
         println!("狗-汽车相似度: {}", sim13);
 
-        assert!(
-            sim12 > sim13,
-            "语义相似度测试失败: 狗猫应比狗汽车更相似"
-        );
+        assert!(sim12 > sim13, "语义相似度测试失败: 狗猫应比狗汽车更相似");
     }
 }

@@ -6,11 +6,11 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use client::Client;
-use commands::{add, get, list, delete, stats, search_execute, version, SearchArgs};
+use commands::{add, delete, get, list, search_execute, stats, version, SearchArgs};
 
 fn detect_working_dir() -> Result<String> {
     let current = std::env::current_dir()?;
-    
+
     if let Ok(output) = std::process::Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
         .current_dir(&current)
@@ -23,7 +23,7 @@ fn detect_working_dir() -> Result<String> {
             }
         }
     }
-    
+
     Ok(current.to_string_lossy().to_string())
 }
 
@@ -34,7 +34,7 @@ fn detect_working_dir() -> Result<String> {
 struct Cli {
     #[arg(long)]
     mcp: bool,
-    
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -74,17 +74,22 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    
+
     if cli.mcp {
         let server = mcp::McpServer::new();
         return server.run().await;
     }
-    
+
     let command = cli.command.unwrap_or(Commands::Stats);
     let client = Client::new()?;
-    
+
     match command {
-        Commands::Add { content, mtype, tag, global } => {
+        Commands::Add {
+            content,
+            mtype,
+            tag,
+            global,
+        } => {
             let working_dir = if global {
                 None
             } else {
@@ -95,7 +100,11 @@ async fn main() -> Result<()> {
         Commands::Get { id, merge } => {
             get(&client, id, merge).await?;
         }
-        Commands::List { limit, project_only, global_only } => {
+        Commands::List {
+            limit,
+            project_only,
+            global_only,
+        } => {
             list(&client, limit, project_only, global_only).await?;
         }
         Commands::Delete { id } => {
@@ -116,6 +125,6 @@ async fn main() -> Result<()> {
             version(&client).await?;
         }
     }
-    
+
     Ok(())
 }

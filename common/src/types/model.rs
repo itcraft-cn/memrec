@@ -8,7 +8,10 @@ pub enum ModelType {
     MiniLML6V2,
     #[serde(rename = "bge-m3")]
     BGEM3,
-    Custom { name: String, dimension: usize },
+    Custom {
+        name: String,
+        dimension: usize,
+    },
 }
 
 impl ModelType {
@@ -46,10 +49,18 @@ impl ModelType {
 
     pub fn warning(&self) -> Option<String> {
         match self {
-            Self::BGEM3 => Some(
-                "BGE-M3 requires ~2.3GB additional disk space for model files".to_string(),
-            ),
+            Self::BGEM3 => {
+                Some("BGE-M3 requires ~2.3GB additional disk space for model files".to_string())
+            }
             _ => None,
+        }
+    }
+
+    pub fn default_min_score(&self) -> f32 {
+        match self {
+            Self::MiniLML6V2 => 0.75,
+            Self::BGEM3 => 0.5,
+            Self::Custom { .. } => 0.5,
         }
     }
 
@@ -261,7 +272,9 @@ impl ModelConfig {
     }
 
     pub fn onnx_model_file(&self) -> Option<&ModelFile> {
-        self.files.iter().find(|f| f.file_type == ModelFileType::OnnxModel)
+        self.files
+            .iter()
+            .find(|f| f.file_type == ModelFileType::OnnxModel)
     }
 
     pub fn external_data_files(&self) -> Vec<&ModelFile> {
@@ -272,11 +285,15 @@ impl ModelConfig {
     }
 
     pub fn tokenizer_file(&self) -> Option<&ModelFile> {
-        self.files.iter().find(|f| f.file_type == ModelFileType::Tokenizer)
+        self.files
+            .iter()
+            .find(|f| f.file_type == ModelFileType::Tokenizer)
     }
 
     pub fn config_file(&self) -> Option<&ModelFile> {
-        self.files.iter().find(|f| f.file_type == ModelFileType::Config)
+        self.files
+            .iter()
+            .find(|f| f.file_type == ModelFileType::Config)
     }
 
     pub fn special_tokens_map_file(&self) -> Option<&ModelFile> {

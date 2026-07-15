@@ -24,8 +24,7 @@ fn build_base_url(opts: &DownloadOptions) -> String {
 }
 
 fn model_dir_for_config(model_config: &ModelConfig) -> Result<PathBuf> {
-    let home = dirs::home_dir()
-        .ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
+    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
     Ok(home
         .join(".memrec/models")
         .join(model_config.local_dir_name()))
