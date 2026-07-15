@@ -1,8 +1,36 @@
+//! # 记忆实体与记忆类型
+//!
+//! 定义 memrec 系统的核心数据单元 [`Memory`] 及其类型枚举 [`MemoryType`]。
+//!
+//! ## 记忆类型
+//!
+//! [`MemoryType`] 将记忆分为五类：对话、知识、决策、偏好、上下文，
+//! 默认为 `Conversation`。序列化为小写字符串（如 `"knowledge"`）。
+//!
+//! ## 记忆实体
+//!
+//! [`Memory`] 是系统的核心数据单元，包含：
+//!
+//! - 内容与摘要（`content` / `summary`）
+//! - 嵌入向量（`embedding`），由 ONNX Runtime 推理生成
+//! - 重要性评分（`importance`），由 [`ImportanceConfig`](super::ImportanceConfig) 加权计算
+//! - 分块信息（`chunk_group_id` / `chunk_index` / `chunk_total`），长文本分块存储
+//! - 软删除标记（`is_deleted` / `deleted_at`），支持恢复期内的记忆恢复
+//!
+//! ## 构建器模式
+//!
+//! [`Memory`] 提供了 `with_*` 系列方法实现链式构建，便于在添加记忆时
+//! 一次性设置标签、项目归属、分块信息等。
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
+/// 记忆类型枚举。
+///
+/// 将记忆按语义分类，影响搜索权重和展示方式。
+/// 序列化为小写字符串，默认为 `Conversation`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
@@ -27,6 +55,11 @@ impl std::fmt::Display for MemoryType {
     }
 }
 
+/// 记忆实体，系统的核心数据单元。
+///
+/// 每条记忆拥有唯一 ID，可归属于某个项目（`project_id`），
+/// 也可为公共记忆（`project_id` 为 `None`，对所有项目可见）。
+/// 长文本可通过分块机制拆分为多条记忆，共享同一 `chunk_group_id`。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Memory {
     pub id: Uuid,
@@ -43,13 +76,13 @@ pub struct Memory {
     pub project_id: Option<Uuid>,
     pub is_deleted: bool,
     pub deleted_at: Option<DateTime<Utc>>,
-
     pub chunk_group_id: Option<Uuid>,
     pub chunk_index: Option<u32>,
     pub chunk_total: Option<u32>,
 }
 
 impl Memory {
+    /// 创建新记忆，初始重要性为 0.8，访问计数为 0。
     pub fn new(content: String, memory_type: MemoryType) -> Self {
         let now = Utc::now();
         Self {
@@ -73,16 +106,23 @@ impl Memory {
         }
     }
 
+    /// 设置标签，返回自身以支持链式调用。
     pub fn with_tags(mut self, tags: Vec<String>) -> Self {
         self.tags = tags;
         self
     }
 
+    /// 设置项目归属，返回自身以支持链式调用。
     pub fn with_project(mut self, project_id: Uuid) -> Self {
         self.project_id = Some(project_id);
         self
     }
 
+    /// 设置分块信息，返回自身以支持链式调用。
+    ///
+    /// - `group_id`：同一组分块共享的组 ID
+    /// - `index`：当前分块在组内的序号（从 0 开始）
+    /// - `total`：组内分块总数
     pub fn with_chunk_info(mut self, group_id: Uuid, index: u32, total: u32) -> Self {
         self.chunk_group_id = Some(group_id);
         self.chunk_index = Some(index);
@@ -90,11 +130,13 @@ impl Memory {
         self
     }
 
+    /// 记录一次访问，更新最后访问时间并递增访问计数。
     pub fn access(&mut self) {
         self.last_accessed = Utc::now();
         self.access_count += 1;
     }
 
+    /// 判断该记忆是否属于某个分块组。
     pub fn is_chunked(&self) -> bool {
         self.chunk_group_id.is_some()
     }

@@ -17,7 +17,7 @@ name = "memrec"
 path = "src/main.rs"
 
 [dependencies]
-memrec-common = { path = "../common", version = "0.4.0-dev" } # managed by updgitver
+memrec-common = { path = "../common", version = "0.5.0-dev" } # managed by updgitver
 anyhow.workspace = true
 serde_json.workspace = true
 uuid.workspace = true

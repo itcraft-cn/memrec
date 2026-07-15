@@ -30,7 +30,7 @@ futures-util = "0.3"
 chrono.workspace = true
 sha2 = "0.10"
 hex = "0.4"
-memrec-common = { path = "../common", version = "0.4.0" } #managed by updgitver
+memrec-common = { path = "../common", version = "0.5.0-dev" } #managed by updgitver
 
 [dev-dependencies]
 tempfile = "3"
