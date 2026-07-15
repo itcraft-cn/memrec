@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-07-16
+
+### Added
+
+- Comprehensive user manual: `MANUAL.md` (English) and `MANUAL_cn.md` (Chinese)
+- Manual covers: installation, model selection, commands, project isolation, config, model switching, MCP, troubleshooting
+
+### Changed
+
+- Documentation consolidated: `docs/user-guide.md` and `docs/installation.md` merged into `MANUAL.md` / `MANUAL_cn.md`
+- README documentation links updated to point to MANUAL files
+
+### Removed
+
+- `docs/user-guide.md` (superseded by `MANUAL_cn.md`)
+- `docs/installation.md` (superseded by `MANUAL.md` / `MANUAL_cn.md`)
+
+---
+
 ## [0.3.0] - 2026-07-15
 
 ### Added
