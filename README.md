@@ -9,10 +9,10 @@ Local memory persistence system for AI CLI tools, providing cross-session memory
 ## Features
 
 - **Project Isolation** — Auto-detect git root, .mr_pid persistence, independent memory per project
-- **Semantic Search** — Local ONNX model (384-dim), zero API cost, all data stays local
+- **Semantic Search** — Local ONNX model — MiniLM-L6-v2 (384d) or BGE-M3 (1024d, multilingual), zero API cost, all data stays local
 - **Cross-Project Search** — `--all` flag to discover related knowledge across projects
 - **AI-first Design** — JSON output by default, concise commands, Skill integration
-- **High Performance** — Rust, <1ms latency, ~118MB memory (including model)
+- **High Performance** — Rust, <1ms latency, ~118MB (MiniLM) / ~1.5GB (BGE-M3) memory (including model)
 - **Auto-splitting** — Long content (>7.5KB) automatically split into chunks
 - **Systemd Integration** — Manage daemon with `systemctl --user`
 
@@ -38,6 +38,21 @@ mr-install
 | Linux | `~/.local/bin/` | `~/.memrec/` |
 | macOS | `~/bin/` | `~/.memrec/` |
 
+### Choose Embedding Model
+
+| Model | Dimension | Best For | Disk Space | Memory |
+|-------|-----------|----------|------------|--------|
+| `minilm-l6-v2` (default) | 384 | English-only | ~90MB | ~118MB |
+| `bge-m3` | 1024 | Chinese/multilingual | ~2.3GB | ~1.5GB |
+
+```bash
+# Default: MiniLM-L6-v2 (English)
+mr-install
+
+# BGE-M3 (Chinese/multilingual, recommended for Chinese users)
+mr-install --model bge-m3
+```
+
 Mirror options for model download:
 
 ```bash
@@ -54,7 +69,7 @@ memrec add "RAII: resource acquisition is initialization" --mtype knowledge --ta
 memrec add "User prefers verbose output" --mtype preference --tag output --global
 
 # Semantic search
-memrec search "auth"                        # Current project + global
+memrec search "auth"                        # min_score default: 0.75 (MiniLM) / 0.5 (BGE-M3)
 memrec search "performance" --project-only  # Current project only
 memrec search "preferences" --global-only   # Global memories only
 memrec search "xlsb" --all                  # Across all projects
@@ -101,18 +116,29 @@ project-a/           project-b/
 ├── data/                 # RocksDB memory metadata
 ├── vectors/              # RocksDB vector storage
 └── models/               # ONNX Embedding model
+    ├── Qdrant--all-MiniLM-L6-v2-onnx/   # MiniLM-L6-v2 (default)
+    │   ├── model.onnx
+    │   ├── tokenizer.json
+    │   └── ...
+    └── BAAI--bge-m3/                     # BGE-M3 (multilingual)
+        ├── model.onnx
+        ├── model.onnx_data
+        ├── tokenizer.json
+        └── ...
 ```
 
 ## Environment Variables
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `MEMREC_MODEL_DIR` | Custom model path | `~/.memrec/models/Qdrant--all-MiniLM-L6-v2-onnx/` |
-| `MEMREC_MIN_SCORE` | Min similarity score | `0.75` |
+| `MEMREC_MODEL_DIR` | Custom model path | `~/.memrec/models/<model-dir>/` (model-specific) |
+| `MEMREC_MIN_SCORE` | Min similarity score | `0.75 (MiniLM) / 0.5 (BGE-M3)` |
 | `RUST_LOG` | Log level | `info` |
 
 ## Documentation
 
+- [Manual](MANUAL.md)
+- [Manual (Chinese)](MANUAL_cn.md)
 - [Installation Guide](docs/installation.md)
 - [User Guide](docs/user-guide.md)
 - [Skill Documentation](docs/skills/memrec-skill.md)
