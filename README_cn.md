@@ -9,10 +9,10 @@
 ## 特性
 
 - **项目隔离** — 自动检测git root，.mr_pid持久化，多项目独立记忆
-- **语义检索** — 本地ONNX模型（384维），零API费用，数据全本地
+- **语义检索** — 本地ONNX模型 — MiniLM-L6-v2（384维）或 BGE-M3（1024维，多语言），零API费用，数据全本地
 - **跨项目搜索** — `--all`标志发现跨项目关联知识
 - **AI-first设计** — 默认JSON输出，命令简洁，Skill集成
-- **高性能** — Rust实现，<1ms延迟，~118MB内存（含模型）
+- **高性能** — Rust实现，<1ms延迟，~118MB（MiniLM）/ ~1.5GB（BGE-M3）内存（含模型）
 - **长文本拆分** — >7.5KB自动拆分为chunks
 - **守护进程管理** — Linux systemd / macOS launchd / Windows Startup
 
@@ -38,6 +38,21 @@ mr-install
 | Linux | `~/.local/bin/` | `~/.memrec/` |
 | macOS | `~/bin/` | `~/.memrec/` |
 
+### 选择 Embedding 模型
+
+| 模型 | 维度 | 适用场景 | 磁盘空间 | 内存 |
+|------|------|----------|----------|------|
+| `minilm-l6-v2`（默认） | 384 | 纯英文 | ~90MB | ~118MB |
+| `bge-m3` | 1024 | 中文/多语言 | ~2.3GB | ~1.5GB |
+
+```bash
+# 默认：MiniLM-L6-v2（英文）
+mr-install
+
+# BGE-M3（中文/多语言，中文用户推荐）
+mr-install --model bge-m3
+```
+
 模型下载镜像选项：
 
 ```bash
@@ -54,7 +69,7 @@ memrec add "RAII模式：资源获取即初始化" --mtype knowledge --tag best-
 memrec add "用户偏好详细输出" --mtype preference --tag output --global
 
 # 语义检索
-memrec search "认证方案"                   # 当前项目 + 公共
+memrec search "认证方案"                   # 当前项目 + 公共，min_score 默认值：0.75（MiniLM）/ 0.5（BGE-M3）
 memrec search "性能优化" --project-only    # 仅当前项目
 memrec search "用户偏好" --global-only     # 仅公共记忆
 memrec search "xlsb" --all                 # 跨所有项目
@@ -101,18 +116,29 @@ project-a/           project-b/
 ├── data/                 # RocksDB 记忆元数据
 ├── vectors/              # RocksDB 向量存储
 └── models/               # ONNX Embedding 模型
+    ├── Qdrant--all-MiniLM-L6-v2-onnx/   # MiniLM-L6-v2（默认）
+    │   ├── model.onnx
+    │   ├── tokenizer.json
+    │   └── ...
+    └── BAAI--bge-m3/                     # BGE-M3（多语言）
+        ├── model.onnx
+        ├── model.onnx_data
+        ├── tokenizer.json
+        └── ...
 ```
 
 ## 环境变量
 
 | 变量 | 用途 | 默认值 |
 |------|------|--------|
-| `MEMREC_MODEL_DIR` | 自定义模型路径 | `~/.memrec/models/Qdrant--all-MiniLM-L6-v2-onnx/` |
-| `MEMREC_MIN_SCORE` | 语义搜索最低相似度 | `0.75` |
+| `MEMREC_MODEL_DIR` | 自定义模型路径 | `~/.memrec/models/<模型目录>/`（模型相关） |
+| `MEMREC_MIN_SCORE` | 语义搜索最低相似度 | `0.75（MiniLM）/ 0.5（BGE-M3）` |
 | `RUST_LOG` | 日志级别 | `info` |
 
 ## 文档
 
+- [使用手册](MANUAL_cn.md)
+- [Manual (English)](MANUAL.md)
 - [安装部署手册](docs/installation.md)
 - [使用手册](docs/user-guide.md)
 - [Skill文档](docs/skills/memrec-skill.md)

@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-07-15
+
+### Added
+
+- Multi-model embedding support: choose MiniLM-L6-v2 (384d, English) or BGE-M3 (1024d, multilingual/Chinese) at install time
+- `--model` flag on `mr-install`: `--model bge-m3` or `--model minilm-l6-v2` (default)
+- `ModelType`, `ModelConfig`, `ModelFile`, `ModelFileType`, `PoolingStrategy` types in common
+- `FastEmbedGenerator` unified with `UserDefinedEmbedding` + external initializer + configurable pooling (Cls for BGE-M3, Mean for MiniLM)
+- Model-driven download: `mr-install` reads `ModelConfig` to determine which files to download, with SHA-256 verification
+- `--skip-hash-verify` and `--allow-any-repo` flags on `mr-install` for advanced use
+- `default_min_score()` on `ModelType`: 0.75 for MiniLM, 0.5 for BGE-M3 (BGE-M3 cosine scores are inherently lower)
+- New config.toml format: `[model]` section with `model_type`, `source`, `dimension`, `[[model.files]]` array
+- Nested `DaemonServerConfig` in `DaemonConfig` with `expand_tilde` for path resolution
+- `sentencepiece.bpe.model` support in `ModelFileType` for BGE-M3 tokenizer
+
+### Changed
+
+- Default min_score: 0.75 → 0.5 (BGE-M3 produces lower cosine similarity; MiniLM still uses 0.75 via `ModelType::default_min_score()`)
+- Config format: flat `name = "Qdrant/all-MiniLM-L6-v2-onnx"` → structured `[model]` section with `model_type` and `[[model.files]]`
+- `mr-install` now generates config based on selected model type
+- Vector dimension: 384 (MiniLM) or 1024 (BGE-M3), determined by model selection
+- Memory usage: ~118MB (MiniLM) / ~1.5GB (BGE-M3) at runtime
+- Model download size: ~90MB (MiniLM) / ~2.3GB (BGE-M3)
+
+### Fixed
+
+- Search returning 0 results with BGE-M3: adjusted default min_score from 0.75 to 0.5
+- External ONNX data loading: `with_external_initializer()` for BGE-M3's `model.onnx_data` and `Constant_7_attr__value`
+- BGE-M3 pooling: CLS pooling instead of Mean for correct embeddings
+
+### Removed
+
+- Old flat config format (`name = "Qdrant/all-MiniLM-L6-v2-onnx"` in config.toml)
+- Hardcoded model path assumptions
+
+---
+
 ## [0.2.0] - 2026-05-14
 
 ### Added
