@@ -9,25 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Comprehensive user manual: `MANUAL.md` (English) and `MANUAL_cn.md` (Chinese)
-- Manual covers: installation, model selection, commands, project isolation, config, model switching, MCP, troubleshooting
-
-### Changed
-
-- Documentation consolidated: `docs/user-guide.md` and `docs/installation.md` merged into `MANUAL.md` / `MANUAL_cn.md`
-- README documentation links updated to point to MANUAL files
-
-### Removed
-
-- `docs/user-guide.md` (superseded by `MANUAL_cn.md`)
-- `docs/installation.md` (superseded by `MANUAL.md` / `MANUAL_cn.md`)
-
----
-
-## [0.3.0] - 2026-07-15
-
-### Added
-
 - Multi-model embedding support: choose MiniLM-L6-v2 (384d, English) or BGE-M3 (1024d, multilingual/Chinese) at install time
 - `--model` flag on `mr-install`: `--model bge-m3` or `--model minilm-l6-v2` (default)
 - `ModelType`, `ModelConfig`, `ModelFile`, `ModelFileType`, `PoolingStrategy` types in common
@@ -38,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New config.toml format: `[model]` section with `model_type`, `source`, `dimension`, `[[model.files]]` array
 - Nested `DaemonServerConfig` in `DaemonConfig` with `expand_tilde` for path resolution
 - `sentencepiece.bpe.model` support in `ModelFileType` for BGE-M3 tokenizer
+- Comprehensive user manual: `MANUAL.md` (English) and `MANUAL_cn.md` (Chinese)
 
 ### Changed
 
@@ -47,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Vector dimension: 384 (MiniLM) or 1024 (BGE-M3), determined by model selection
 - Memory usage: ~118MB (MiniLM) / ~1.5GB (BGE-M3) at runtime
 - Model download size: ~90MB (MiniLM) / ~2.3GB (BGE-M3)
+- Documentation consolidated: `docs/user-guide.md` and `docs/installation.md` merged into `MANUAL.md` / `MANUAL_cn.md`
+- README documentation links updated to point to MANUAL files
 
 ### Fixed
 
@@ -58,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Old flat config format (`name = "Qdrant/all-MiniLM-L6-v2-onnx"` in config.toml)
 - Hardcoded model path assumptions
+- `docs/user-guide.md` (superseded by `MANUAL_cn.md`)
+- `docs/installation.md` (superseded by `MANUAL.md` / `MANUAL_cn.md`)
 
 ---
 
