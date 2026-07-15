@@ -3,21 +3,25 @@ use indicatif::{ProgressBar, ProgressStyle};
 use sha2::{Sha256, Digest};
 use std::path::{Path, PathBuf};
 
-const MODEL_REPO: &str = "Qdrant/all-MiniLM-L6-v2-onnx";
-const MODEL_FILES: &[&str] = &[
-    "model.onnx",
-    "tokenizer.json",
-    "config.json",
-    "special_tokens_map.json",
-    "tokenizer_config.json",
-];
-
-const MODEL_HASHES: &[(&str, &str)] = &[
+const MINILM_MODEL_REPO: &str = "Qdrant/all-MiniLM-L6-v2-onnx";
+const MINILM_MODEL_FILES: &[(&str, &str)] = &[
     ("model.onnx", "bbd7b466f6d58e646fdc2bd5fd67b2f5e93c0b687011bd4548c420f7bd46f0c5"),
     ("tokenizer.json", "da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0"),
     ("config.json", "1b4d8e2a3988377ed8b519a31d8d31025a25f1c5f8606998e8014111438efcd7"),
     ("special_tokens_map.json", "5d5b662e421ea9fac075174bb0688ee0d9431699900b90662acd44b2a350503a"),
     ("tokenizer_config.json", "bd2e06a5b20fd1b13ca988bedc8763d332d242381b4fbc98f8fead4524158f79"),
+];
+
+const BGEM3_MODEL_REPO: &str = "BAAI/bge-m3";
+const BGEM3_MODEL_FILES: &[(&str, &str)] = &[
+    ("model.onnx", "0000000000000000000000000000000000000000000000000000000000000000"),
+    ("model.onnx_data", "0000000000000000000000000000000000000000000000000000000000000000"),
+    ("sentencepiece.bpe.model", "0000000000000000000000000000000000000000000000000000000000000000"),
+    ("tokenizer.json", "0000000000000000000000000000000000000000000000000000000000000000"),
+    ("tokenizer_config.json", "7e4c1cc848840aeccdd763458c18dd525eb0f795c992e00ebe9c28554e7db2d4"),
+    ("special_tokens_map.json", "8c785abebea9ae3257b61681b4e6fd8365ceafde980c21970d001e834cf10835"),
+    ("config.json", "f24afd5de914fba8c668426c43d208a1a54022500c63b2c160be20891686fce8"),
+    ("Constant_7_attr__value", "0000000000000000000000000000000000000000000000000000000000000000"),
 ];
 
 const HF_BASE_URL: &str = "https://huggingface.co";
@@ -42,17 +46,11 @@ fn build_base_url(opts: &DownloadOptions) -> String {
 fn model_dir() -> Result<PathBuf> {
     let home = dirs::home_dir()
         .ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
-    Ok(home.join(".memrec/models").join(MODEL_REPO.replace('/', "--")))
+    Ok(home.join(".memrec/models").join(MINILM_MODEL_REPO.replace('/', "--")))
 }
 
 fn all_files_exist(model_dir: &Path) -> bool {
-    MODEL_FILES.iter().all(|f| model_dir.join(f).exists())
-}
-
-fn get_file_hash(filename: &str) -> Option<&str> {
-    MODEL_HASHES.iter()
-        .find(|(name, _)| name == &filename)
-        .map(|(_, hash)| *hash)
+    MINILM_MODEL_FILES.iter().all(|(filename, _)| model_dir.join(filename).exists())
 }
 
 fn verify_file_hash(file_path: &Path, expected_hash: &str) -> Result<bool> {
@@ -64,7 +62,7 @@ fn verify_file_hash(file_path: &Path, expected_hash: &str) -> Result<bool> {
     Ok(actual_hash == expected_hash)
 }
 
-async fn download_file(url: &str, dest: &Path, pb: &ProgressBar) -> Result<()> {
+async fn attempt_download_file(url: &str, dest: &Path, filename: &str) -> Result<()> {
     let response = reqwest::get(url).await
         .with_context(|| format!("Failed to connect to {}", url))?;
     
@@ -74,9 +72,11 @@ async fn download_file(url: &str, dest: &Path, pb: &ProgressBar) -> Result<()> {
     
     let total_size = response.content_length();
     
-    if let Some(size) = total_size {
-        pb.set_length(size);
-    }
+    let pb = ProgressBar::new(total_size.unwrap_or(0));
+    pb.set_style(ProgressStyle::with_template(
+        "  {msg} {spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})"
+    )?.progress_chars("#>-"));
+    pb.set_message(filename.to_string());
     
     let mut file = std::fs::File::create(dest)
         .with_context(|| format!("Failed to create file {:?}", dest))?;
@@ -91,17 +91,8 @@ async fn download_file(url: &str, dest: &Path, pb: &ProgressBar) -> Result<()> {
         pb.inc(chunk.len() as u64);
     }
     
+    pb.finish_and_clear();
     Ok(())
-}
-
-async fn attempt_download_file(url: &str, dest: &Path, filename: &str) -> Result<()> {
-    let pb = ProgressBar::new(0);
-    pb.set_style(ProgressStyle::with_template(
-        "  {msg} {spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})"
-    )?.progress_chars("#>-"));
-    pb.set_message(filename.to_string());
-    
-    download_file(url, dest, &pb).await
 }
 
 pub async fn download_model(opts: &DownloadOptions) -> Result<PathBuf> {
@@ -118,10 +109,8 @@ pub async fn download_model(opts: &DownloadOptions) -> Result<PathBuf> {
     
     println!("  Downloading from {} ...", base_url);
     
-    for filename in MODEL_FILES.iter() {
+    for (filename, expected_hash) in MINILM_MODEL_FILES.iter() {
         let dest = model_dir.join(filename);
-        
-        let expected_hash = get_file_hash(filename).unwrap_or("");
         
         if dest.exists() {
             if opts.skip_hash_verify {
@@ -136,10 +125,9 @@ pub async fn download_model(opts: &DownloadOptions) -> Result<PathBuf> {
             }
         }
         
-        let primary_url = format!("{}/{}/resolve/main/{}", base_url, MODEL_REPO, filename);
+        let primary_url = format!("{}/{}/resolve/main/{}", base_url, MINILM_MODEL_REPO, filename);
         let mut download_success = false;
         
-        // 尝试主要URL
         match attempt_download_file(&primary_url, &dest, filename).await {
             Ok(_) => {
                 if opts.skip_hash_verify {
@@ -158,10 +146,9 @@ pub async fn download_model(opts: &DownloadOptions) -> Result<PathBuf> {
             }
         }
         
-        // 如果主要失败且未指定镜像，尝试hf-mirror
         if !download_success && !opts.use_hf_mirror && opts.mirror_base_url.is_none() {
             println!("  [retry] {} trying hf-mirror.com ...", filename);
-            let mirror_url = format!("{}/{}/resolve/main/{}", HF_MIRROR_BASE_URL, MODEL_REPO, filename);
+            let mirror_url = format!("{}/{}/resolve/main/{}", HF_MIRROR_BASE_URL, MINILM_MODEL_REPO, filename);
             
             match attempt_download_file(&mirror_url, &dest, filename).await {
                 Ok(_) => {
@@ -252,8 +239,8 @@ mod tests {
     #[test]
     fn test_all_files_exist_with_files() {
         let dir = tempfile::tempdir().unwrap();
-        for f in MODEL_FILES {
-            std::fs::write(dir.path().join(f), "test").unwrap();
+        for (filename, _) in MINILM_MODEL_FILES {
+            std::fs::write(dir.path().join(filename), "test").unwrap();
         }
         assert!(all_files_exist(dir.path()));
     }
@@ -266,20 +253,12 @@ mod tests {
     }
     
     #[test]
-    fn test_get_file_hash() {
-        assert_eq!(get_file_hash("model.onnx"), Some("bbd7b466f6d58e646fdc2bd5fd67b2f5e93c0b687011bd4548c420f7bd46f0c5"));
-        assert_eq!(get_file_hash("tokenizer.json"), Some("da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0"));
-        assert_eq!(get_file_hash("nonexistent.txt"), None);
-    }
-    
-    #[test]
     fn test_verify_file_hash() {
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("test.txt");
         std::fs::write(&file_path, "test content").unwrap();
         
         let wrong_hash = "0000000000000000000000000000000000000000000000000000000000000000";
-        
         assert!(!verify_file_hash(&file_path, wrong_hash).unwrap());
         
         let mut hasher = Sha256::new();

@@ -1,57 +1,71 @@
 use anyhow::Result;
 use std::sync::Arc;
-use std::path::PathBuf;
 use std::time::Duration;
 use tokio::signal;
 use tokio::time::interval;
 use tracing::{info, warn};
 
 use crate::storage::{RocksDBStore, MemoryStore, RocksDBVectorStore, MemoryStorage, VectorStorage};
-use crate::embedding::FastEmbedGenerator;
+use crate::embedding::{EmbeddingGenerator, GeneratorFactory};
 use crate::server::{UnixSocketServer, Router};
+use crate::config::DaemonConfig;
 
 const SYNC_INTERVAL_SECS: u64 = 30;
 
 pub struct Daemon {
-    socket_path: PathBuf,
-    data_dir: PathBuf,
-    vectors_dir: PathBuf,
+    config: DaemonConfig,
 }
 
 impl Daemon {
     pub fn new() -> Result<Self> {
-        let home = dirs::home_dir()
-            .ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
+        let config = DaemonConfig::load()?;
+        Ok(Self { config })
+    }
+    
+    pub fn with_config(config: DaemonConfig) -> Self {
+        Self { config }
+    }
+    
+    pub fn from_args(model_type: Option<memrec_common::ModelType>, model_dir: Option<String>) -> Result<Self> {
+        let mut config = DaemonConfig::load()?;
         
-        let base_dir = home.join(".memrec");
-        let data_dir = base_dir.join("data");
-        let vectors_dir = base_dir.join("vectors");
-        let socket_path = base_dir.join("memrecd.sock");
+        if let Some(mt) = model_type {
+            config = config.with_model(mt);
+        }
         
-        std::fs::create_dir_all(&data_dir)?;
-        std::fs::create_dir_all(&vectors_dir)?;
+        if let Some(dir) = model_dir {
+            config = config.with_model_dir(dir);
+        }
         
-        Ok(Self {
-            socket_path,
-            data_dir,
-            vectors_dir,
-        })
+        Ok(Self { config })
     }
     
     pub async fn run(&self) -> Result<()> {
-        info!("MemRec daemon starting");
+        info!("MemRec daemon starting with model: {}", 
+            self.config.model.model_type.name());
         
-        let rocksdb = RocksDBStore::open(&self.data_dir)?;
+        info!("Data dir: {:?}", self.config.data_dir);
+        info!("Vectors dir: {:?}", self.config.vectors_dir);
+        info!("Socket: {:?}", self.config.socket_path);
+        
+        if !self.config.model.is_ready() {
+            anyhow::bail!("Model configuration is not ready. Please run mr-install to download the model.");
+        }
+        
+        let rocksdb = RocksDBStore::open(&self.config.data_dir)?;
         let storage = Arc::new(MemoryStore::new(rocksdb));
         
-        let embedder = Arc::new(FastEmbedGenerator::new()?);
-        let vector_store = Arc::new(RocksDBVectorStore::open(&self.vectors_dir, embedder.dimension())?);
+        let embedder = GeneratorFactory::create(self.config.model.clone())?;
+        let vector_store = Arc::new(RocksDBVectorStore::open(
+            &self.config.vectors_dir, 
+            embedder.dimension()
+        )?);
         
         self.rebuild_missing_embeddings(&storage, &vector_store, &embedder).await?;
         
         let router = Arc::new(Router::new(storage.clone(), vector_store.clone(), embedder));
         
-        let server = UnixSocketServer::bind(&self.socket_path, router).await?;
+        let server = UnixSocketServer::bind(&self.config.socket_path, router).await?;
         
         let sync_task = tokio::spawn(Self::sync_loop(vector_store.clone()));
         
@@ -79,7 +93,7 @@ impl Daemon {
         &self,
         storage: &Arc<MemoryStore>,
         vector_store: &Arc<RocksDBVectorStore>,
-        embedder: &Arc<FastEmbedGenerator>,
+        embedder: &Arc<dyn EmbeddingGenerator>,
     ) -> Result<()> {
         let memories = storage.list(1000).await?;
         let existing_count = vector_store.count_cached();
@@ -138,8 +152,8 @@ impl Daemon {
             info!("Vector store saved on shutdown");
         }
         
-        if self.socket_path.exists() {
-            std::fs::remove_file(&self.socket_path)?;
+        if self.config.socket_path.exists() {
+            std::fs::remove_file(&self.config.socket_path)?;
         }
         
         Ok(())
