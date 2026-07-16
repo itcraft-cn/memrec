@@ -97,3 +97,75 @@ pub trait VectorStorage: Send + Sync {
     async fn get(&self, id: &Uuid) -> Result<Option<Vec<f32>>>;
     async fn count(&self) -> Result<usize>;
 }
+
+/// 全文搜索附加载荷。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FtsPayload {
+    pub project_id: Option<Uuid>,
+    pub memory_type: String,
+    pub tags: Vec<String>,
+}
+
+/// 全文搜索存储 trait。
+///
+/// 提供 BM25 全文检索功能。
+#[async_trait]
+pub trait FtsStorage: Send + Sync {
+    /// 添加文档到全文索引。
+    async fn add(&self, id: &Uuid, text: &str, payload: FtsPayload) -> Result<()>;
+
+    /// 从全文索引中删除文档。
+    async fn remove(&self, id: &Uuid) -> Result<bool>;
+
+    /// 全文搜索（BM25）。
+    async fn search(
+        &self,
+        query: &str,
+        filter: SearchFilter,
+        top_k: usize,
+    ) -> Result<Vec<SearchHit>>;
+
+    /// 获取索引文档数量。
+    async fn count(&self) -> Result<usize>;
+}
+
+/// 混合搜索请求。
+#[derive(Debug, Clone)]
+pub struct HybridSearchRequest {
+    pub query: String,
+    pub query_embedding: Vec<f32>,
+    pub filter: SearchFilter,
+    pub top_k: usize,
+    pub hybrid_alpha: f64,
+    pub mmr_lambda: f64,
+    pub mmr_enabled: bool,
+}
+
+/// 混合搜索结果。
+#[derive(Debug, Clone)]
+pub struct HybridSearchResult {
+    pub hits: Vec<SearchHit>,
+    pub vec_count: usize,
+    pub fts_count: usize,
+}
+
+/// 混合搜索存储 trait。
+///
+/// 整合向量检索和全文检索，提供统一的搜索接口。
+#[async_trait]
+pub trait HybridStorage: Send + Sync {
+    /// 混合搜索（KNN + BM25）。
+    async fn search(&self, req: HybridSearchRequest) -> Result<HybridSearchResult>;
+
+    /// 添加记忆到索引（向量 + 全文）。
+    async fn add(
+        &self,
+        id: &Uuid,
+        embedding: &[f32],
+        text: &str,
+        payload: VectorPayload,
+    ) -> Result<()>;
+
+    /// 从索引中删除记忆。
+    async fn remove(&self, id: &Uuid) -> Result<bool>;
+}
