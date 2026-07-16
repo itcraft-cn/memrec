@@ -5,6 +5,41 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.0] - 2026-07-16
+
+### 新增
+
+- **混合检索**：KNN + BM25 全文检索，可配置 `--hybrid-alpha`（默认 0.5）
+- **MMR 重排**：最大边缘相关度，结果多样性，`--mmr-enabled`（默认启用），`--mmr-lambda`（默认 0.7）
+- **时间衰减评分**：近期记忆权重更高，可配置衰减率
+- **常青豁免**：knowledge/decision 类型豁免时间衰减
+- **来源权重**：用户记忆权重高于系统/推断
+- **中文搜索**：N-gram 分词器（2-4 字）支持中文全文检索
+- `MemorySource` 枚举：`User`、`System`、`Inferred`、`External`
+- `MemoryScope` 枚举：`Project`、`Global`、`Workspace`
+- `memrec add` 新增 `--source` 和 `--scope` 参数
+- `SearchConfig`、`SourceWeights` 配置类型
+- `HybridStorage` trait 和 `HybridStore` 实现
+- `FtsStorage` trait 和 `TantivyStore`（Tantivy 0.22）BM25 搜索
+
+### 变更
+
+- 搜索流程：KNN+BM25 并行 → 合并归一化 → 时间衰减+来源权重 → MMR 重排
+- 搜索结果新增 `created_at` 字段
+- `memrecd` 二进制大小：42MB → 47MB（Tantivy 依赖）
+- QueryParser 需要 `IndexRecordOption::WithFreqsAndPositions` 支持 n-gram 分词
+
+### 修复
+
+- `source`/`scope` 参数未从 AddParams 传递到 Memory 实体
+- Tantivy QueryParser 错误："field does not have positions indexed"
+
+### 不兼容变更
+
+- Tantivy schema 变更：升级前删除 `~/.memrec/fts/`，索引将自动重建
+
+---
+
 ## [0.4.0] - 2026-07-16
 
 ### 新增

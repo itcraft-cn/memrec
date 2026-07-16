@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-07-16
+
+### Added
+
+- **Hybrid Search**: KNN + BM25 full-text search with configurable `--hybrid-alpha` (default 0.5)
+- **MMR Reranking**: Maximal Marginal Relevance for diverse results, `--mmr-enabled` (default true), `--mmr-lambda` (default 0.7)
+- **Time Decay Scoring**: Recent memories ranked higher, configurable decay rate
+- **Evergreen Exemption**: Knowledge/decision types exempt from time decay
+- **Source Weighting**: User memories weighted higher than system/inferred
+- **Chinese Text Search**: N-gram tokenizer (2-4 grams) in Tantivy for Chinese support
+- `MemorySource` enum: `User`, `System`, `Inferred`, `External`
+- `MemoryScope` enum: `Project`, `Global`, `Workspace`
+- `--source` and `--scope` flags on `memrec add`
+- `SearchConfig`, `SourceWeights` configuration types
+- `HybridStorage` trait and `HybridStore` implementation
+- `FtsStorage` trait and `TantivyStore` (Tantivy 0.22) for BM25 search
+
+### Changed
+
+- Search pipeline: KNN+BM25 parallel → merge normalize → time decay + source weight → MMR rerank
+- Search results include `created_at` field
+- `memrecd` binary size: 42MB → 47MB (Tantivy dependency)
+- QueryParser requires `IndexRecordOption::WithFreqsAndPositions` for n-gram tokenizer
+
+### Fixed
+
+- `source`/`scope` params not passed from AddParams to Memory entity
+- Tantivy QueryParser error: "field does not have positions indexed"
+
+### Breaking Changes
+
+- Tantivy schema changed: delete `~/.memrec/fts/` before upgrade, index will rebuild automatically
+
+---
+
 ## [0.4.0] - 2026-07-16
 
 ### Added

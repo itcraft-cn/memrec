@@ -117,7 +117,7 @@ systemctl --user restart memrecd   # 或直接：memrecd
 ### 添加记忆
 
 ```bash
-memrec add "内容" --mtype <类型> [--tag <标签>] [--global]
+memrec add "内容" --mtype <类型> [--tag <标签>] [--global] [--source <来源>] [--scope <范围>]
 ```
 
 #### 记忆类型
@@ -168,6 +168,24 @@ memrec add "项目A的数据库选型" --mtype decision --tag critical
 memrec add "用户偏好暗色主题" --mtype preference --tag ui --global
 ```
 
+#### 来源与范围
+
+| 参数 | 值 | 说明 |
+|------|------|------|
+| `--source` | `user`（默认）、`system`、`inferred`、`external` | 记忆来源 — 影响搜索排序权重 |
+| `--scope` | `project`（默认）、`global`、`workspace` | 记忆可见范围 |
+
+```bash
+# 用户来源记忆（搜索权重最高）
+memrec add "我的偏好：使用tab而非空格" --mtype preference --source user --global
+
+# 系统来源记忆
+memrec add "自动检测：项目使用Rust 1.75" --mtype context --source system
+
+# 推断知识
+memrec add "根据代码模式推断偏好函数式风格" --mtype knowledge --source inferred
+```
+
 #### 长文本自动拆分
 
 超过 7.5KB 的内容会自动拆分为多个 chunk：
@@ -183,10 +201,27 @@ memrec add "很长的内容..." --mtype knowledge
 
 每个 chunk 独立生成 embedding，共享 `chunk_group_id`。获取完整内容使用 `--merge`。
 
-### 语义检索
+### 混合检索
+
+MemRec 结合 KNN 向量搜索与 BM25 全文检索，提供最优搜索结果。
 
 ```bash
 memrec search "查询" [选项]
+```
+
+#### 搜索流程
+
+1. **KNN + BM25**：并行搜索，合并归一化分数
+2. **时间衰减**：近期记忆权重更高（knowledge/decision 豁免）
+3. **来源权重**：用户记忆权重高于系统/推断
+4. **MMR 重排**：结果多样性，减少冗余
+
+#### 中文搜索
+
+通过 N-gram 分词器（2-4 字）支持中文全文检索，无需额外配置。
+
+```bash
+memrec search "中文搜索" --human
 ```
 
 #### 搜索范围
@@ -209,6 +244,9 @@ memrec search "查询" [选项]
 | `--all` | 跨所有项目 | - |
 | `--mtype` | 按类型过滤 | - |
 | `--human` | 人类可读输出 | - |
+| `--hybrid-alpha` | KNN与BM25权重（0=纯BM25，1=纯KNN） | 0.5 |
+| `--mmr-enabled` | 启用MMR重排 | true |
+| `--mmr-lambda` | MMR多样性（0=最大多样性，1=最大相关性） | 0.7 |
 
 #### 示例
 

@@ -9,7 +9,9 @@
 ## 特性
 
 - **项目隔离** — 自动检测git root，.mr_pid持久化，多项目独立记忆
-- **语义检索** — 本地ONNX模型 — MiniLM-L6-v2（384维）或 BGE-M3（1024维，多语言），零API费用，数据全本地
+- **混合检索** — KNN向量搜索 + BM25全文检索，MMR重排，中文搜索支持
+- **语义检索** — 本地ONNX模型 — MiniLM-L6-v2（384维）或 BGE-M3（1024维，多语言），零API费用
+- **智能评分** — 时间衰减、常青豁免、来源权重
 - **跨项目搜索** — `--all`标志发现跨项目关联知识
 - **AI-first设计** — 默认JSON输出，命令简洁，Skill集成
 - **高性能** — Rust实现，<1ms延迟，~118MB（MiniLM）/ ~1.5GB（BGE-M3）内存（含模型）
@@ -68,11 +70,12 @@ memrec add "选择JWT认证方案" --mtype decision --tag critical
 memrec add "RAII模式：资源获取即初始化" --mtype knowledge --tag best-practice --tag rust
 memrec add "用户偏好详细输出" --mtype preference --tag output --global
 
-# 语义检索
-memrec search "认证方案"                   # 当前项目 + 公共，min_score 默认值：0.75（MiniLM）/ 0.5（BGE-M3）
+# 混合检索（KNN + BM25）
+memrec search "认证方案"                   # 当前项目 + 公共，min_score 默认值：0.5（BGE-M3）/ 0.75（MiniLM）
 memrec search "性能优化" --project-only    # 仅当前项目
 memrec search "用户偏好" --global-only     # 仅公共记忆
 memrec search "xlsb" --all                 # 跨所有项目
+memrec search "中文搜索" --human           # 中文搜索支持
 
 # 其他
 memrec list --limit 20

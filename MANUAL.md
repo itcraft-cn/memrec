@@ -118,7 +118,7 @@ With BGE-M3, model loading + vector rebuild takes ~75-90 seconds before the sock
 ### Adding Memories
 
 ```bash
-memrec add "content" --mtype <type> [--tag <tag>] [--global]
+memrec add "content" --mtype <type> [--tag <tag>] [--global] [--source <source>] [--scope <scope>]
 ```
 
 #### Memory Types
@@ -169,6 +169,24 @@ memrec add "Project A database selection" --mtype decision --tag critical
 memrec add "User prefers dark theme" --mtype preference --tag ui --global
 ```
 
+#### Source and Scope
+
+| Flag | Values | Description |
+|------|--------|-------------|
+| `--source` | `user` (default), `system`, `inferred`, `external` | Memory origin — affects search ranking |
+| `--scope` | `project` (default), `global`, `workspace` | Memory visibility |
+
+```bash
+# User-sourced memory (highest search weight)
+memrec add "My preference: use tabs not spaces" --mtype preference --source user --global
+
+# System-sourced memory
+memrec add "Auto-detected: project uses Rust 1.75" --mtype context --source system
+
+# Inferred knowledge
+memrec add "Likely prefers functional style based on code patterns" --mtype knowledge --source inferred
+```
+
 #### Auto-Splitting Long Content
 
 Content exceeding 7.5KB is automatically split into chunks:
@@ -184,10 +202,27 @@ memrec add "Very long content..." --mtype knowledge
 
 Each chunk generates its own embedding and shares a `chunk_group_id`. Use `--merge` to get the full content.
 
-### Semantic Search
+### Hybrid Search
+
+MemRec combines KNN vector search with BM25 full-text search for optimal results.
 
 ```bash
 memrec search "query" [options]
+```
+
+#### Search Pipeline
+
+1. **KNN + BM25**: Parallel search, merge and normalize scores
+2. **Time Decay**: Recent memories ranked higher (knowledge/decision exempt)
+3. **Source Weighting**: User memories weighted higher than system/inferred
+4. **MMR Reranking**: Diverse results, reduce redundancy
+
+#### Chinese Text Support
+
+Chinese text search is supported via n-gram tokenizer (2-4 grams). No additional configuration needed.
+
+```bash
+memrec search "中文搜索" --human
 ```
 
 #### Search Scope
@@ -210,6 +245,9 @@ memrec search "query" [options]
 | `--all` | All projects | - |
 | `--mtype` | Filter by type | - |
 | `--human` | Human-readable output | - |
+| `--hybrid-alpha` | KNN vs BM25 weight (0=BM25 only, 1=KNN only) | 0.5 |
+| `--mmr-enabled` | Enable MMR reranking | true |
+| `--mmr-lambda` | MMR diversity (0=max diversity, 1=max relevance) | 0.7 |
 
 #### Examples
 

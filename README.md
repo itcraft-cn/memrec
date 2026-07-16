@@ -9,7 +9,9 @@ Local memory persistence system for AI CLI tools, providing cross-session memory
 ## Features
 
 - **Project Isolation** — Auto-detect git root, .mr_pid persistence, independent memory per project
-- **Semantic Search** — Local ONNX model — MiniLM-L6-v2 (384d) or BGE-M3 (1024d, multilingual), zero API cost, all data stays local
+- **Hybrid Search** — KNN vector search + BM25 full-text, MMR reranking, Chinese text support
+- **Semantic Search** — Local ONNX model — MiniLM-L6-v2 (384d) or BGE-M3 (1024d, multilingual), zero API cost
+- **Smart Scoring** — Time decay, evergreen exemption, source weighting
 - **Cross-Project Search** — `--all` flag to discover related knowledge across projects
 - **AI-first Design** — JSON output by default, concise commands, Skill integration
 - **High Performance** — Rust, <1ms latency, ~118MB (MiniLM) / ~1.5GB (BGE-M3) memory (including model)
@@ -68,11 +70,12 @@ memrec add "Choose JWT auth" --mtype decision --tag critical
 memrec add "RAII: resource acquisition is initialization" --mtype knowledge --tag best-practice --tag rust
 memrec add "User prefers verbose output" --mtype preference --tag output --global
 
-# Semantic search
-memrec search "auth"                        # min_score default: 0.75 (MiniLM) / 0.5 (BGE-M3)
+# Hybrid search (KNN + BM25)
+memrec search "auth"                        # min_score default: 0.5 (BGE-M3) / 0.75 (MiniLM)
 memrec search "performance" --project-only  # Current project only
 memrec search "preferences" --global-only   # Global memories only
 memrec search "xlsb" --all                  # Across all projects
+memrec search "中文搜索" --human             # Chinese text supported
 
 # Other commands
 memrec list --limit 20
