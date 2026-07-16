@@ -20,5 +20,6 @@ pub mod embedding;
 pub mod importance;
 pub mod lifecycle;
 pub mod project;
+pub mod search;
 pub mod server;
 pub mod storage;
