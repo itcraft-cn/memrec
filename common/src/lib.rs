@@ -20,7 +20,7 @@ pub use types::{ModelConfig, ModelFile, ModelFileType, ModelType, PoolingStrateg
 
 pub use protocol::ProjectInfoResult;
 pub use protocol::SearchMemoryParams;
-pub use protocol::{default_include_global, default_min_score};
+pub use protocol::{default_hybrid_alpha, default_include_global, default_min_score, default_mmr_enabled, default_mmr_lambda};
 pub use protocol::{AddParams, GetParams, ListParams};
 pub use protocol::{JsonRpcError, JsonRpcRequest, JsonRpcResponse, MemRecError};
 pub use protocol::{MemoryListResult, MemoryResult, StatsResult, SuccessResult};
