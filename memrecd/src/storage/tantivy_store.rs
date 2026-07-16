@@ -117,6 +117,11 @@ impl TantivyStore {
             schema: tantivy_schema,
         }
     }
+
+    /// 手动重载读取器，用于测试场景。
+    pub fn reload(&self) -> Result<()> {
+        self.reader.reload().context("Failed to reload Tantivy reader")
+    }
 }
 
 #[async_trait]
@@ -246,5 +251,9 @@ impl FtsStorage for TantivyStore {
     async fn count(&self) -> Result<usize> {
         let searcher = self.reader.searcher();
         Ok(searcher.num_docs() as usize)
+    }
+
+    fn reload(&self) -> Result<()> {
+        self.reader.reload().context("Failed to reload Tantivy reader")
     }
 }

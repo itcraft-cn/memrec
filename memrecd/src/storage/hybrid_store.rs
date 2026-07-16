@@ -57,6 +57,11 @@ impl HybridStore {
         }
     }
 
+    /// 重载全文索引读取器，用于测试场景。
+    pub fn reload(&self) -> Result<()> {
+        self.fts_store.reload()
+    }
+
     /// 合并向量和全文检索结果并归一化。
     fn merge_and_normalize(
         vec_hits: Vec<SearchHit>,

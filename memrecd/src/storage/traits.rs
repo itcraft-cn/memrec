@@ -128,6 +128,11 @@ pub trait FtsStorage: Send + Sync {
 
     /// 获取索引文档数量。
     async fn count(&self) -> Result<usize>;
+
+    /// 重载读取器，用于测试场景。默认不做任何操作。
+    fn reload(&self) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// 混合搜索请求。
