@@ -11,6 +11,7 @@ pub mod hybrid_store;
 pub mod memory_store;
 pub mod rocksdb;
 pub mod rocksdb_vector;
+pub mod tantivy_store;
 pub mod traits;
 pub mod vector_store;
 
@@ -18,8 +19,9 @@ pub use hybrid_store::HybridStore;
 pub use memory_store::MemoryStore;
 pub use rocksdb::RocksDBStore;
 pub use rocksdb_vector::RocksDBVectorStore;
+pub use tantivy_store::TantivyStore;
 pub use traits::{
-    ConfigStorage, FtsPayload, FtsStorage, HybridSearchRequest, HybridSearchResult, HybridStorage,
-    MemoryStorage, ProjectStorage, SearchFilter, SearchHit, VectorPayload, VectorStorage,
+    ConfigStorage, FtsPayload, FtsStorage, MemoryStorage, ProjectStorage, SearchFilter,
+    SearchHit, VectorPayload, VectorStorage,
 };
 pub use vector_store::VectorStore;
