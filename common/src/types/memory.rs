@@ -55,6 +55,58 @@ impl std::fmt::Display for MemoryType {
     }
 }
 
+/// 记忆来源枚举。
+///
+/// 区分记忆的产生方式，影响搜索结果的可信度权重。
+/// 序列化为小写字符串，默认为 `User`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[derive(Default)]
+pub enum MemorySource {
+    #[default]
+    User,
+    System,
+    Inferred,
+    External,
+}
+
+impl std::fmt::Display for MemorySource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MemorySource::User => write!(f, "user"),
+            MemorySource::System => write!(f, "system"),
+            MemorySource::Inferred => write!(f, "inferred"),
+            MemorySource::External => write!(f, "external"),
+        }
+    }
+}
+
+/// 记忆作用域枚举。
+///
+/// 控制记忆的可见范围和时间衰减行为：
+/// - `Project`: 项目隔离，受时间衰减影响
+/// - `Global`: 全局共享，豁免时间衰减
+/// - `Workspace`: 工作区共享（预留），豁免时间衰减
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[derive(Default)]
+pub enum MemoryScope {
+    #[default]
+    Project,
+    Global,
+    Workspace,
+}
+
+impl std::fmt::Display for MemoryScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MemoryScope::Project => write!(f, "project"),
+            MemoryScope::Global => write!(f, "global"),
+            MemoryScope::Workspace => write!(f, "workspace"),
+        }
+    }
+}
+
 /// 记忆实体，系统的核心数据单元。
 ///
 /// 每条记忆拥有唯一 ID，可归属于某个项目（`project_id`），
@@ -79,6 +131,12 @@ pub struct Memory {
     pub chunk_group_id: Option<Uuid>,
     pub chunk_index: Option<u32>,
     pub chunk_total: Option<u32>,
+
+    #[serde(default)]
+    pub source: MemorySource,
+
+    #[serde(default)]
+    pub scope: MemoryScope,
 }
 
 impl Memory {
@@ -103,6 +161,8 @@ impl Memory {
             chunk_group_id: None,
             chunk_index: None,
             chunk_total: None,
+            source: MemorySource::default(),
+            scope: MemoryScope::default(),
         }
     }
 
@@ -127,6 +187,18 @@ impl Memory {
         self.chunk_group_id = Some(group_id);
         self.chunk_index = Some(index);
         self.chunk_total = Some(total);
+        self
+    }
+
+    /// 设置记忆来源，返回自身以支持链式调用。
+    pub fn with_source(mut self, source: MemorySource) -> Self {
+        self.source = source;
+        self
+    }
+
+    /// 设置记忆作用域，返回自身以支持链式调用。
+    pub fn with_scope(mut self, scope: MemoryScope) -> Self {
+        self.scope = scope;
         self
     }
 
@@ -246,5 +318,63 @@ mod tests {
         assert_eq!(memory.chunk_group_id, parsed.chunk_group_id);
         assert_eq!(memory.chunk_index, parsed.chunk_index);
         assert_eq!(memory.chunk_total, parsed.chunk_total);
+    }
+
+    #[test]
+    fn test_memory_source_serde() {
+        let sources = [
+            MemorySource::User,
+            MemorySource::System,
+            MemorySource::Inferred,
+            MemorySource::External,
+        ];
+
+        for s in sources {
+            let json = serde_json::to_string(&s).unwrap();
+            let parsed: MemorySource = serde_json::from_str(&json).unwrap();
+            assert_eq!(s, parsed);
+        }
+    }
+
+    #[test]
+    fn test_memory_scope_serde() {
+        let scopes = [
+            MemoryScope::Project,
+            MemoryScope::Global,
+            MemoryScope::Workspace,
+        ];
+
+        for s in scopes {
+            let json = serde_json::to_string(&s).unwrap();
+            let parsed: MemoryScope = serde_json::from_str(&json).unwrap();
+            assert_eq!(s, parsed);
+        }
+    }
+
+    #[test]
+    fn test_memory_source_default() {
+        let memory = Memory::new("test".to_string(), MemoryType::Knowledge);
+        assert_eq!(memory.source, MemorySource::User);
+        assert_eq!(memory.scope, MemoryScope::Project);
+    }
+
+    #[test]
+    fn test_memory_backward_compatibility() {
+        let json = r#"{
+            "id": "00000000-0000-0000-0000-000000000001",
+            "memory_type": "knowledge",
+            "content": "test",
+            "importance": 0.8,
+            "created_at": "2026-01-01T00:00:00Z",
+            "last_accessed": "2026-01-01T00:00:00Z",
+            "access_count": 0,
+            "tags": [],
+            "metadata": {},
+            "is_deleted": false
+        }"#;
+
+        let memory: Memory = serde_json::from_str(json).unwrap();
+        assert_eq!(memory.source, MemorySource::User);
+        assert_eq!(memory.scope, MemoryScope::Project);
     }
 }

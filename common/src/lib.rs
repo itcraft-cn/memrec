@@ -15,7 +15,7 @@ pub mod protocol;
 pub mod types;
 
 pub use types::{ImportanceConfig, MemoryConfig, ServerConfig};
-pub use types::{Memory, MemoryType, Project, ProjectConfig};
+pub use types::{Memory, MemoryType, MemorySource, MemoryScope, Project, ProjectConfig};
 pub use types::{ModelConfig, ModelFile, ModelFileType, ModelType, PoolingStrategy};
 
 pub use protocol::ProjectInfoResult;
