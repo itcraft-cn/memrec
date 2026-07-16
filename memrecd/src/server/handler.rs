@@ -581,7 +581,7 @@ mod tests {
     use crate::embedding::FastEmbedGenerator;
     use crate::storage::rocksdb::RocksDBStore;
     use crate::storage::{MemoryStore, VectorStore};
-    use memrec_common::protocol::{GetProjectInfoParams, SearchMemoryParams};
+    use memrec_common::protocol::{GetProjectInfoParams, SearchMemoryParams, default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda};
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -608,6 +608,9 @@ mod tests {
                 top_k: 10,
                 min_score: 0.0,
                 working_dir: None,
+                hybrid_alpha: default_hybrid_alpha(),
+                mmr_enabled: default_mmr_enabled(),
+                mmr_lambda: default_mmr_lambda(),
             })),
             1,
         );

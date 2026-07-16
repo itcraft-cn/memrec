@@ -63,6 +63,8 @@ pub async fn add(
                     project_id: None,
                     is_global,
                     working_dir: working_dir.clone(),
+                    source: None,
+                    scope: None,
                 })),
                 i as u64 + 1,
             );
@@ -93,6 +95,8 @@ pub async fn add(
                 project_id: None,
                 is_global,
                 working_dir,
+                source: None,
+                scope: None,
             })),
             1,
         );

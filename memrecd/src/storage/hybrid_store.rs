@@ -15,6 +15,24 @@ use super::traits::{
 use crate::search::mmr::{MmrConfig, MmrHit, mmr_rerank};
 use crate::search::scorer::ScorerConfig;
 
+/// 混合搜索配置。
+#[derive(Debug, Clone)]
+pub struct HybridConfig {
+    /// 向量检索权重（0.0-1.0）
+    pub hybrid_alpha: f32,
+    /// 是否启用 MMR 重排
+    pub mmr_enabled: bool,
+}
+
+impl Default for HybridConfig {
+    fn default() -> Self {
+        Self {
+            hybrid_alpha: 0.5,
+            mmr_enabled: true,
+        }
+    }
+}
+
 /// 混合搜索存储。
 pub struct HybridStore {
     vector_store: Arc<dyn VectorStorage>,
@@ -139,6 +157,11 @@ impl HybridStorage for HybridStore {
         let fts_count = fts_hits.len();
 
         let merged = Self::merge_and_normalize(vec_hits, fts_hits, req.hybrid_alpha);
+
+        // 3. Apply scoring (time decay + source weight)
+        // TODO: Need created_at/scope/source in VectorPayload or SearchHit for scoring
+        // For now, skip scoring step - scorer_config is reserved for future use
+        let _ = &self.scorer_config;
 
         let mut sorted = merged;
         sorted.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));

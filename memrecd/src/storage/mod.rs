@@ -15,7 +15,7 @@ pub mod tantivy_store;
 pub mod traits;
 pub mod vector_store;
 
-pub use hybrid_store::HybridStore;
+pub use hybrid_store::{HybridConfig, HybridStore};
 pub use memory_store::MemoryStore;
 pub use rocksdb::RocksDBStore;
 pub use rocksdb_vector::RocksDBVectorStore;

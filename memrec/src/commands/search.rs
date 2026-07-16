@@ -4,7 +4,7 @@
 
 use crate::client::Client;
 use clap::Args;
-use memrec_common::{JsonRpcRequest, MemoryType, RequestAction, RequestParams, SearchMemoryParams};
+use memrec_common::{JsonRpcRequest, MemoryType, RequestAction, RequestParams, SearchMemoryParams, default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda};
 use uuid::Uuid;
 
 /// 搜索命令参数
@@ -77,6 +77,9 @@ pub async fn search_execute(
             top_k: args.top_k,
             min_score: args.min_score,
             working_dir,
+            hybrid_alpha: default_hybrid_alpha(),
+            mmr_enabled: default_mmr_enabled(),
+            mmr_lambda: default_mmr_lambda(),
         })),
         1,
     );
