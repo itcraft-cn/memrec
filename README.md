@@ -139,7 +139,7 @@ project-a/           project-b/
 
 - [Manual](MANUAL.md)
 - [Manual (Chinese)](MANUAL_cn.md)
-- [Skill Documentation](docs/skills/memrec-skill.md)
+- [Skill Documentation](skills/memrec/SKILL.md)
 
 ## Project Structure
 

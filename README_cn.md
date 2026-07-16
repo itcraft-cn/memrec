@@ -139,7 +139,7 @@ project-a/           project-b/
 
 - [使用手册](MANUAL_cn.md)
 - [Manual (English)](MANUAL.md)
-- [Skill文档](docs/skills/memrec-skill.md)
+- [Skill文档](skills/memrec/SKILL.md)
 
 ## 项目结构
 
