@@ -10,7 +10,8 @@ use tantivy::{
     collector::TopDocs,
     directory::MmapDirectory,
     query::QueryParser,
-    schema::{Field, Schema, Value, FAST, STORED, STRING, TEXT},
+    schema::{Field, IndexRecordOption, Schema, Value, FAST, STORED, STRING, TEXT},
+    tokenizer::{LowerCaser, NgramTokenizer, RemoveLongFilter, TextAnalyzer},
     Index, IndexReader, IndexWriter, TantivyDocument,
 };
 use tokio::sync::RwLock;
@@ -36,15 +37,31 @@ struct TantivySchema {
     importance: Field,
 }
 
+const TOKENIZER_NAME: &str = "ngram_chinese";
+
 impl TantivySchema {
     fn build() -> (Schema, Self) {
         let mut schema_builder = Schema::builder();
 
         let id = schema_builder.add_text_field("id", STRING | STORED);
-        let content = schema_builder.add_text_field("content", TEXT);
+        let content = schema_builder.add_text_field(
+            "content",
+            TEXT.set_indexing_options(
+                tantivy::schema::TextFieldIndexing::default()
+                    .set_tokenizer(TOKENIZER_NAME)
+                    .set_index_option(IndexRecordOption::WithFreqsAndPositions),
+            ),
+        );
         let project_id = schema_builder.add_text_field("project_id", STRING | STORED);
         let memory_type = schema_builder.add_text_field("memory_type", STRING | STORED);
-        let tags = schema_builder.add_text_field("tags", TEXT);
+        let tags = schema_builder.add_text_field(
+            "tags",
+            TEXT.set_indexing_options(
+                tantivy::schema::TextFieldIndexing::default()
+                    .set_tokenizer(TOKENIZER_NAME)
+                    .set_index_option(IndexRecordOption::WithFreqsAndPositions),
+            ),
+        );
         let importance = schema_builder.add_f64_field("importance", FAST | STORED);
 
         let schema = schema_builder.build();
@@ -64,6 +81,14 @@ impl TantivySchema {
 }
 
 impl TantivyStore {
+    fn register_tokenizer(index: &Index) {
+        let tokenizer = TextAnalyzer::builder(NgramTokenizer::all_ngrams(2, 4).unwrap())
+            .filter(RemoveLongFilter::limit(40))
+            .filter(LowerCaser)
+            .build();
+        index.tokenizers().register(TOKENIZER_NAME, tokenizer);
+    }
+
     /// 打开或创建 Tantivy 索引。
     pub async fn open(path: &Path) -> Result<Self> {
         let (schema, tantivy_schema) = TantivySchema::build();
@@ -78,6 +103,8 @@ impl TantivyStore {
 
         let index = Index::open_or_create(directory, schema.clone())
             .context("Failed to open or create Tantivy index")?;
+
+        Self::register_tokenizer(&index);
 
         let writer = index
             .writer(50_000_000)
@@ -106,6 +133,7 @@ impl TantivyStore {
         let directory = RamDirectory::create();
 
         let index = Index::open_or_create(directory, schema.clone()).unwrap();
+        Self::register_tokenizer(&index);
 
         let writer = index.writer(15_000_000).unwrap();
         let reader = index.reader_builder().try_into().unwrap();

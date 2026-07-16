@@ -81,6 +81,20 @@ impl std::fmt::Display for MemorySource {
     }
 }
 
+impl std::str::FromStr for MemorySource {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "user" => Ok(MemorySource::User),
+            "system" => Ok(MemorySource::System),
+            "inferred" => Ok(MemorySource::Inferred),
+            "external" => Ok(MemorySource::External),
+            _ => Err(format!("unknown memory source: {}", s)),
+        }
+    }
+}
+
 /// 记忆作用域枚举。
 ///
 /// 控制记忆的可见范围和时间衰减行为：
@@ -103,6 +117,19 @@ impl std::fmt::Display for MemoryScope {
             MemoryScope::Project => write!(f, "project"),
             MemoryScope::Global => write!(f, "global"),
             MemoryScope::Workspace => write!(f, "workspace"),
+        }
+    }
+}
+
+impl std::str::FromStr for MemoryScope {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "project" => Ok(MemoryScope::Project),
+            "global" => Ok(MemoryScope::Global),
+            "workspace" => Ok(MemoryScope::Workspace),
+            _ => Err(format!("unknown memory scope: {}", s)),
         }
     }
 }

@@ -135,6 +135,17 @@ impl Router {
                     memory = memory.with_project(pid);
                 }
 
+                if let Some(ref s) = p.source {
+                    if let Ok(source) = s.parse() {
+                        memory = memory.with_source(source);
+                    }
+                }
+                if let Some(ref s) = p.scope {
+                    if let Ok(scope) = s.parse() {
+                        memory = memory.with_scope(scope);
+                    }
+                }
+
                 match self.storage.save(&memory).await {
                     Ok(_) => {
                         match self.embedder.embed(&p.content) {
