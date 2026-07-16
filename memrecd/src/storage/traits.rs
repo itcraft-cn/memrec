@@ -104,6 +104,7 @@ pub struct FtsPayload {
     pub project_id: Option<Uuid>,
     pub memory_type: String,
     pub tags: Vec<String>,
+    pub importance: f32,
 }
 
 /// 全文搜索存储 trait。

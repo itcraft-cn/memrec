@@ -10,7 +10,7 @@ use tantivy::{
     collector::TopDocs,
     directory::MmapDirectory,
     query::QueryParser,
-    schema::{Field, Schema, Value, FAST, STORED, TEXT},
+    schema::{Field, Schema, Value, FAST, STORED, STRING, TEXT},
     Index, IndexReader, IndexWriter, TantivyDocument,
 };
 use tokio::sync::RwLock;
@@ -40,10 +40,10 @@ impl TantivySchema {
     fn build() -> (Schema, Self) {
         let mut schema_builder = Schema::builder();
 
-        let id = schema_builder.add_text_field("id", STORED);
+        let id = schema_builder.add_text_field("id", STRING | STORED);
         let content = schema_builder.add_text_field("content", TEXT);
-        let project_id = schema_builder.add_text_field("project_id", STORED);
-        let memory_type = schema_builder.add_text_field("memory_type", STORED);
+        let project_id = schema_builder.add_text_field("project_id", STRING | STORED);
+        let memory_type = schema_builder.add_text_field("memory_type", STRING | STORED);
         let tags = schema_builder.add_text_field("tags", TEXT);
         let importance = schema_builder.add_f64_field("importance", FAST | STORED);
 
@@ -112,7 +112,7 @@ impl FtsStorage for TantivyStore {
         }
         doc.add_text(self.schema.memory_type, payload.memory_type);
         doc.add_text(self.schema.tags, payload.tags.join(" "));
-        doc.add_f64(self.schema.importance, 0.5);
+        doc.add_f64(self.schema.importance, payload.importance as f64);
 
         writer
             .add_document(doc)
@@ -174,6 +174,17 @@ impl FtsStorage for TantivyStore {
                     .unwrap_or("");
 
                 if doc_pid != filter_pid.to_string() && !filter.include_global {
+                    continue;
+                }
+            }
+
+            if let Some(filter_mt) = &filter.memory_type {
+                let doc_mt = doc
+                    .get_first(self.schema.memory_type)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                if doc_mt != filter_mt {
                     continue;
                 }
             }

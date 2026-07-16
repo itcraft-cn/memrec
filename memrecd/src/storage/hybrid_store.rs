@@ -201,6 +201,7 @@ impl HybridStorage for HybridStore {
             project_id: payload.project_id,
             memory_type: payload.memory_type,
             tags: payload.tags,
+            importance: payload.importance,
         };
         self.fts_store.add(id, text, fts_payload).await?;
 
