@@ -48,10 +48,8 @@ pub fn mmr_rerank<H: MmrHit>(candidates: Vec<H>, config: &MmrConfig) -> Vec<H> {
     let mut selected_tokens: Vec<HashSet<String>> = Vec::with_capacity(limit);
     let mut remaining: Vec<H> = candidates;
 
-    let mut token_sets: Vec<HashSet<String>> = remaining
-        .iter()
-        .map(|h| tokenize(h.text()))
-        .collect();
+    let mut token_sets: Vec<HashSet<String>> =
+        remaining.iter().map(|h| tokenize(h.text())).collect();
 
     while selected.len() < limit && !remaining.is_empty() {
         let mut best_idx = 0;

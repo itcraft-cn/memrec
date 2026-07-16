@@ -66,8 +66,8 @@ impl Router {
     #[cfg(test)]
     pub fn new_simple(storage: Arc<dyn MemoryStorage>) -> Self {
         use crate::embedding::GeneratorFactory;
-        use crate::storage::HybridStore;
         use crate::search::{MmrConfig, ScorerConfig};
+        use crate::storage::HybridStore;
         use memrec_common::ModelConfig;
 
         let model_config = ModelConfig::default();
@@ -605,10 +605,13 @@ impl Router {
 mod tests {
     use super::*;
     use crate::embedding::FastEmbedGenerator;
+    use crate::search::{MmrConfig, ScorerConfig};
     use crate::storage::rocksdb::RocksDBStore;
     use crate::storage::{HybridStore, MemoryStore, TantivyStore, VectorStore};
-    use crate::search::{MmrConfig, ScorerConfig};
-    use memrec_common::protocol::{GetProjectInfoParams, SearchMemoryParams, default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda};
+    use memrec_common::protocol::{
+        default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda, GetProjectInfoParams,
+        SearchMemoryParams,
+    };
     use tempfile::tempdir;
 
     #[tokio::test]

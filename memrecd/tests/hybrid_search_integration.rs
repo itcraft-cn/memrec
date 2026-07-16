@@ -25,7 +25,10 @@ async fn test_tantivy_crud() {
         importance: 0.8,
     };
 
-    store.add(&id, "Rust is a systems programming language", payload).await.unwrap();
+    store
+        .add(&id, "Rust is a systems programming language", payload)
+        .await
+        .unwrap();
     store.reload().unwrap();
 
     assert_eq!(store.count().await.unwrap(), 1);
@@ -93,7 +96,10 @@ async fn test_tantivy_search_with_filter() {
         include_global: true,
         ..Default::default()
     };
-    let results = store.search("document", filter_with_global, 10).await.unwrap();
+    let results = store
+        .search("document", filter_with_global, 10)
+        .await
+        .unwrap();
     assert_eq!(results.len(), 2);
 }
 
@@ -296,12 +302,7 @@ async fn test_hybrid_mmr_enabled() {
         max_candidates: 50,
     };
 
-    let hybrid = HybridStore::new(
-        vector_store,
-        fts_store,
-        mmr_config,
-        ScorerConfig::default(),
-    );
+    let hybrid = HybridStore::new(vector_store, fts_store, mmr_config, ScorerConfig::default());
 
     let id1 = Uuid::new_v4();
     let id2 = Uuid::new_v4();
@@ -457,9 +458,9 @@ fn test_mmr_rerank_diversity() {
 
     assert!((result[0].score() - 0.9).abs() < 0.001);
 
-    let second_and_third_diverse = result[1..2]
-        .iter()
-        .any(|h| !h.text().contains("machine learning") || result[0].text().contains("machine learning"));
+    let second_and_third_diverse = result[1..2].iter().any(|h| {
+        !h.text().contains("machine learning") || result[0].text().contains("machine learning")
+    });
     assert!(second_and_third_diverse || result.len() >= 2);
 }
 
@@ -556,8 +557,20 @@ fn test_scorer_time_decay() {
     let old_time = chrono::Utc::now() - chrono::Duration::hours(336);
     let recent_time = chrono::Utc::now() - chrono::Duration::hours(1);
 
-    let old_score = apply_scoring(1.0, old_time, MemoryScope::Project, memrec_common::MemorySource::User, &config);
-    let recent_score = apply_scoring(1.0, recent_time, MemoryScope::Project, memrec_common::MemorySource::User, &config);
+    let old_score = apply_scoring(
+        1.0,
+        old_time,
+        MemoryScope::Project,
+        memrec_common::MemorySource::User,
+        &config,
+    );
+    let recent_score = apply_scoring(
+        1.0,
+        recent_time,
+        MemoryScope::Project,
+        memrec_common::MemorySource::User,
+        &config,
+    );
 
     assert!(recent_score > old_score);
     assert!((old_score - 0.5).abs() < 0.15);
@@ -569,7 +582,13 @@ fn test_scorer_evergreen_exempt() {
 
     let old_time = chrono::Utc::now() - chrono::Duration::hours(1000);
 
-    let global_score = apply_scoring(1.0, old_time, MemoryScope::Global, memrec_common::MemorySource::User, &config);
+    let global_score = apply_scoring(
+        1.0,
+        old_time,
+        MemoryScope::Global,
+        memrec_common::MemorySource::User,
+        &config,
+    );
 
     assert!((global_score - 1.0).abs() < 0.001);
 }
@@ -579,8 +598,20 @@ fn test_scorer_source_weight() {
     let config = ScorerConfig::default();
     let now = chrono::Utc::now();
 
-    let user_score = apply_scoring(1.0, now, MemoryScope::Global, memrec_common::MemorySource::User, &config);
-    let inferred_score = apply_scoring(1.0, now, MemoryScope::Global, memrec_common::MemorySource::Inferred, &config);
+    let user_score = apply_scoring(
+        1.0,
+        now,
+        MemoryScope::Global,
+        memrec_common::MemorySource::User,
+        &config,
+    );
+    let inferred_score = apply_scoring(
+        1.0,
+        now,
+        MemoryScope::Global,
+        memrec_common::MemorySource::Inferred,
+        &config,
+    );
 
     assert!((user_score - 1.0).abs() < 0.001);
     assert!((inferred_score - 0.5).abs() < 0.001);
@@ -593,7 +624,13 @@ fn test_scorer_combined() {
 
     let old_time = chrono::Utc::now() - chrono::Duration::hours(168);
 
-    let score = apply_scoring(1.0, old_time, MemoryScope::Project, memrec_common::MemorySource::Inferred, &config);
+    let score = apply_scoring(
+        1.0,
+        old_time,
+        MemoryScope::Project,
+        memrec_common::MemorySource::Inferred,
+        &config,
+    );
 
     assert!(score < 0.5);
     assert!(score > 0.0);
@@ -615,10 +652,22 @@ fn test_source_weights_custom() {
 
     let now = chrono::Utc::now();
 
-    let system_score = apply_scoring(1.0, now, MemoryScope::Global, memrec_common::MemorySource::System, &config);
+    let system_score = apply_scoring(
+        1.0,
+        now,
+        MemoryScope::Global,
+        memrec_common::MemorySource::System,
+        &config,
+    );
     assert!((system_score - 0.9).abs() < 0.001);
 
-    let external_score = apply_scoring(1.0, now, MemoryScope::Global, memrec_common::MemorySource::External, &config);
+    let external_score = apply_scoring(
+        1.0,
+        now,
+        MemoryScope::Global,
+        memrec_common::MemorySource::External,
+        &config,
+    );
     assert!((external_score - 0.8).abs() < 0.001);
 }
 

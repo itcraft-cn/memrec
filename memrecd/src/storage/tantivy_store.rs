@@ -120,7 +120,9 @@ impl TantivyStore {
 
     /// 手动重载读取器，用于测试场景。
     pub fn reload(&self) -> Result<()> {
-        self.reader.reload().context("Failed to reload Tantivy reader")
+        self.reader
+            .reload()
+            .context("Failed to reload Tantivy reader")
     }
 }
 
@@ -166,10 +168,8 @@ impl FtsStorage for TantivyStore {
     ) -> Result<Vec<SearchHit>> {
         let searcher = self.reader.searcher();
 
-        let query_parser = QueryParser::for_index(
-            &self.index,
-            vec![self.schema.content, self.schema.tags],
-        );
+        let query_parser =
+            QueryParser::for_index(&self.index, vec![self.schema.content, self.schema.tags]);
 
         let tantivy_query = query_parser
             .parse_query(query)
@@ -254,6 +254,8 @@ impl FtsStorage for TantivyStore {
     }
 
     fn reload(&self) -> Result<()> {
-        self.reader.reload().context("Failed to reload Tantivy reader")
+        self.reader
+            .reload()
+            .context("Failed to reload Tantivy reader")
     }
 }

@@ -126,7 +126,18 @@ async fn main() -> Result<()> {
             } else {
                 Some(detect_working_dir()?)
             };
-            add(&client, content, mtype, tag, global, working_dir, source, scope, human).await?;
+            add(
+                &client,
+                content,
+                mtype,
+                tag,
+                global,
+                working_dir,
+                source,
+                scope,
+                human,
+            )
+            .await?;
         }
         Commands::Get { id, merge } => {
             get(&client, id, merge, human).await?;

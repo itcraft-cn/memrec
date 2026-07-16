@@ -12,7 +12,7 @@ use super::traits::{
     FtsPayload, FtsStorage, HybridSearchRequest, HybridSearchResult, HybridStorage, SearchHit,
     VectorPayload, VectorStorage,
 };
-use crate::search::mmr::{MmrConfig, MmrHit, mmr_rerank};
+use crate::search::mmr::{mmr_rerank, MmrConfig, MmrHit};
 use crate::search::scorer::ScorerConfig;
 
 /// 混合搜索配置。
@@ -72,17 +72,13 @@ impl HybridStore {
             return Vec::new();
         }
 
-        let (vec_min, vec_max) = vec_hits
-            .iter()
-            .fold((f32::MAX, f32::MIN), |(min, max), h| {
-                (min.min(h.score), max.max(h.score))
-            });
+        let (vec_min, vec_max) = vec_hits.iter().fold((f32::MAX, f32::MIN), |(min, max), h| {
+            (min.min(h.score), max.max(h.score))
+        });
 
-        let (fts_min, fts_max) = fts_hits
-            .iter()
-            .fold((f32::MAX, f32::MIN), |(min, max), h| {
-                (min.min(h.score), max.max(h.score))
-            });
+        let (fts_min, fts_max) = fts_hits.iter().fold((f32::MAX, f32::MIN), |(min, max), h| {
+            (min.min(h.score), max.max(h.score))
+        });
 
         let mut merged: HashMap<Uuid, SearchHit> = HashMap::new();
 
@@ -126,7 +122,11 @@ impl HybridStore {
         }
 
         let mut result: Vec<SearchHit> = merged.into_values().collect();
-        result.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        result.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         result
     }
 }
@@ -169,7 +169,11 @@ impl HybridStorage for HybridStore {
         let _ = &self.scorer_config;
 
         let mut sorted = merged;
-        sorted.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        sorted.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         sorted.truncate(req.top_k);
 
         let final_hits = if req.mmr_enabled {
@@ -200,7 +204,9 @@ impl HybridStorage for HybridStore {
         text: &str,
         payload: VectorPayload,
     ) -> Result<()> {
-        self.vector_store.add(id, embedding, payload.clone()).await?;
+        self.vector_store
+            .add(id, embedding, payload.clone())
+            .await?;
 
         let fts_payload = FtsPayload {
             project_id: payload.project_id,

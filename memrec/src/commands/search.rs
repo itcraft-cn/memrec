@@ -4,7 +4,10 @@
 
 use crate::client::Client;
 use clap::Args;
-use memrec_common::{JsonRpcRequest, MemoryType, RequestAction, RequestParams, SearchMemoryParams, default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda};
+use memrec_common::{
+    default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda, JsonRpcRequest, MemoryType,
+    RequestAction, RequestParams, SearchMemoryParams,
+};
 use uuid::Uuid;
 
 /// 搜索命令参数

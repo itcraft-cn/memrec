@@ -20,8 +20,8 @@ use crate::embedding::{EmbeddingGenerator, GeneratorFactory};
 use crate::search::{MmrConfig, ScorerConfig};
 use crate::server::{Router, UnixSocketServer};
 use crate::storage::{
-    HybridStore, MemoryStorage, MemoryStore, RocksDBStore, RocksDBVectorStore,
-    TantivyStore, VectorStorage,
+    HybridStore, MemoryStorage, MemoryStore, RocksDBStore, RocksDBVectorStore, TantivyStore,
+    VectorStorage,
 };
 
 /// 向量存储定时同步间隔（秒）
@@ -90,7 +90,11 @@ impl Daemon {
             embedder.dimension(),
         )?);
 
-        let fts_dir = self.config.server.data_dir.parent()
+        let fts_dir = self
+            .config
+            .server
+            .data_dir
+            .parent()
             .unwrap_or(&self.config.server.data_dir)
             .join("fts");
         let fts_store = Arc::new(TantivyStore::open(&fts_dir).await?);
