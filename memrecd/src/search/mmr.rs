@@ -25,16 +25,65 @@ impl Default for MmrConfig {
     }
 }
 
+/// MMR 搜索命中项接口。
+pub trait MmrHit: Clone {
+    /// 获取分数。
+    fn score(&self) -> f64;
+    /// 获取文本内容用于相似度计算。
+    fn text(&self) -> &str;
+}
+
 /// MMR 重排。
 ///
 /// 公式：MMR(d) = λ × rel(d) - (1-λ) × max(sim(d, d')) for d' in S
-pub fn mmr_rerank<T: Clone + AsRef<str>>(
-    candidates: Vec<T>,
-    scores: Vec<f64>,
-    config: &MmrConfig,
-) -> Vec<T> {
-    // TODO: 实现
-    candidates.into_iter().take(config.top_k).collect()
+pub fn mmr_rerank<H: MmrHit>(candidates: Vec<H>, config: &MmrConfig) -> Vec<H> {
+    if candidates.is_empty() || config.top_k == 0 {
+        return Vec::new();
+    }
+
+    let limit = config.top_k.min(candidates.len());
+    let mut selected: Vec<H> = Vec::with_capacity(limit);
+    let mut remaining: Vec<H> = candidates;
+
+    let mut token_sets: Vec<Option<HashSet<String>>> = remaining
+        .iter()
+        .map(|h| Some(tokenize(h.text())))
+        .collect();
+
+    while selected.len() < limit && !remaining.is_empty() {
+        let mut best_idx = 0;
+        let mut best_mmr = f64::MIN;
+
+        for (i, candidate) in remaining.iter().enumerate() {
+            let relevance = candidate.score();
+
+            let max_sim = selected
+                .iter()
+                .map(|s| {
+                    let s_tokens = tokenize(s.text());
+                    if let Some(ref c_tokens) = token_sets[i] {
+                        jaccard(c_tokens, &s_tokens)
+                    } else {
+                        0.0
+                    }
+                })
+                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap_or(0.0);
+
+            let mmr = config.lambda * relevance - (1.0 - config.lambda) * max_sim;
+
+            if mmr > best_mmr {
+                best_mmr = mmr;
+                best_idx = i;
+            }
+        }
+
+        let hit = remaining.remove(best_idx);
+        token_sets.remove(best_idx);
+        selected.push(hit);
+    }
+
+    selected
 }
 
 fn tokenize(text: &str) -> HashSet<String> {
@@ -58,6 +107,73 @@ fn jaccard(a: &HashSet<String>, b: &HashSet<String>) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Clone)]
+    struct TestHit {
+        text: String,
+        score: f64,
+    }
+
+    impl MmrHit for TestHit {
+        fn score(&self) -> f64 {
+            self.score
+        }
+        fn text(&self) -> &str {
+            &self.text
+        }
+    }
+
+    #[test]
+    fn test_mmr_rerank_diversity() {
+        let candidates = vec![
+            TestHit {
+                text: "hello world".to_string(),
+                score: 0.9,
+            },
+            TestHit {
+                text: "hello world test".to_string(),
+                score: 0.85,
+            },
+            TestHit {
+                text: "foo bar".to_string(),
+                score: 0.8,
+            },
+        ];
+
+        let config = MmrConfig {
+            lambda: 0.5,
+            top_k: 2,
+            max_candidates: 50,
+        };
+        let result = mmr_rerank(candidates, &config);
+
+        assert_eq!(result.len(), 2);
+        assert!((result[0].score() - 0.9).abs() < 0.001);
+        assert!(result[1].text().contains("foo"));
+    }
+
+    #[test]
+    fn test_mmr_rerank_empty() {
+        let candidates: Vec<TestHit> = vec![];
+        let config = MmrConfig::default();
+        let result = mmr_rerank(candidates, &config);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_mmr_rerank_single() {
+        let candidates = vec![TestHit {
+            text: "single".to_string(),
+            score: 0.9,
+        }];
+        let config = MmrConfig {
+            lambda: 0.5,
+            top_k: 5,
+            max_candidates: 50,
+        };
+        let result = mmr_rerank(candidates, &config);
+        assert_eq!(result.len(), 1);
+    }
 
     #[test]
     fn test_tokenize() {

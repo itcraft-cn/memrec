@@ -7,5 +7,5 @@
 pub mod mmr;
 pub mod scorer;
 
-pub use mmr::{mmr_rerank, MmrConfig};
+pub use mmr::{mmr_rerank, MmrConfig, MmrHit};
 pub use scorer::{apply_scoring, ScorerConfig, SourceWeights};
