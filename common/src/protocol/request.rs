@@ -139,6 +139,10 @@ pub struct AddParams {
     pub is_global: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub scope: Option<String>,
 }
 
 /// 获取单条记忆的参数。
@@ -223,11 +227,29 @@ pub struct SearchMemoryParams {
     pub min_score: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
+    #[serde(default = "default_hybrid_alpha")]
+    pub hybrid_alpha: f64,
+    #[serde(default = "default_mmr_enabled")]
+    pub mmr_enabled: bool,
+    #[serde(default = "default_mmr_lambda")]
+    pub mmr_lambda: f64,
 }
 
 /// 搜索时是否包含公共记忆的默认值。
 pub fn default_include_global() -> bool {
     true
+}
+
+pub fn default_hybrid_alpha() -> f64 {
+    0.5
+}
+
+pub fn default_mmr_enabled() -> bool {
+    true
+}
+
+pub fn default_mmr_lambda() -> f64 {
+    0.5
 }
 
 /// 语义搜索最低相似度的默认值。
@@ -350,6 +372,8 @@ mod tests {
                 project_id: None,
                 is_global: false,
                 working_dir: None,
+                source: None,
+                scope: None,
             })),
             1,
         );
@@ -404,6 +428,9 @@ mod tests {
             top_k: default_top_k(),
             min_score: default_min_score(),
             working_dir: None,
+            hybrid_alpha: default_hybrid_alpha(),
+            mmr_enabled: default_mmr_enabled(),
+            mmr_lambda: default_mmr_lambda(),
         };
 
         assert_eq!(params.include_global, true);
@@ -424,6 +451,9 @@ mod tests {
             top_k: 20,
             min_score: 0.8,
             working_dir: None,
+            hybrid_alpha: default_hybrid_alpha(),
+            mmr_enabled: default_mmr_enabled(),
+            mmr_lambda: default_mmr_lambda(),
         };
 
         let json = serde_json::to_string(&params).unwrap();
@@ -431,5 +461,41 @@ mod tests {
 
         assert_eq!(params.query, parsed.query);
         assert_eq!(params.top_k, parsed.top_k);
+    }
+
+    #[test]
+    fn test_add_params_with_source_scope() {
+        let json = r#"{
+            "type": "add",
+            "content": "test content",
+            "source": "system",
+            "scope": "global"
+        }"#;
+
+        let params: RequestParams = serde_json::from_str(json).unwrap();
+        if let RequestParams::Add(p) = params {
+            assert_eq!(p.source, Some("system".to_string()));
+            assert_eq!(p.scope, Some("global".to_string()));
+        } else {
+            panic!("Expected Add params");
+        }
+    }
+
+    #[test]
+    fn test_search_memory_params_hybrid() {
+        let json = r#"{
+            "type": "search_memory",
+            "query": "test query",
+            "hybrid_alpha": 0.7,
+            "mmr_enabled": false
+        }"#;
+
+        let params: RequestParams = serde_json::from_str(json).unwrap();
+        if let RequestParams::SearchMemory(p) = params {
+            assert_eq!(p.hybrid_alpha, 0.7);
+            assert!(!p.mmr_enabled);
+        } else {
+            panic!("Expected SearchMemory params");
+        }
     }
 }
