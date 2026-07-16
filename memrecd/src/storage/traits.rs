@@ -65,7 +65,7 @@ pub struct VectorPayload {
 }
 
 /// 语义搜索过滤条件。
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SearchFilter {
     pub project_id: Option<Uuid>,
     pub include_global: bool,
@@ -74,7 +74,7 @@ pub struct SearchFilter {
 }
 
 /// 语义搜索命中结果。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchHit {
     pub memory_id: Uuid,
     pub score: f32,
@@ -130,19 +130,22 @@ pub trait FtsStorage: Send + Sync {
 }
 
 /// 混合搜索请求。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HybridSearchRequest {
     pub query: String,
     pub query_embedding: Vec<f32>,
     pub filter: SearchFilter,
     pub top_k: usize,
-    pub hybrid_alpha: f64,
-    pub mmr_lambda: f64,
+    /// 向量检索权重（0.0-1.0），默认 0.5
+    pub hybrid_alpha: f32,
+    /// MMR 相关性权重（0.0-1.0），默认 0.5
+    pub mmr_lambda: f32,
+    /// 是否启用 MMR 重排
     pub mmr_enabled: bool,
 }
 
 /// 混合搜索结果。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HybridSearchResult {
     pub hits: Vec<SearchHit>,
     pub vec_count: usize,

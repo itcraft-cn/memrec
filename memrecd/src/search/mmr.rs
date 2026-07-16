@@ -41,13 +41,16 @@ pub fn mmr_rerank<H: MmrHit>(candidates: Vec<H>, config: &MmrConfig) -> Vec<H> {
         return Vec::new();
     }
 
+    let candidates: Vec<H> = candidates.into_iter().take(config.max_candidates).collect();
+
     let limit = config.top_k.min(candidates.len());
     let mut selected: Vec<H> = Vec::with_capacity(limit);
+    let mut selected_tokens: Vec<HashSet<String>> = Vec::with_capacity(limit);
     let mut remaining: Vec<H> = candidates;
 
-    let mut token_sets: Vec<Option<HashSet<String>>> = remaining
+    let mut token_sets: Vec<HashSet<String>> = remaining
         .iter()
-        .map(|h| Some(tokenize(h.text())))
+        .map(|h| tokenize(h.text()))
         .collect();
 
     while selected.len() < limit && !remaining.is_empty() {
@@ -57,16 +60,9 @@ pub fn mmr_rerank<H: MmrHit>(candidates: Vec<H>, config: &MmrConfig) -> Vec<H> {
         for (i, candidate) in remaining.iter().enumerate() {
             let relevance = candidate.score();
 
-            let max_sim = selected
+            let max_sim = selected_tokens
                 .iter()
-                .map(|s| {
-                    let s_tokens = tokenize(s.text());
-                    if let Some(ref c_tokens) = token_sets[i] {
-                        jaccard(c_tokens, &s_tokens)
-                    } else {
-                        0.0
-                    }
-                })
+                .map(|s_tokens| jaccard(&token_sets[i], s_tokens))
                 .max_by(|a, b| a.partial_cmp(b).unwrap())
                 .unwrap_or(0.0);
 
@@ -79,7 +75,8 @@ pub fn mmr_rerank<H: MmrHit>(candidates: Vec<H>, config: &MmrConfig) -> Vec<H> {
         }
 
         let hit = remaining.remove(best_idx);
-        token_sets.remove(best_idx);
+        let tokens = token_sets.remove(best_idx);
+        selected_tokens.push(tokens);
         selected.push(hit);
     }
 
@@ -194,5 +191,49 @@ mod tests {
         let a = tokenize("hello");
         let b = tokenize("world");
         assert!((jaccard(&a, &b) - 0.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_mmr_rerank_pure_relevance() {
+        let candidates = vec![
+            TestHit {
+                text: "hello world".to_string(),
+                score: 0.9,
+            },
+            TestHit {
+                text: "hello world test".to_string(),
+                score: 0.7,
+            },
+        ];
+
+        let config = MmrConfig {
+            lambda: 1.0,
+            top_k: 2,
+            max_candidates: 50,
+        };
+        let result = mmr_rerank(candidates, &config);
+
+        assert_eq!(result.len(), 2);
+        assert!((result[0].score() - 0.9).abs() < 0.001);
+        assert!((result[1].score() - 0.7).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_mmr_max_candidates_truncation() {
+        let candidates: Vec<TestHit> = (0..100)
+            .map(|i| TestHit {
+                text: format!("doc {}", i),
+                score: 1.0 - i as f64 * 0.01,
+            })
+            .collect();
+
+        let config = MmrConfig {
+            lambda: 0.5,
+            top_k: 10,
+            max_candidates: 5,
+        };
+        let result = mmr_rerank(candidates, &config);
+
+        assert!(result.len() <= 5);
     }
 }
