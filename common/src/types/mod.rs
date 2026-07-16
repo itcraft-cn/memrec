@@ -14,7 +14,7 @@ mod memory;
 mod model;
 mod project;
 
-pub use config::{ImportanceConfig, MemoryConfig, ServerConfig};
+pub use config::{ImportanceConfig, MemoryConfig, SearchConfig, ServerConfig, SourceWeights};
 pub use memory::{Memory, MemoryType, MemorySource, MemoryScope};
 pub use model::{ModelConfig, ModelFile, ModelFileType, ModelType, PoolingStrategy};
 pub use project::{Project, ProjectConfig};
