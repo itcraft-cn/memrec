@@ -235,4 +235,76 @@ mod tests {
             parsed.soft_delete_recovery_days
         );
     }
+
+    #[test]
+    fn test_source_weights_defaults() {
+        let weights = SourceWeights::default();
+
+        assert_eq!(weights.user, 1.0);
+        assert_eq!(weights.system, 0.8);
+        assert_eq!(weights.inferred, 0.5);
+        assert_eq!(weights.external, 0.7);
+    }
+
+    #[test]
+    fn test_source_weights_serde_roundtrip() {
+        let weights = SourceWeights::default();
+        let json = serde_json::to_string(&weights).unwrap();
+        let parsed: SourceWeights = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(weights.user, parsed.user);
+        assert_eq!(weights.system, parsed.system);
+        assert_eq!(weights.inferred, parsed.inferred);
+        assert_eq!(weights.external, parsed.external);
+    }
+
+    #[test]
+    fn test_source_weights_partial_deserialize() {
+        let json = r#"{"user": 2.0}"#;
+        let parsed: SourceWeights = serde_json::from_str(json).unwrap();
+
+        assert_eq!(parsed.user, 2.0);
+        assert_eq!(parsed.system, 0.8);
+        assert_eq!(parsed.inferred, 0.5);
+        assert_eq!(parsed.external, 0.7);
+    }
+
+    #[test]
+    fn test_search_config_defaults() {
+        let config = SearchConfig::default();
+
+        assert_eq!(config.hybrid_alpha, 0.5);
+        assert!(config.mmr_enabled);
+        assert_eq!(config.mmr_lambda, 0.5);
+        assert_eq!(config.decay_half_life_hours, 336.0);
+        assert_eq!(config.source_weights.user, 1.0);
+        assert_eq!(config.evergreen_scopes, vec!["global", "workspace"]);
+    }
+
+    #[test]
+    fn test_search_config_serde_roundtrip() {
+        let config = SearchConfig::default();
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: SearchConfig = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(config.hybrid_alpha, parsed.hybrid_alpha);
+        assert_eq!(config.mmr_enabled, parsed.mmr_enabled);
+        assert_eq!(config.mmr_lambda, parsed.mmr_lambda);
+        assert_eq!(config.decay_half_life_hours, parsed.decay_half_life_hours);
+        assert_eq!(config.source_weights.user, parsed.source_weights.user);
+        assert_eq!(config.evergreen_scopes, parsed.evergreen_scopes);
+    }
+
+    #[test]
+    fn test_search_config_partial_deserialize() {
+        let json = r#"{"hybrid_alpha": 0.8, "mmr_enabled": false}"#;
+        let parsed: SearchConfig = serde_json::from_str(json).unwrap();
+
+        assert_eq!(parsed.hybrid_alpha, 0.8);
+        assert!(!parsed.mmr_enabled);
+        assert_eq!(parsed.mmr_lambda, 0.5);
+        assert_eq!(parsed.decay_half_life_hours, 336.0);
+        assert_eq!(parsed.source_weights.user, 1.0);
+        assert_eq!(parsed.evergreen_scopes, vec!["global", "workspace"]);
+    }
 }
