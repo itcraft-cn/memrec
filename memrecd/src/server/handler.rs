@@ -18,7 +18,9 @@
 
 use crate::embedding::EmbeddingGenerator;
 use crate::project::{detect_project_id, find_project_root};
-use crate::storage::{MemoryStorage, SearchFilter, VectorStorage};
+use crate::storage::{
+    HybridSearchRequest, HybridStorage, MemoryStorage, SearchFilter, VectorPayload, VectorStorage,
+};
 use anyhow::Result;
 use memrec_common::{
     protocol::{
@@ -34,24 +36,28 @@ use uuid::Uuid;
 
 /// JSON-RPC 请求路由器。
 ///
-/// 持有存储、向量存储和嵌入生成器的共享引用，
+/// 持有存储、向量存储、混合搜索存储和嵌入生成器的共享引用，
 /// 将请求分发到对应的处理方法。
 pub struct Router {
     storage: Arc<dyn MemoryStorage>,
+    #[allow(dead_code)]
     vector_store: Arc<dyn VectorStorage>,
+    hybrid_store: Arc<dyn HybridStorage>,
     embedder: Arc<dyn EmbeddingGenerator>,
 }
 
 impl Router {
-    /// 创建路由器，注入存储、向量存储和嵌入生成器。
+    /// 创建路由器，注入存储、向量存储、混合搜索存储和嵌入生成器。
     pub fn new(
         storage: Arc<dyn MemoryStorage>,
         vector_store: Arc<dyn VectorStorage>,
+        hybrid_store: Arc<dyn HybridStorage>,
         embedder: Arc<dyn EmbeddingGenerator>,
     ) -> Self {
         Self {
             storage,
             vector_store,
+            hybrid_store,
             embedder,
         }
     }
@@ -60,14 +66,24 @@ impl Router {
     #[cfg(test)]
     pub fn new_simple(storage: Arc<dyn MemoryStorage>) -> Self {
         use crate::embedding::GeneratorFactory;
+        use crate::storage::HybridStore;
+        use crate::search::{MmrConfig, ScorerConfig};
         use memrec_common::ModelConfig;
 
         let model_config = ModelConfig::default();
         let embedder = GeneratorFactory::create(model_config).unwrap();
         let vector_store = Arc::new(crate::storage::VectorStore::new(embedder.dimension()));
+        let fts_store = Arc::new(crate::storage::TantivyStore::new_test());
+        let hybrid_store = Arc::new(HybridStore::new(
+            vector_store.clone(),
+            fts_store,
+            MmrConfig::default(),
+            ScorerConfig::default(),
+        ));
         Self {
             storage,
             vector_store,
+            hybrid_store,
             embedder,
         }
     }
@@ -123,7 +139,7 @@ impl Router {
                     Ok(_) => {
                         match self.embedder.embed(&p.content) {
                             Ok(embed) => {
-                                let payload = crate::storage::VectorPayload {
+                                let payload = VectorPayload {
                                     project_id: memory.project_id,
                                     memory_type: memory.memory_type.to_string(),
                                     tags: memory.tags.clone(),
@@ -133,8 +149,8 @@ impl Router {
                                     chunk_index: memory.chunk_index,
                                     chunk_total: memory.chunk_total,
                                 };
-                                self.vector_store
-                                    .add(&memory.id, &embed, payload)
+                                self.hybrid_store
+                                    .add(&memory.id, &embed, &p.content, payload)
                                     .await
                                     .ok();
                             }
@@ -396,9 +412,9 @@ impl Router {
         }
     }
 
-    /// 处理 SearchMemory 请求：语义搜索。
+    /// 处理 SearchMemory 请求：混合搜索（向量 + 全文）。
     ///
-    /// 流程：生成查询嵌入 → 向量检索 → 补充记忆元数据 → 返回结果。
+    /// 流程：生成查询嵌入 → 混合搜索（KNN + BM25）→ MMR重排 → 补充记忆元数据 → 返回结果。
     /// 返回结果包含嵌入耗时和搜索耗时。
     async fn handle_search_memory(
         &self,
@@ -446,8 +462,18 @@ impl Router {
                 };
 
                 let search_start = Instant::now();
-                let hits = match self.vector_store.search(&embedding, filter, p.top_k).await {
-                    Ok(h) => h,
+                let req = HybridSearchRequest {
+                    query: p.query.clone(),
+                    query_embedding: embedding,
+                    filter,
+                    top_k: p.top_k,
+                    hybrid_alpha: p.hybrid_alpha as f32,
+                    mmr_lambda: p.mmr_lambda as f32,
+                    mmr_enabled: p.mmr_enabled,
+                };
+
+                let result = match self.hybrid_store.search(req).await {
+                    Ok(r) => r,
                     Err(e) => {
                         return JsonRpcResponse::error(
                             JsonRpcError {
@@ -462,7 +488,7 @@ impl Router {
                 let search_time = search_start.elapsed().as_millis() as u64;
 
                 let mut results: Vec<SearchHit> = vec![];
-                for h in hits {
+                for h in result.hits {
                     let memory = self.storage.get(&h.memory_id).await.ok().flatten();
                     let memory_type = memory
                         .as_ref()
@@ -580,7 +606,8 @@ mod tests {
     use super::*;
     use crate::embedding::FastEmbedGenerator;
     use crate::storage::rocksdb::RocksDBStore;
-    use crate::storage::{MemoryStore, VectorStore};
+    use crate::storage::{HybridStore, MemoryStore, TantivyStore, VectorStore};
+    use crate::search::{MmrConfig, ScorerConfig};
     use memrec_common::protocol::{GetProjectInfoParams, SearchMemoryParams, default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda};
     use tempfile::tempdir;
 
@@ -592,8 +619,15 @@ mod tests {
         let model_config = memrec_common::ModelConfig::default();
         let embedder = Arc::new(FastEmbedGenerator::new(model_config).unwrap());
         let vector_store = Arc::new(VectorStore::new(embedder.dimension()));
+        let fts_store = Arc::new(TantivyStore::new_test());
+        let hybrid_store = Arc::new(HybridStore::new(
+            vector_store.clone(),
+            fts_store,
+            MmrConfig::default(),
+            ScorerConfig::default(),
+        ));
 
-        let router = Router::new(storage, vector_store, embedder);
+        let router = Router::new(storage, vector_store, hybrid_store, embedder);
 
         let request = JsonRpcRequest::new(
             RequestAction::SearchMemory,

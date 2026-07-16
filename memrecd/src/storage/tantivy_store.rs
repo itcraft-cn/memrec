@@ -96,6 +96,27 @@ impl TantivyStore {
             schema: tantivy_schema,
         })
     }
+
+    /// 创建测试用的内存索引。
+    #[cfg(test)]
+    pub fn new_test() -> Self {
+        use tantivy::directory::RamDirectory;
+
+        let (schema, tantivy_schema) = TantivySchema::build();
+        let directory = RamDirectory::create();
+
+        let index = Index::open_or_create(directory, schema.clone()).unwrap();
+
+        let writer = index.writer(15_000_000).unwrap();
+        let reader = index.reader_builder().try_into().unwrap();
+
+        Self {
+            index,
+            writer: Arc::new(RwLock::new(writer)),
+            reader,
+            schema: tantivy_schema,
+        }
+    }
 }
 
 #[async_trait]

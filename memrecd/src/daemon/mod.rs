@@ -3,7 +3,7 @@
 //! [`Daemon`] 是 memrecd 的核心结构，负责：
 //!
 //! 1. 加载配置并校验模型就绪状态
-//! 2. 初始化 RocksDB 存储、向量存储和嵌入生成器
+//! 2. 初始化 RocksDB 存储、向量存储、全文索引和嵌入生成器
 //! 3. 启动 Unix Socket 服务器接收 JSON-RPC 请求
 //! 4. 运行定时同步任务（向量存储持久化）
 //! 5. 监听 SIGTERM/SIGINT 信号优雅关闭
@@ -17,8 +17,12 @@ use tracing::{info, warn};
 
 use crate::config::DaemonConfig;
 use crate::embedding::{EmbeddingGenerator, GeneratorFactory};
+use crate::search::{MmrConfig, ScorerConfig};
 use crate::server::{Router, UnixSocketServer};
-use crate::storage::{MemoryStorage, MemoryStore, RocksDBStore, RocksDBVectorStore, VectorStorage};
+use crate::storage::{
+    HybridStore, MemoryStorage, MemoryStore, RocksDBStore, RocksDBVectorStore,
+    TantivyStore, VectorStorage,
+};
 
 /// 向量存储定时同步间隔（秒）
 const SYNC_INTERVAL_SECS: u64 = 30;
@@ -86,10 +90,27 @@ impl Daemon {
             embedder.dimension(),
         )?);
 
+        let fts_dir = self.config.server.data_dir.parent()
+            .unwrap_or(&self.config.server.data_dir)
+            .join("fts");
+        let fts_store = Arc::new(TantivyStore::open(&fts_dir).await?);
+
+        let hybrid_store = Arc::new(HybridStore::new(
+            vector_store.clone(),
+            fts_store,
+            MmrConfig::default(),
+            ScorerConfig::default(),
+        ));
+
         self.rebuild_missing_embeddings(&storage, &vector_store, &embedder)
             .await?;
 
-        let router = Arc::new(Router::new(storage.clone(), vector_store.clone(), embedder));
+        let router = Arc::new(Router::new(
+            storage.clone(),
+            vector_store.clone(),
+            hybrid_store,
+            embedder,
+        ));
 
         let server = UnixSocketServer::bind(&self.config.server.socket_path, router).await?;
 

@@ -21,7 +21,7 @@ pub use rocksdb::RocksDBStore;
 pub use rocksdb_vector::RocksDBVectorStore;
 pub use tantivy_store::TantivyStore;
 pub use traits::{
-    ConfigStorage, FtsPayload, FtsStorage, MemoryStorage, ProjectStorage, SearchFilter,
-    SearchHit, VectorPayload, VectorStorage,
+    ConfigStorage, FtsPayload, FtsStorage, HybridSearchRequest, HybridSearchResult, HybridStorage,
+    MemoryStorage, ProjectStorage, SearchFilter, SearchHit, VectorPayload, VectorStorage,
 };
 pub use vector_store::VectorStore;

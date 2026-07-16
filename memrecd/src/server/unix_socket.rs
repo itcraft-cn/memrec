@@ -106,7 +106,8 @@ impl UnixSocketServer {
 mod tests {
     use super::*;
     use crate::embedding::{EmbeddingGenerator, FastEmbedGenerator};
-    use crate::storage::{MemoryStore, RocksDBStore, VectorStore};
+    use crate::search::{MmrConfig, ScorerConfig};
+    use crate::storage::{HybridStore, MemoryStore, RocksDBStore, TantivyStore, VectorStore};
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -119,7 +120,14 @@ mod tests {
         let model_config = memrec_common::ModelConfig::default();
         let embedder = Arc::new(FastEmbedGenerator::new(model_config).unwrap());
         let vector_store = Arc::new(VectorStore::new(embedder.dimension()));
-        let router = Arc::new(Router::new(storage, vector_store, embedder));
+        let fts_store = Arc::new(TantivyStore::new_test());
+        let hybrid_store = Arc::new(HybridStore::new(
+            vector_store.clone(),
+            fts_store,
+            MmrConfig::default(),
+            ScorerConfig::default(),
+        ));
+        let router = Arc::new(Router::new(storage, vector_store, hybrid_store, embedder));
 
         let server = UnixSocketServer::bind(&socket_path, router).await.unwrap();
         assert!(socket_path.exists());
