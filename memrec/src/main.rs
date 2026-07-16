@@ -73,6 +73,10 @@ enum Commands {
         tag: Vec<String>,
         #[arg(long)]
         global: bool,
+        #[arg(short = 'S', long)]
+        source: Option<String>,
+        #[arg(short = 'c', long)]
+        scope: Option<String>,
     },
     Get {
         id: String,
@@ -114,13 +118,15 @@ async fn main() -> Result<()> {
             mtype,
             tag,
             global,
+            source,
+            scope,
         } => {
             let working_dir = if global {
                 None
             } else {
                 Some(detect_working_dir()?)
             };
-            add(&client, content, mtype, tag, global, working_dir, human).await?;
+            add(&client, content, mtype, tag, global, working_dir, source, scope, human).await?;
         }
         Commands::Get { id, merge } => {
             get(&client, id, merge, human).await?;

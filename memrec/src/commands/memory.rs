@@ -31,6 +31,8 @@ pub async fn add(
     tags: Vec<String>,
     is_global: bool,
     working_dir: Option<String>,
+    source: Option<String>,
+    scope: Option<String>,
     human: bool,
 ) -> Result<()> {
     let memory_type = parse_memory_type(&mtype)?;
@@ -63,8 +65,8 @@ pub async fn add(
                     project_id: None,
                     is_global,
                     working_dir: working_dir.clone(),
-                    source: None,
-                    scope: None,
+                    source: source.clone(),
+                    scope: scope.clone(),
                 })),
                 i as u64 + 1,
             );
@@ -95,8 +97,8 @@ pub async fn add(
                 project_id: None,
                 is_global,
                 working_dir,
-                source: None,
-                scope: None,
+                source,
+                scope,
             })),
             1,
         );
