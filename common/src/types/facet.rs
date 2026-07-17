@@ -53,6 +53,18 @@ impl MemoryFacet {
         }
     }
 
+    pub fn new_with_evidence(
+        memory_id: Uuid,
+        theme: String,
+        confidence: f32,
+        keywords: Vec<String>,
+        evidence: Vec<Uuid>,
+    ) -> Self {
+        let mut facet = Self::new(memory_id, theme, confidence, keywords);
+        facet.evidence = evidence;
+        facet
+    }
+
     pub fn with_evidence(mut self, evidence: Vec<Uuid>) -> Self {
         self.evidence = evidence;
         self

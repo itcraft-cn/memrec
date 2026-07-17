@@ -9,6 +9,7 @@
 //! - [`daemon`]：守护进程主循环，协调各子系统启动与关闭
 //! - [`dream`]：后台记忆整合（类似睡眠记忆巩固）
 //! - [`embedding`]：嵌入向量生成（基于 FastEmbed/ONNX Runtime）
+//! - [`facet`]：Facet 结构化记忆生成与检索
 //! - [`importance`]：记忆重要性评分计算
 //! - [`lifecycle`]：记忆生命周期管理（软删除、硬删除、重要性重算）
 //! - [`project`]：项目 ID 检测与 `.mr_pid` 文件管理
@@ -20,6 +21,7 @@ pub mod config;
 pub mod daemon;
 pub mod dream;
 pub mod embedding;
+pub mod facet;
 pub mod importance;
 pub mod lifecycle;
 pub mod project;
