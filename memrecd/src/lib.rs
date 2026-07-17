@@ -15,6 +15,7 @@
 //! - [`server`]：Unix Socket 服务器与请求路由
 //! - [`storage`]：RocksDB 存储层与向量存储
 
+pub mod archive;
 pub mod config;
 pub mod daemon;
 pub mod dream;

@@ -16,6 +16,7 @@
 //! | `GetProjectInfo` | 项目信息 |
 //! | `GetVersion` | 版本号 |
 
+use crate::archive::ArchiveManager;
 use crate::dream::DreamProcessor;
 use crate::embedding::EmbeddingGenerator;
 use crate::project::{detect_project_id, find_project_root};
@@ -46,6 +47,7 @@ pub struct Router {
     hybrid_store: Arc<dyn HybridStorage>,
     embedder: Arc<dyn EmbeddingGenerator>,
     dream_processor: Arc<DreamProcessor>,
+    archive_manager: ArchiveManager,
 }
 
 impl Router {
@@ -55,6 +57,7 @@ impl Router {
         hybrid_store: Arc<dyn HybridStorage>,
         embedder: Arc<dyn EmbeddingGenerator>,
         dream_processor: Arc<DreamProcessor>,
+        archive_manager: ArchiveManager,
     ) -> Self {
         Self {
             storage,
@@ -62,6 +65,7 @@ impl Router {
             hybrid_store,
             embedder,
             dream_processor,
+            archive_manager,
         }
     }
 
@@ -90,12 +94,14 @@ impl Router {
             &data_dir,
             storage.clone(),
         ));
+        let archive_manager = ArchiveManager::new(data_dir, true);
         Self {
             storage,
             vector_store,
             hybrid_store,
             embedder,
             dream_processor,
+            archive_manager,
         }
     }
 
@@ -160,6 +166,8 @@ impl Router {
 
                 match self.storage.save(&memory).await {
                     Ok(_) => {
+                        self.archive_manager.archive(&memory).await;
+
                         match self.embedder.embed(&p.content) {
                             Ok(embed) => {
                                 let payload = VectorPayload {
@@ -686,6 +694,7 @@ mod tests {
             &data_dir,
             storage.clone(),
         ));
+        let archive_manager = ArchiveManager::new(data_dir, true);
 
         let router = Router::new(
             storage,
@@ -693,6 +702,7 @@ mod tests {
             hybrid_store,
             embedder,
             dream_processor,
+            archive_manager,
         );
 
         let request = JsonRpcRequest::new(

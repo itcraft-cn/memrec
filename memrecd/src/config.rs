@@ -20,6 +20,8 @@ pub struct DaemonConfig {
     pub server: DaemonServerConfig,
     #[serde(default)]
     pub dream: DreamConfig,
+    #[serde(default)]
+    pub archive: ArchiveConfig,
 }
 
 /// 服务端路径配置。
@@ -29,6 +31,25 @@ pub struct DaemonServerConfig {
     pub data_dir: PathBuf,
     pub vectors_dir: PathBuf,
     pub log_file: PathBuf,
+}
+
+/// 存档配置。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArchiveConfig {
+    #[serde(default = "default_archive_enabled")]
+    pub enabled: bool,
+}
+
+fn default_archive_enabled() -> bool {
+    true
+}
+
+impl Default for ArchiveConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_archive_enabled(),
+        }
+    }
 }
 
 impl Default for DaemonConfig {
@@ -46,6 +67,7 @@ impl Default for DaemonConfig {
                 log_file: base_dir.join("memrecd.log"),
             },
             dream: DreamConfig::default(),
+            archive: ArchiveConfig::default(),
         }
     }
 }

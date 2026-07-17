@@ -15,6 +15,7 @@ use tokio::signal;
 use tokio::time::interval;
 use tracing::{info, warn};
 
+use crate::archive::ArchiveManager;
 use crate::config::DaemonConfig;
 use crate::dream::DreamProcessor;
 use crate::embedding::{EmbeddingGenerator, GeneratorFactory};
@@ -116,12 +117,18 @@ impl Daemon {
             storage.clone(),
         ));
 
+        let archive_manager = ArchiveManager::new(
+            self.config.server.data_dir.clone(),
+            self.config.archive.enabled,
+        );
+
         let router = Arc::new(Router::new(
             storage.clone(),
             vector_store.clone(),
             hybrid_store,
             embedder,
             dream_processor,
+            archive_manager,
         ));
 
         let server = UnixSocketServer::bind(&self.config.server.socket_path, router).await?;

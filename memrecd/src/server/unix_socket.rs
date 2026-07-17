@@ -135,12 +135,14 @@ mod tests {
             &data_dir,
             storage.clone(),
         ));
+        let archive_manager = crate::archive::ArchiveManager::new(data_dir, true);
         let router = Arc::new(Router::new(
             storage,
             vector_store,
             hybrid_store,
             embedder,
             dream_processor,
+            archive_manager,
         ));
 
         let server = UnixSocketServer::bind(&socket_path, router).await.unwrap();
