@@ -8,6 +8,7 @@
 //! - [`config`]：守护进程配置加载与路径展开
 //! - [`daemon`]：守护进程主循环，协调各子系统启动与关闭
 //! - [`dream`]：后台记忆整合（类似睡眠记忆巩固）
+//! - [`edge`]：记忆图边关系生成与管理
 //! - [`embedding`]：嵌入向量生成（基于 FastEmbed/ONNX Runtime）
 //! - [`facet`]：Facet 结构化记忆生成与检索
 //! - [`importance`]：记忆重要性评分计算
@@ -20,6 +21,7 @@ pub mod archive;
 pub mod config;
 pub mod daemon;
 pub mod dream;
+pub mod edge;
 pub mod embedding;
 pub mod facet;
 pub mod importance;
