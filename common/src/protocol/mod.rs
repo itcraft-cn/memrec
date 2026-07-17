@@ -23,7 +23,8 @@ pub use request::{
     default_mmr_lambda, AddParams, ConfigSetParams, DeleteParams, DreamParams, GetParams,
     GetProjectInfoParams, GetVersionParams, JsonRpcRequest, ListParams, ProjectCreateParams,
     ProjectDeleteParams, ProjectSwitchParams, RequestAction, RequestParams, SearchMemoryParams,
-    SearchMode, SearchParams, TagParams, TimeRange, UpdateParams,
+    SearchMode, SearchParams, TagParams, TierThresholdsParams, TieredSearchParams, TimeRange,
+    UpdateParams,
 };
 pub use response::{
     ConfigResult, DreamResult, JsonRpcResponse, MemoryListResult, MemoryResult, ProjectInfoResult,

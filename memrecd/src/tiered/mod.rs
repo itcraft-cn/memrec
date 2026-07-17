@@ -22,4 +22,4 @@ mod engine;
 
 pub use assigner::TierAssigner;
 pub use budget::BudgetController;
-pub use engine::TieredEngine;
+pub use engine::{TieredEngine, TieredEngineConfig};

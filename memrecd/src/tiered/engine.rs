@@ -179,7 +179,7 @@ where
         for edge in edges.iter().take(3) {
             let target_summary = self.get_target_summary(edge).await?;
             hints.push(EdgeHint {
-                edge_type: edge.edge_type.clone(),
+                edge_type: edge.edge_type,
                 target_summary,
                 weight: edge.weight,
             });

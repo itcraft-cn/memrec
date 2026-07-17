@@ -23,14 +23,15 @@ use crate::project::{detect_project_id, find_project_root};
 use crate::storage::{
     HybridSearchRequest, HybridStorage, MemoryStorage, SearchFilter, VectorPayload, VectorStorage,
 };
+use crate::tiered::{TierAssigner, TieredEngineConfig};
 use anyhow::Result;
 use memrec_common::{
     protocol::{
         DreamResult, GetProjectInfoParams, MemoryListResult, MemoryResult, ProjectInfoResult,
         RequestAction, RequestParams, ResponseResult, SearchHit, SemanticSearchResult, StatsResult,
-        SuccessResult, VersionResult,
+        SuccessResult, TierThresholdsParams, TieredSearchParams, VersionResult,
     },
-    JsonRpcError, JsonRpcRequest, JsonRpcResponse, Memory, MemoryType,
+    JsonRpcError, JsonRpcRequest, JsonRpcResponse, Memory, MemoryType, RepresentationTier, TierThresholds,
 };
 use std::sync::Arc;
 use std::time::Instant;
@@ -116,6 +117,9 @@ impl Router {
 
             RequestAction::SearchMemory => {
                 self.handle_search_memory(request.params, request.id).await
+            }
+            RequestAction::TieredSearch => {
+                self.handle_tiered_search(request.params, request.id).await
             }
             RequestAction::GetProjectInfo => {
                 self.handle_project_info(request.params, request.id).await
@@ -564,6 +568,113 @@ impl Router {
         }
     }
 
+    async fn handle_tiered_search(
+        &self,
+        params: Option<RequestParams>,
+        id: u64,
+    ) -> JsonRpcResponse {
+        match params {
+            Some(RequestParams::TieredSearch(p)) => {
+                let start = Instant::now();
+
+                let embedding = match self.embedder.embed(&p.query) {
+                    Ok(e) => e,
+                    Err(e) => {
+                        return JsonRpcResponse::error(
+                            JsonRpcError {
+                                code: -32002,
+                                message: format!("Embedding error: {}", e),
+                                data: None,
+                            },
+                            id,
+                        )
+                    }
+                };
+                let _embed_time = start.elapsed().as_millis() as u64;
+
+                let project_id = if p.cross_project {
+                    None
+                } else if p.global_only {
+                    Some(Uuid::nil())
+                } else if p.project_only {
+                    p.project_id
+                        .or_else(|| detect_project_id(p.working_dir.as_deref()).ok())
+                } else {
+                    p.project_id
+                        .or_else(|| detect_project_id(p.working_dir.as_deref()).ok())
+                };
+
+                let include_global = !p.project_only && !p.cross_project;
+
+                let filter = SearchFilter {
+                    project_id,
+                    include_global,
+                    memory_type: p.memory_type.map(|t| t.to_string()),
+                    min_score: p.min_score,
+                };
+
+                let req = HybridSearchRequest {
+                    query: p.query.clone(),
+                    query_embedding: embedding,
+                    filter,
+                    top_k: p.top_k,
+                    hybrid_alpha: 0.5,
+                    mmr_lambda: 0.5,
+                    mmr_enabled: true,
+                };
+
+                let result = match self.hybrid_store.search(req).await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        return JsonRpcResponse::error(
+                            JsonRpcError {
+                                code: -32003,
+                                message: format!("Search error: {}", e),
+                                data: None,
+                            },
+                            id,
+                        )
+                    }
+                };
+
+                let memory_ids: Vec<Uuid> = result.hits.iter().map(|h| h.memory_id).collect();
+                let scores: Vec<f32> = result.hits.iter().map(|h| h.score).collect();
+
+                let thresholds = p.tier_thresholds.as_ref().map(|t| TierThresholds {
+                    full: t.full,
+                    truncated: t.truncated,
+                    summary: t.summary,
+                }).unwrap_or_default();
+
+                let assigner = TierAssigner::new(thresholds);
+                let budget = crate::tiered::BudgetController::new(p.max_total_tokens);
+
+                match self.build_tiered_result(memory_ids, scores, assigner, budget).await {
+                    Ok(tiered_result) => JsonRpcResponse::success(
+                        ResponseResult::TieredSearchResult(tiered_result),
+                        id,
+                    ),
+                    Err(e) => JsonRpcResponse::error(
+                        JsonRpcError {
+                            code: -32005,
+                            message: format!("Tiered search error: {}", e),
+                            data: None,
+                        },
+                        id,
+                    ),
+                }
+            }
+            _ => JsonRpcResponse::error(
+                JsonRpcError {
+                    code: -32602,
+                    message: "Invalid params for TieredSearch".to_string(),
+                    data: None,
+                },
+                id,
+            ),
+        }
+    }
+
     /// 处理 GetProjectInfo 请求：返回项目 ID、根目录和记忆数量。
     async fn handle_project_info(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
         let params: GetProjectInfoParams = match params {
@@ -643,6 +754,79 @@ impl Router {
                 },
                 id,
             ),
+        }
+    }
+
+    async fn build_tiered_result(
+        &self,
+        memory_ids: Vec<Uuid>,
+        scores: Vec<f32>,
+        assigner: TierAssigner,
+        budget: crate::tiered::BudgetController,
+    ) -> Result<memrec_common::TieredSearchResult> {
+        use memrec_common::{RepresentationTier, TieredMemory};
+
+        let mut results = Vec::with_capacity(memory_ids.len());
+
+        for (memory_id, score) in memory_ids.iter().zip(scores.iter()) {
+            if let Some(memory) = self.storage.get(memory_id).await? {
+                let tier = assigner.assign(*score);
+                let (content, token_count) = Self::generate_tier_content(&memory.content, tier);
+
+                results.push(TieredMemory {
+                    memory_id: *memory_id,
+                    tier,
+                    content,
+                    score: *score,
+                    token_count,
+                    facet_themes: vec![],
+                    edge_hints: vec![],
+                });
+            }
+        }
+
+        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+
+        let total_tokens = budget.check_and_downgrade(&mut results);
+
+        Ok(memrec_common::TieredSearchResult {
+            total_results: results.len(),
+            total_tokens,
+            budget: budget.max_tokens(),
+            results,
+        })
+    }
+
+    fn generate_tier_content(content: &str, tier: RepresentationTier) -> (String, u32) {
+        let tokens = crate::tiered::BudgetController::estimate_token_count(content);
+
+        match tier {
+            RepresentationTier::Full => (content.to_string(), tokens),
+            RepresentationTier::Truncated => {
+                let limit = 500;
+                let truncated = if content.chars().count() > limit {
+                    let chars: Vec<char> = content.chars().take(limit).collect();
+                    let truncated: String = chars.into_iter().collect();
+                    format!("{}...[truncated]", truncated)
+                } else {
+                    content.to_string()
+                };
+                let token_count = crate::tiered::BudgetController::estimate_token_count(&truncated);
+                (truncated, token_count.min(200))
+            }
+            RepresentationTier::Summary => {
+                let preview = if content.chars().count() > 100 {
+                    let chars: Vec<char> = content.chars().take(100).collect();
+                    chars.into_iter().collect()
+                } else {
+                    content.to_string()
+                };
+                (format!("Summary: {}", preview), 80)
+            }
+            RepresentationTier::DenseProxy => {
+                let words: Vec<&str> = content.split_whitespace().take(5).collect();
+                (format!("[{}]", words.join(", ")), 30)
+            }
         }
     }
 

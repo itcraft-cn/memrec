@@ -34,6 +34,7 @@ pub enum RequestAction {
     Tag,
 
     SearchMemory,
+    TieredSearch,
     GetProjectInfo,
     GetVersion,
     Dream,
@@ -60,6 +61,7 @@ impl std::fmt::Display for RequestAction {
             RequestAction::List => write!(f, "list"),
             RequestAction::Tag => write!(f, "tag"),
             RequestAction::SearchMemory => write!(f, "search_memory"),
+            RequestAction::TieredSearch => write!(f, "tiered_search"),
             RequestAction::GetProjectInfo => write!(f, "get_project_info"),
             RequestAction::GetVersion => write!(f, "get_version"),
             RequestAction::Dream => write!(f, "dream"),
@@ -114,6 +116,7 @@ pub enum RequestParams {
     Tag(TagParams),
 
     SearchMemory(SearchMemoryParams),
+    TieredSearch(TieredSearchParams),
     GetProjectInfo(GetProjectInfoParams),
     GetVersion(GetVersionParams),
     Dream(DreamParams),
@@ -236,6 +239,59 @@ pub struct SearchMemoryParams {
     pub mmr_enabled: bool,
     #[serde(default = "default_mmr_lambda")]
     pub mmr_lambda: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TieredSearchParams {
+    pub query: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<Uuid>,
+    #[serde(default = "default_include_global")]
+    pub include_global: bool,
+    #[serde(default)]
+    pub project_only: bool,
+    #[serde(default)]
+    pub global_only: bool,
+    #[serde(default)]
+    pub cross_project: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_type: Option<MemoryType>,
+    #[serde(default = "default_top_k")]
+    pub top_k: usize,
+    #[serde(default = "default_min_score")]
+    pub min_score: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub working_dir: Option<String>,
+    #[serde(default = "default_max_total_tokens")]
+    pub max_total_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tier_thresholds: Option<TierThresholdsParams>,
+}
+
+fn default_max_total_tokens() -> u32 {
+    4000
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TierThresholdsParams {
+    #[serde(default = "default_full_threshold")]
+    pub full: f32,
+    #[serde(default = "default_truncated_threshold")]
+    pub truncated: f32,
+    #[serde(default = "default_summary_threshold")]
+    pub summary: f32,
+}
+
+fn default_full_threshold() -> f32 {
+    0.8
+}
+
+fn default_truncated_threshold() -> f32 {
+    0.5
+}
+
+fn default_summary_threshold() -> f32 {
+    0.3
 }
 
 /// 搜索时是否包含公共记忆的默认值。

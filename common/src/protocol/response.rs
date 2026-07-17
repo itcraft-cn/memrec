@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::error::JsonRpcError;
-use crate::types::{Memory, MemoryType, Project};
+use crate::types::{Memory, MemoryType, Project, TieredSearchResult};
 
 /// JSON-RPC 2.0 标准响应对象。
 ///
@@ -68,6 +68,7 @@ pub enum ResponseResult {
     MemoryList(MemoryListResult),
     SearchResult(SearchResult),
     SemanticSearchResult(SemanticSearchResult),
+    TieredSearchResult(TieredSearchResult),
     Project(ProjectResult),
     ProjectList(ProjectListResult),
     ProjectInfo(ProjectInfoResult),
