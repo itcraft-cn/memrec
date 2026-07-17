@@ -130,8 +130,18 @@ mod tests {
         ));
         let dream_config = memrec_common::DreamConfig::default();
         let data_dir = std::path::PathBuf::from("/tmp/memrec_test");
-        let dream_processor = Arc::new(DreamProcessor::new(dream_config, &data_dir, storage.clone()));
-        let router = Arc::new(Router::new(storage, vector_store, hybrid_store, embedder, dream_processor));
+        let dream_processor = Arc::new(DreamProcessor::new(
+            dream_config,
+            &data_dir,
+            storage.clone(),
+        ));
+        let router = Arc::new(Router::new(
+            storage,
+            vector_store,
+            hybrid_store,
+            embedder,
+            dream_processor,
+        ));
 
         let server = UnixSocketServer::bind(&socket_path, router).await.unwrap();
         assert!(socket_path.exists());

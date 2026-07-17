@@ -16,7 +16,7 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use memrec_common::types::{DreamConfig, Memory, MemoryType, MemoryScope, MemorySource};
+use memrec_common::types::{DreamConfig, Memory, MemoryScope, MemorySource, MemoryType};
 
 use crate::storage::MemoryStorage;
 
@@ -54,7 +54,7 @@ pub struct DreamProcessor {
 impl DreamProcessor {
     pub fn new(
         config: DreamConfig,
-        data_dir: &std::path::PathBuf,
+        data_dir: &std::path::Path,
         storage: Arc<dyn MemoryStorage>,
     ) -> Self {
         Self {
@@ -120,8 +120,7 @@ impl DreamProcessor {
     }
 
     async fn process_inner(&self) -> Result<DreamResult, DreamError> {
-        let cutoff = Utc::now()
-            - chrono::Duration::hours(self.config.max_age_hours as i64);
+        let cutoff = Utc::now() - chrono::Duration::hours(self.config.max_age_hours as i64);
         let cutoff_str = cutoff.to_rfc3339();
 
         let memories = self
@@ -180,11 +179,17 @@ impl DreamProcessor {
             chunk_total: None,
         };
 
-        self.storage.add(&integrated_memory).await.map_err(|e| DreamError::Storage(e.to_string()))?;
+        self.storage
+            .add(&integrated_memory)
+            .await
+            .map_err(|e| DreamError::Storage(e.to_string()))?;
         let created_id = integrated_memory.id;
 
         for memory in &memories {
-            self.storage.delete(&memory.id).await.map_err(|e| DreamError::Storage(e.to_string()))?;
+            self.storage
+                .delete(&memory.id)
+                .await
+                .map_err(|e| DreamError::Storage(e.to_string()))?;
         }
 
         info!(
@@ -222,8 +227,16 @@ impl DreamProcessor {
         Ok(format!(
             "[Dream 整合摘要] 整合了 {} 条记忆，涵盖 {} 到 {} 期间的内容。",
             memories.len(),
-            memories.iter().map(|m| m.created_at).min().unwrap_or_else(Utc::now),
-            memories.iter().map(|m| m.created_at).max().unwrap_or_else(Utc::now),
+            memories
+                .iter()
+                .map(|m| m.created_at)
+                .min()
+                .unwrap_or_else(Utc::now),
+            memories
+                .iter()
+                .map(|m| m.created_at)
+                .max()
+                .unwrap_or_else(Utc::now),
         ))
     }
 }

@@ -447,12 +447,18 @@ impl McpServer {
             if let Some(d) = result.get("integrated_count") {
                 let count = d.as_u64().unwrap_or(0);
                 let summary = result.get("summary").and_then(|v| v.as_str()).unwrap_or("");
-                return Ok(format!("Dream completed: {} memories integrated\nSummary: {}", count, summary));
+                return Ok(format!(
+                    "Dream completed: {} memories integrated\nSummary: {}",
+                    count, summary
+                ));
             }
         }
 
         if let Some(err) = resp.get("error") {
-            let msg = err.get("message").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+            let msg = err
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error");
             return Err(format!("Dream failed: {}", msg));
         }
 

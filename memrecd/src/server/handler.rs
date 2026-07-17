@@ -25,9 +25,9 @@ use crate::storage::{
 use anyhow::Result;
 use memrec_common::{
     protocol::{
-        DreamResult, GetProjectInfoParams, MemoryListResult, MemoryResult,
-        ProjectInfoResult, RequestAction, RequestParams, ResponseResult, SearchHit,
-        SemanticSearchResult, StatsResult, SuccessResult, VersionResult,
+        DreamResult, GetProjectInfoParams, MemoryListResult, MemoryResult, ProjectInfoResult,
+        RequestAction, RequestParams, ResponseResult, SearchHit, SemanticSearchResult, StatsResult,
+        SuccessResult, VersionResult,
     },
     JsonRpcError, JsonRpcRequest, JsonRpcResponse, Memory, MemoryType,
 };
@@ -85,7 +85,11 @@ impl Router {
         ));
         let dream_config = DreamConfig::default();
         let data_dir = std::path::PathBuf::from("/tmp/memrec_test");
-        let dream_processor = Arc::new(DreamProcessor::new(dream_config, &data_dir, storage.clone()));
+        let dream_processor = Arc::new(DreamProcessor::new(
+            dream_config,
+            &data_dir,
+            storage.clone(),
+        ));
         Self {
             storage,
             vector_store,
@@ -677,9 +681,19 @@ mod tests {
 
         let dream_config = memrec_common::DreamConfig::default();
         let data_dir = std::path::PathBuf::from("/tmp/memrec_test");
-        let dream_processor = Arc::new(DreamProcessor::new(dream_config, &data_dir, storage.clone()));
+        let dream_processor = Arc::new(DreamProcessor::new(
+            dream_config,
+            &data_dir,
+            storage.clone(),
+        ));
 
-        let router = Router::new(storage, vector_store, hybrid_store, embedder, dream_processor);
+        let router = Router::new(
+            storage,
+            vector_store,
+            hybrid_store,
+            embedder,
+            dream_processor,
+        );
 
         let request = JsonRpcRequest::new(
             RequestAction::SearchMemory,

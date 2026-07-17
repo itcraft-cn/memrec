@@ -16,8 +16,14 @@ use super::lock::LockContent;
 pub enum DreamGateResult {
     Allowed,
     Disabled,
-    TooSoon { hours_since_last: f64, min_hours: f64 },
-    NotEnoughSessions { current: u32, min: u32 },
+    TooSoon {
+        hours_since_last: f64,
+        min_hours: f64,
+    },
+    NotEnoughSessions {
+        current: u32,
+        min: u32,
+    },
 }
 
 pub struct DreamGate;

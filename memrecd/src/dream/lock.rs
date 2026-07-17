@@ -13,6 +13,7 @@
 
 use std::fs;
 use std::io::{Read, Write};
+use std::path::Path;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -48,7 +49,7 @@ pub struct DreamLock {
 }
 
 impl DreamLock {
-    pub fn new(data_dir: &PathBuf) -> Self {
+    pub fn new(data_dir: &Path) -> Self {
         Self {
             lock_path: data_dir.join("dream.lock"),
         }
@@ -144,8 +145,7 @@ impl DreamLock {
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
                     .as_secs() as i64;
-                let hours_since_last =
-                    (now - lock.timestamp) as f64 / 3600.0;
+                let hours_since_last = (now - lock.timestamp) as f64 / 3600.0;
                 hours_since_last >= config.min_hours_between
             }
         }
