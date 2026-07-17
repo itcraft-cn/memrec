@@ -26,6 +26,7 @@ pub mod embedding;
 pub mod facet;
 pub mod importance;
 pub mod lifecycle;
+pub mod propagation;
 pub mod project;
 pub mod search;
 pub mod server;
