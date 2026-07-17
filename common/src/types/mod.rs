@@ -14,6 +14,7 @@ mod edge;
 mod facet;
 mod memory;
 mod model;
+mod propagation;
 mod project;
 
 pub use config::{
@@ -23,4 +24,5 @@ pub use edge::{EdgeType, MemoryEdge};
 pub use facet::MemoryFacet;
 pub use memory::{Memory, MemoryScope, MemorySource, MemoryType};
 pub use model::{ModelConfig, ModelFile, ModelFileType, ModelType, PoolingStrategy};
+pub use propagation::{DeltaType, PropagationConfig, PropagationDelta};
 pub use project::{Project, ProjectConfig};

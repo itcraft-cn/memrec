@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use memrec_common::{Memory, MemoryEdge, MemoryFacet, MemoryType};
+use memrec_common::{Memory, MemoryEdge, MemoryFacet, MemoryType, PropagationDelta};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -270,4 +270,42 @@ pub trait EdgeStorage: Send + Sync {
         seed_ids: &[Uuid],
         params: GraphTraversalParams,
     ) -> Result<Vec<GraphSearchHit>>;
+}
+
+/// 传播存储 trait。
+///
+/// 提供 PropagationDelta 的 CRUD、队列管理、幂等检查等功能。
+#[async_trait]
+pub trait PropagationStorage: Send + Sync {
+    /// 保存传播增量。
+    async fn save(&self, delta: &PropagationDelta) -> Result<()>;
+
+    /// 获取传播增量。
+    async fn get(&self, id: &Uuid) -> Result<Option<PropagationDelta>>;
+
+    /// 删除传播增量。
+    async fn delete(&self, id: &Uuid) -> Result<bool>;
+
+    /// 列出目标记忆的所有待处理增量（按优先级排序）。
+    async fn list_pending(&self, target_id: &Uuid) -> Result<Vec<PropagationDelta>>;
+
+    /// 列出源记忆发出的所有增量。
+    async fn list_by_source(&self, source_id: &Uuid) -> Result<Vec<PropagationDelta>>;
+
+    /// 标记增量已应用。
+    async fn mark_applied(&self, id: &Uuid) -> Result<bool>;
+
+    /// 检查是否存在已应用的增量（幂等检查）。
+    async fn has_applied(&self, source_id: &Uuid, target_id: &Uuid) -> Result<bool>;
+
+    /// 获取待处理增量总数。
+    async fn count_pending(&self) -> Result<usize>;
+
+    /// 批量保存增量。
+    async fn save_batch(&self, deltas: &[PropagationDelta]) -> Result<()> {
+        for delta in deltas {
+            self.save(delta).await?;
+        }
+        Ok(())
+    }
 }

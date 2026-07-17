@@ -18,6 +18,9 @@
 //! | `edges` | 边主存储（UUID → JSON） |
 //! | `node_edges_out` | 出边索引（`source_id:edge_type` → `[edge_ids]`） |
 //! | `node_edges_in` | 入边索引（`target_id:edge_type` → `[edge_ids]`） |
+//! | `propagation_deltas` | 传播增量主存储（UUID → JSON） |
+//! | `pending_propagations` | 待应用增量队列（`target_id:priority:delta_id` → UUID） |
+//! | `applied_propagations` | 已应用增量索引（`source_id:target_id` → UUID） |
 
 use anyhow::{Context, Result};
 use rocksdb::{ColumnFamilyDescriptor, Options, DB};
@@ -45,6 +48,12 @@ const CF_EDGES: &str = "edges";
 const CF_NODE_EDGES_OUT: &str = "node_edges_out";
 /// 入边索引列族
 const CF_NODE_EDGES_IN: &str = "node_edges_in";
+/// 传播增量主存储列族
+const CF_PROPAGATION_DELTAS: &str = "propagation_deltas";
+/// 待应用增量队列列族
+const CF_PENDING_PROPAGATIONS: &str = "pending_propagations";
+/// 已应用增量索引列族
+const CF_APPLIED_PROPAGATIONS: &str = "applied_propagations";
 
 /// RocksDB 存储封装，提供列族访问和基础读写操作。
 pub struct RocksDBStore {
@@ -70,6 +79,9 @@ impl RocksDBStore {
             ColumnFamilyDescriptor::new(CF_EDGES, Options::default()),
             ColumnFamilyDescriptor::new(CF_NODE_EDGES_OUT, Options::default()),
             ColumnFamilyDescriptor::new(CF_NODE_EDGES_IN, Options::default()),
+            ColumnFamilyDescriptor::new(CF_PROPAGATION_DELTAS, Options::default()),
+            ColumnFamilyDescriptor::new(CF_PENDING_PROPAGATIONS, Options::default()),
+            ColumnFamilyDescriptor::new(CF_APPLIED_PROPAGATIONS, Options::default()),
         ];
 
         let db = DB::open_cf_descriptors(&options, path, cfs).context("Failed to open RocksDB")?;
@@ -152,6 +164,27 @@ impl RocksDBStore {
         self.db
             .cf_handle(CF_NODE_EDGES_IN)
             .context("Column family 'node_edges_in' not found")
+    }
+
+    /// 获取 `propagation_deltas` 列族句柄。
+    pub fn cf_propagation_deltas(&self) -> Result<&rocksdb::ColumnFamily> {
+        self.db
+            .cf_handle(CF_PROPAGATION_DELTAS)
+            .context("Column family 'propagation_deltas' not found")
+    }
+
+    /// 获取 `pending_propagations` 列族句柄。
+    pub fn cf_pending_propagations(&self) -> Result<&rocksdb::ColumnFamily> {
+        self.db
+            .cf_handle(CF_PENDING_PROPAGATIONS)
+            .context("Column family 'pending_propagations' not found")
+    }
+
+    /// 获取 `applied_propagations` 列族句柄。
+    pub fn cf_applied_propagations(&self) -> Result<&rocksdb::ColumnFamily> {
+        self.db
+            .cf_handle(CF_APPLIED_PROPAGATIONS)
+            .context("Column family 'applied_propagations' not found")
     }
 
     /// 向指定列族写入键值对。
