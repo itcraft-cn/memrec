@@ -36,6 +36,7 @@ pub enum RequestAction {
     SearchMemory,
     GetProjectInfo,
     GetVersion,
+    Dream,
 
     ProjectCreate,
     ProjectList,
@@ -61,6 +62,7 @@ impl std::fmt::Display for RequestAction {
             RequestAction::SearchMemory => write!(f, "search_memory"),
             RequestAction::GetProjectInfo => write!(f, "get_project_info"),
             RequestAction::GetVersion => write!(f, "get_version"),
+            RequestAction::Dream => write!(f, "dream"),
             RequestAction::ProjectCreate => write!(f, "project_create"),
             RequestAction::ProjectList => write!(f, "project_list"),
             RequestAction::ProjectSwitch => write!(f, "project_switch"),
@@ -114,6 +116,7 @@ pub enum RequestParams {
     SearchMemory(SearchMemoryParams),
     GetProjectInfo(GetProjectInfoParams),
     GetVersion(GetVersionParams),
+    Dream(DreamParams),
 
     ProjectCreate(ProjectCreateParams),
     ProjectSwitch(ProjectSwitchParams),
@@ -273,6 +276,13 @@ pub struct GetProjectInfoParams {
 /// 获取服务版本的参数（当前无字段，保留扩展性）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetVersionParams;
+
+/// Dream 记忆整合的参数。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DreamParams {
+    #[serde(default)]
+    pub force: bool,
+}
 
 /// 搜索模式：精确匹配 / 语义检索 / 混合（默认）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

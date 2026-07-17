@@ -16,6 +16,7 @@ use tokio::time::interval;
 use tracing::{info, warn};
 
 use crate::config::DaemonConfig;
+use crate::dream::DreamProcessor;
 use crate::embedding::{EmbeddingGenerator, GeneratorFactory};
 use crate::search::{MmrConfig, ScorerConfig};
 use crate::server::{Router, UnixSocketServer};
@@ -109,11 +110,18 @@ impl Daemon {
         self.rebuild_missing_embeddings(&storage, &vector_store, &embedder)
             .await?;
 
+        let dream_processor = Arc::new(DreamProcessor::new(
+            self.config.dream.clone(),
+            &self.config.server.data_dir,
+            storage.clone(),
+        ));
+
         let router = Arc::new(Router::new(
             storage.clone(),
             vector_store.clone(),
             hybrid_store,
             embedder,
+            dream_processor,
         ));
 
         let server = UnixSocketServer::bind(&self.config.server.socket_path, router).await?;

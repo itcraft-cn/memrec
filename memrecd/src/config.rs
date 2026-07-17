@@ -9,7 +9,7 @@
 //! - [`DaemonServerConfig`]：服务端路径配置（Socket、数据目录、向量目录、日志文件）
 
 use anyhow::Result;
-use memrec_common::{ModelConfig, ModelType};
+use memrec_common::{DreamConfig, ModelConfig, ModelType};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -18,6 +18,8 @@ use std::path::{Path, PathBuf};
 pub struct DaemonConfig {
     pub model: ModelConfig,
     pub server: DaemonServerConfig,
+    #[serde(default)]
+    pub dream: DreamConfig,
 }
 
 /// 服务端路径配置。
@@ -43,6 +45,7 @@ impl Default for DaemonConfig {
                 vectors_dir: base_dir.join("vectors"),
                 log_file: base_dir.join("memrecd.log"),
             },
+            dream: DreamConfig::default(),
         }
     }
 }

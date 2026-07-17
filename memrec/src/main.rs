@@ -25,7 +25,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use client::Client;
-use commands::{add, delete, get, list, search_execute, stats, version, SearchArgs};
+use commands::{add, delete, dream, get, list, search_execute, stats, version, SearchArgs};
 
 /// 检测当前工作目录，优先使用 Git 仓库根目录。
 fn detect_working_dir() -> Result<String> {
@@ -94,6 +94,10 @@ enum Commands {
     Delete {
         id: String,
     },
+    Dream {
+        #[arg(long)]
+        force: bool,
+    },
     Stats,
     Search(SearchArgs),
     Version,
@@ -151,6 +155,9 @@ async fn main() -> Result<()> {
         }
         Commands::Delete { id } => {
             delete(&client, id, human).await?;
+        }
+        Commands::Dream { force } => {
+            dream(&client, force, human).await?;
         }
         Commands::Stats => {
             stats(&client, human).await?;

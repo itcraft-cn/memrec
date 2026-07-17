@@ -16,6 +16,7 @@
 //! | `GetProjectInfo` | 项目信息 |
 //! | `GetVersion` | 版本号 |
 
+use crate::dream::DreamProcessor;
 use crate::embedding::EmbeddingGenerator;
 use crate::project::{detect_project_id, find_project_root};
 use crate::storage::{
@@ -24,9 +25,9 @@ use crate::storage::{
 use anyhow::Result;
 use memrec_common::{
     protocol::{
-        GetProjectInfoParams, MemoryListResult, MemoryResult, ProjectInfoResult, RequestAction,
-        RequestParams, ResponseResult, SearchHit, SemanticSearchResult, StatsResult, SuccessResult,
-        VersionResult,
+        DreamResult, GetProjectInfoParams, MemoryListResult, MemoryResult,
+        ProjectInfoResult, RequestAction, RequestParams, ResponseResult, SearchHit,
+        SemanticSearchResult, StatsResult, SuccessResult, VersionResult,
     },
     JsonRpcError, JsonRpcRequest, JsonRpcResponse, Memory, MemoryType,
 };
@@ -36,7 +37,7 @@ use uuid::Uuid;
 
 /// JSON-RPC 请求路由器。
 ///
-/// 持有存储、向量存储、混合搜索存储和嵌入生成器的共享引用，
+/// 持有存储、向量存储、混合搜索存储、嵌入生成器和 Dream 处理器的共享引用，
 /// 将请求分发到对应的处理方法。
 pub struct Router {
     storage: Arc<dyn MemoryStorage>,
@@ -44,21 +45,23 @@ pub struct Router {
     vector_store: Arc<dyn VectorStorage>,
     hybrid_store: Arc<dyn HybridStorage>,
     embedder: Arc<dyn EmbeddingGenerator>,
+    dream_processor: Arc<DreamProcessor>,
 }
 
 impl Router {
-    /// 创建路由器，注入存储、向量存储、混合搜索存储和嵌入生成器。
     pub fn new(
         storage: Arc<dyn MemoryStorage>,
         vector_store: Arc<dyn VectorStorage>,
         hybrid_store: Arc<dyn HybridStorage>,
         embedder: Arc<dyn EmbeddingGenerator>,
+        dream_processor: Arc<DreamProcessor>,
     ) -> Self {
         Self {
             storage,
             vector_store,
             hybrid_store,
             embedder,
+            dream_processor,
         }
     }
 
@@ -68,7 +71,7 @@ impl Router {
         use crate::embedding::GeneratorFactory;
         use crate::search::{MmrConfig, ScorerConfig};
         use crate::storage::HybridStore;
-        use memrec_common::ModelConfig;
+        use memrec_common::{DreamConfig, ModelConfig};
 
         let model_config = ModelConfig::default();
         let embedder = GeneratorFactory::create(model_config).unwrap();
@@ -80,11 +83,15 @@ impl Router {
             MmrConfig::default(),
             ScorerConfig::default(),
         ));
+        let dream_config = DreamConfig::default();
+        let data_dir = std::path::PathBuf::from("/tmp/memrec_test");
+        let dream_processor = Arc::new(DreamProcessor::new(dream_config, &data_dir, storage.clone()));
         Self {
             storage,
             vector_store,
             hybrid_store,
             embedder,
+            dream_processor,
         }
     }
 
@@ -104,6 +111,7 @@ impl Router {
                 self.handle_project_info(request.params, request.id).await
             }
             RequestAction::GetVersion => self.handle_version(request.id).await,
+            RequestAction::Dream => self.handle_dream(request.params, request.id).await,
 
             _ => JsonRpcResponse::error(
                 JsonRpcError {
@@ -600,6 +608,32 @@ impl Router {
         )
     }
 
+    async fn handle_dream(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+        let force = match params {
+            Some(RequestParams::Dream(p)) => p.force,
+            _ => false,
+        };
+
+        match self.dream_processor.execute(force).await {
+            Ok(result) => JsonRpcResponse::success(
+                ResponseResult::Dream(DreamResult {
+                    integrated_count: result.integrated_count,
+                    created_memory_id: result.created_memory_id,
+                    summary: result.summary,
+                }),
+                id,
+            ),
+            Err(e) => JsonRpcResponse::error(
+                JsonRpcError {
+                    code: -32006,
+                    message: e.to_string(),
+                    data: None,
+                },
+                id,
+            ),
+        }
+    }
+
     /// 解析原始 JSON-RPC 请求字符串。
     pub fn parse_request(&self, raw: &str) -> Result<JsonRpcRequest> {
         serde_json::from_str(raw).map_err(|e| anyhow::anyhow!("Failed to parse request: {}", e))
@@ -641,7 +675,11 @@ mod tests {
             ScorerConfig::default(),
         ));
 
-        let router = Router::new(storage, vector_store, hybrid_store, embedder);
+        let dream_config = memrec_common::DreamConfig::default();
+        let data_dir = std::path::PathBuf::from("/tmp/memrec_test");
+        let dream_processor = Arc::new(DreamProcessor::new(dream_config, &data_dir, storage.clone()));
+
+        let router = Router::new(storage, vector_store, hybrid_store, embedder, dream_processor);
 
         let request = JsonRpcRequest::new(
             RequestAction::SearchMemory,

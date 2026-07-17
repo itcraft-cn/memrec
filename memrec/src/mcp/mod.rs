@@ -6,7 +6,7 @@
 //! ## 支持的 MCP 方法
 //!
 //! - `initialize`：协议握手
-//! - `tools/list`：列出可用工具（mr_add, mr_search, mr_get, mr_list, mr_delete, mr_stats）
+//! - `tools/list`：列出可用工具（mr_add, mr_search, mr_get, mr_list, mr_delete, mr_stats, mr_dream）
 //! - `tools/call`：调用工具
 //! - `resources/list`：列出资源（stats, project）
 //! - `resources/read`：读取资源
@@ -22,6 +22,7 @@
 //! | `mr_list` | 列出记忆 |
 //! | `mr_delete` | 删除记忆 |
 //! | `mr_stats` | 统计信息 |
+//! | `mr_dream` | 记忆整合 |
 
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
@@ -205,6 +206,16 @@ impl McpServer {
                     "name": "mr_stats",
                     "description": "Get memory statistics.",
                     "inputSchema": { "type": "object", "properties": {} }
+                },
+                {
+                    "name": "mr_dream",
+                    "description": "Execute Dream memory integration. Consolidates and compresses older memories into summary memories. Bypasses time/session gates when force=true.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "force": { "type": "boolean", "description": "If true, bypass gate checks (time interval, session count)", "default": false }
+                        }
+                    }
                 }
             ]
         }))
@@ -222,6 +233,7 @@ impl McpServer {
             "mr_list" => self.tool_list(&arguments).await,
             "mr_delete" => self.tool_delete(&arguments).await,
             "mr_stats" => self.tool_stats().await,
+            "mr_dream" => self.tool_dream(&arguments).await,
             _ => Err(format!("Unknown tool: {}", tool_name)),
         };
 
@@ -424,6 +436,29 @@ impl McpServer {
         Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
     }
 
+    /// `mr_dream` 工具实现：记忆整合。
+    async fn tool_dream(&self, args: &Value) -> Result<String, String> {
+        let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        let params = json!({ "force": force });
+        let resp = self.call_daemon("dream", params).await?;
+
+        if let Some(result) = resp.get("result") {
+            if let Some(d) = result.get("integrated_count") {
+                let count = d.as_u64().unwrap_or(0);
+                let summary = result.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+                return Ok(format!("Dream completed: {} memories integrated\nSummary: {}", count, summary));
+            }
+        }
+
+        if let Some(err) = resp.get("error") {
+            let msg = err.get("message").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+            return Err(format!("Dream failed: {}", msg));
+        }
+
+        Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
+    }
+
     /// 通过 Unix Socket 调用 memrecd 守护进程。
     ///
     /// 流程：连接 → 发送请求 → 关闭写端 → 读取响应（最大 1MB）→ 解析。
@@ -483,6 +518,13 @@ impl McpServer {
             }),
             "stats" => ("stats", None),
             "get_version" => ("get_version", None),
+            "dream" => ("dream", {
+                if !params.is_object() {
+                    params = json!({});
+                }
+                params["type"] = json!("dream");
+                Some(params)
+            }),
             _ => return Err(format!("Unknown method: {}", method)),
         };
 

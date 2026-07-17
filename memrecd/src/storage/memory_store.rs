@@ -285,6 +285,19 @@ impl MemoryStorage for MemoryStore {
             .filter(|m| m.chunk_group_id == Some(*chunk_group_id))
             .collect())
     }
+
+    async fn list_older_than(&self, cutoff: &str, limit: usize) -> Result<Vec<Memory>> {
+        let cutoff_time = chrono::DateTime::parse_from_rfc3339(cutoff)
+            .context("Invalid cutoff time format")?
+            .with_timezone(&Utc);
+
+        let all = self.list(limit * 10).await?;
+        Ok(all
+            .into_iter()
+            .filter(|m| m.created_at < cutoff_time)
+            .take(limit)
+            .collect())
+    }
 }
 
 #[cfg(test)]

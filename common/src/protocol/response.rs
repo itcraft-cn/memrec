@@ -72,6 +72,7 @@ pub enum ResponseResult {
     ProjectList(ProjectListResult),
     ProjectInfo(ProjectInfoResult),
     Version(VersionResult),
+    Dream(DreamResult),
     Config(ConfigResult),
     Stats(StatsResult),
     Success(SuccessResult),
@@ -166,6 +167,14 @@ pub struct ProjectInfoResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VersionResult {
     pub version: String,
+}
+
+/// Dream 记忆整合结果。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DreamResult {
+    pub integrated_count: usize,
+    pub created_memory_id: Option<Uuid>,
+    pub summary: String,
 }
 
 /// 配置查询/设置结果。

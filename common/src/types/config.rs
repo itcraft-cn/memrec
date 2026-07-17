@@ -202,6 +202,68 @@ impl Default for ServerConfig {
     }
 }
 
+/// Dream 后台整合配置。
+///
+/// 控制记忆压缩和整合行为，类似人类睡眠中的记忆巩固过程。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DreamConfig {
+    /// 是否启用 Dream 整合
+    #[serde(default = "default_dream_enabled")]
+    pub enabled: bool,
+
+    /// 触发整合的最小记忆数量
+    #[serde(default = "default_min_memories")]
+    pub min_memories: usize,
+
+    /// 整合的记忆最大年龄（小时），默认 168h = 7天
+    #[serde(default = "default_max_age_hours")]
+    pub max_age_hours: u64,
+
+    /// 两次整合之间的最小间隔（小时）
+    #[serde(default = "default_min_hours_between")]
+    pub min_hours_between: f64,
+
+    /// 整合后生成的记忆类型
+    #[serde(default = "default_integration_type")]
+    pub integration_type: String,
+
+    /// 整合后生成的记忆标签
+    #[serde(default = "default_integration_tags")]
+    pub integration_tags: Vec<String>,
+}
+
+fn default_dream_enabled() -> bool {
+    false
+}
+fn default_min_memories() -> usize {
+    20
+}
+fn default_max_age_hours() -> u64 {
+    168
+}
+fn default_min_hours_between() -> f64 {
+    24.0
+}
+fn default_integration_type() -> String {
+    "knowledge".to_string()
+}
+fn default_integration_tags() -> Vec<String> {
+    vec!["dream-integrated".to_string()]
+}
+
+impl Default for DreamConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            min_memories: 20,
+            max_age_hours: 168,
+            min_hours_between: 24.0,
+            integration_type: "knowledge".to_string(),
+            integration_tags: vec!["dream-integrated".to_string()],
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,5 +368,40 @@ mod tests {
         assert_eq!(parsed.decay_half_life_hours, 336.0);
         assert_eq!(parsed.source_weights.user, 1.0);
         assert_eq!(parsed.evergreen_scopes, vec!["global", "workspace"]);
+    }
+
+    #[test]
+    fn test_dream_config_defaults() {
+        let config = DreamConfig::default();
+
+        assert!(!config.enabled);
+        assert_eq!(config.min_memories, 20);
+        assert_eq!(config.max_age_hours, 168);
+        assert_eq!(config.min_hours_between, 24.0);
+        assert_eq!(config.integration_type, "knowledge");
+        assert_eq!(config.integration_tags, vec!["dream-integrated"]);
+    }
+
+    #[test]
+    fn test_dream_config_serde_roundtrip() {
+        let config = DreamConfig::default();
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: DreamConfig = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(config.enabled, parsed.enabled);
+        assert_eq!(config.min_memories, parsed.min_memories);
+        assert_eq!(config.max_age_hours, parsed.max_age_hours);
+        assert_eq!(config.min_hours_between, parsed.min_hours_between);
+    }
+
+    #[test]
+    fn test_dream_config_partial_deserialize() {
+        let json = r#"{"enabled": true, "min_memories": 50}"#;
+        let parsed: DreamConfig = serde_json::from_str(json).unwrap();
+
+        assert!(parsed.enabled);
+        assert_eq!(parsed.min_memories, 50);
+        assert_eq!(parsed.max_age_hours, 168);
+        assert_eq!(parsed.min_hours_between, 24.0);
     }
 }

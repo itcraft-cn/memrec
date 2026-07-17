@@ -14,6 +14,11 @@ use uuid::Uuid;
 /// 提供记忆的 CRUD、按类型/标签/重要性/项目查询、软删除管理等功能。
 #[async_trait]
 pub trait MemoryStorage: Send + Sync {
+    /// 添加新记忆（别名，等同于 save）。
+    async fn add(&self, memory: &Memory) -> Result<()> {
+        self.save(memory).await
+    }
+
     async fn save(&self, memory: &Memory) -> Result<()>;
     async fn get(&self, id: &Uuid) -> Result<Option<Memory>>;
     async fn update(&self, memory: &Memory) -> Result<()>;
@@ -31,6 +36,9 @@ pub trait MemoryStorage: Send + Sync {
 
     async fn list_by_project(&self, project_id: &Uuid) -> Result<Vec<Memory>>;
     async fn get_chunks_by_group(&self, chunk_group_id: &Uuid) -> Result<Vec<Memory>>;
+
+    /// 列出创建时间早于指定时间的记忆（用于 Dream 整合）。
+    async fn list_older_than(&self, cutoff: &str, limit: usize) -> Result<Vec<Memory>>;
 }
 
 /// 项目存储 trait。

@@ -11,7 +11,7 @@ use crate::client::Client;
 use anyhow::Result;
 use memrec_common::{
     protocol::{
-        AddParams, DeleteParams, GetParams, ListParams, RequestAction, RequestParams,
+        AddParams, DeleteParams, DreamParams, GetParams, ListParams, RequestAction, RequestParams,
         ResponseResult,
     },
     JsonRpcRequest, MemoryType,
@@ -387,6 +387,39 @@ fn parse_memory_type(s: &str) -> Result<MemoryType> {
         "context" => Ok(MemoryType::Context),
         _ => Err(anyhow::anyhow!("Invalid memory type: {}", s)),
     }
+}
+
+/// Dream 记忆整合命令。
+pub async fn dream(client: &Client, force: bool, human: bool) -> Result<()> {
+    let request = JsonRpcRequest::new(
+        RequestAction::Dream,
+        Some(RequestParams::Dream(DreamParams { force })),
+        1,
+    );
+
+    let response = client.send(&request).await?;
+
+    if human {
+        if let Some(result) = response.result {
+            match result {
+                ResponseResult::Dream(d) => {
+                    println!("Dream completed:");
+                    println!("  Integrated: {} memories", d.integrated_count);
+                    if let Some(id) = d.created_memory_id {
+                        println!("  Created memory: {}", id);
+                    }
+                    println!("  Summary: {}", d.summary);
+                }
+                _ => println!("Unexpected response type"),
+            }
+        } else if let Some(err) = response.error {
+            println!("Error: {}", err.message);
+        }
+    } else {
+        println!("{}", serde_json::to_string_pretty(&response)?);
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
