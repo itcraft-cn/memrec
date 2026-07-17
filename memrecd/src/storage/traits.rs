@@ -1,11 +1,11 @@
 //! # 存储层 trait 定义
 //!
-//! 定义记忆存储、项目存储、配置存储和向量存储的抽象接口，
+//! 定义记忆存储、项目存储、配置存储、Facet 存储和向量存储的抽象接口，
 //! 便于替换底层实现（如未来支持其他数据库后端）。
 
 use anyhow::Result;
 use async_trait::async_trait;
-use memrec_common::{Memory, MemoryType};
+use memrec_common::{Memory, MemoryFacet, MemoryType};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -185,4 +185,35 @@ pub trait HybridStorage: Send + Sync {
 
     /// 从索引中删除记忆。
     async fn remove(&self, id: &Uuid) -> Result<bool>;
+}
+
+/// Facet 搜索命中结果。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FacetSearchHit {
+    pub facet_id: Uuid,
+    pub memory_id: Uuid,
+    pub score: f32,
+    pub theme: String,
+    pub confidence: f32,
+    pub keywords: Vec<String>,
+}
+
+/// Facet 存储_trait。
+///
+/// 提供 Facet 的 CRUD、按记忆查询、向量检索等功能。
+#[async_trait]
+pub trait FacetStorage: Send + Sync {
+    async fn save(&self, facet: &MemoryFacet) -> Result<()>;
+    async fn get(&self, id: &Uuid) -> Result<Option<MemoryFacet>>;
+    async fn delete(&self, id: &Uuid) -> Result<bool>;
+
+    async fn list_by_memory(&self, memory_id: &Uuid) -> Result<Vec<MemoryFacet>>;
+    async fn count(&self) -> Result<usize>;
+
+    async fn search_by_theme(
+        &self,
+        query_embedding: &[f32],
+        top_k: usize,
+        min_score: f32,
+    ) -> Result<Vec<FacetSearchHit>>;
 }

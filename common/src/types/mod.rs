@@ -10,6 +10,7 @@
 //! - [`project`]：项目隔离模型，实现多项目独立记忆空间
 
 mod config;
+mod facet;
 mod memory;
 mod model;
 mod project;
@@ -17,6 +18,7 @@ mod project;
 pub use config::{
     DreamConfig, ImportanceConfig, MemoryConfig, SearchConfig, ServerConfig, SourceWeights,
 };
+pub use facet::MemoryFacet;
 pub use memory::{Memory, MemoryScope, MemorySource, MemoryType};
 pub use model::{ModelConfig, ModelFile, ModelFileType, ModelType, PoolingStrategy};
 pub use project::{Project, ProjectConfig};

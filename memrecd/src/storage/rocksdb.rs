@@ -1,7 +1,7 @@
 //! # RocksDB 底层封装
 //!
 //! 对 RocksDB 的列族（Column Family）操作进行封装，
-//! 为上层 [`MemoryStore`] 和 [`RocksDBVectorStore`] 提供基础读写能力。
+//! 为上层 [`MemoryStore`]、[`FacetStore`] 和 [`RocksDBVectorStore`] 提供基础读写能力。
 //!
 //! ## 列族划分
 //!
@@ -13,6 +13,8 @@
 //! | `importance` | 重要性索引（UUID → f64 字符串） |
 //! | `projects` | 项目信息 |
 //! | `config` | 配置键值对 |
+//! | `facets` | Facet 主存储（UUID → JSON） |
+//! | `memory_facets` | 记忆→Facet 索引（`memory_id:facet_id` → UUID） |
 
 use anyhow::{Context, Result};
 use rocksdb::{ColumnFamilyDescriptor, Options, DB};
@@ -30,6 +32,10 @@ const CF_IMPORTANCE: &str = "importance";
 const CF_PROJECTS: &str = "projects";
 /// 配置键值对列族
 const CF_CONFIG: &str = "config";
+/// Facet 主存储列族
+const CF_FACETS: &str = "facets";
+/// 记忆→Facet 索引列族
+const CF_MEMORY_FACETS: &str = "memory_facets";
 
 /// RocksDB 存储封装，提供列族访问和基础读写操作。
 pub struct RocksDBStore {
@@ -50,6 +56,8 @@ impl RocksDBStore {
             ColumnFamilyDescriptor::new(CF_IMPORTANCE, Options::default()),
             ColumnFamilyDescriptor::new(CF_PROJECTS, Options::default()),
             ColumnFamilyDescriptor::new(CF_CONFIG, Options::default()),
+            ColumnFamilyDescriptor::new(CF_FACETS, Options::default()),
+            ColumnFamilyDescriptor::new(CF_MEMORY_FACETS, Options::default()),
         ];
 
         let db = DB::open_cf_descriptors(&options, path, cfs).context("Failed to open RocksDB")?;
@@ -97,6 +105,20 @@ impl RocksDBStore {
         self.db
             .cf_handle(CF_CONFIG)
             .context("Column family 'config' not found")
+    }
+
+    /// 获取 `facets` 列族句柄。
+    pub fn cf_facets(&self) -> Result<&rocksdb::ColumnFamily> {
+        self.db
+            .cf_handle(CF_FACETS)
+            .context("Column family 'facets' not found")
+    }
+
+    /// 获取 `memory_facets` 列族句柄。
+    pub fn cf_memory_facets(&self) -> Result<&rocksdb::ColumnFamily> {
+        self.db
+            .cf_handle(CF_MEMORY_FACETS)
+            .context("Column family 'memory_facets' not found")
     }
 
     /// 向指定列族写入键值对。

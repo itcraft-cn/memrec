@@ -31,6 +31,11 @@ impl VectorStore {
         }
     }
 
+    /// 创建默认维度（768）的内存向量存储，用于测试。
+    pub fn new_in_memory() -> Self {
+        Self::new(768)
+    }
+
     /// 计算余弦相似度。
     fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
         let dot = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum::<f32>();
