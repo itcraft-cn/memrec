@@ -2,8 +2,8 @@
 //!
 //! 规则匹配与执行的入口。
 
-use crate::storage::{EdgeStorage, RuleStorage};
 use crate::rule::matcher::{CandidateInfo, RuleMatcher};
+use crate::storage::{EdgeStorage, RuleStorage};
 use anyhow::Result;
 use memrec_common::{BoostType, RetrievalRule};
 use std::sync::Arc;
@@ -40,7 +40,11 @@ impl RuleEngine {
     }
 
     /// 对候选列表应用规则。
-    pub async fn apply(&mut self, query: &str, candidates: &mut [CandidateInfo]) -> Result<Vec<RuleResult>> {
+    pub async fn apply(
+        &mut self,
+        query: &str,
+        candidates: &mut [CandidateInfo],
+    ) -> Result<Vec<RuleResult>> {
         let rules = self.rule_storage.list_by_priority().await?;
 
         let mut results = Vec::new();
@@ -71,7 +75,11 @@ impl RuleEngine {
         Ok(results)
     }
 
-    async fn apply_rule(&self, rule: &RetrievalRule, candidates: &mut [CandidateInfo]) -> Result<usize> {
+    async fn apply_rule(
+        &self,
+        rule: &RetrievalRule,
+        candidates: &mut [CandidateInfo],
+    ) -> Result<usize> {
         let mut hit_count = 0;
 
         for candidate in candidates.iter_mut() {

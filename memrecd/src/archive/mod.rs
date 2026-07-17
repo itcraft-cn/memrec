@@ -77,7 +77,9 @@ impl ArchiveManager {
 
     /// 获取指定年份的 SQLite 文件路径
     fn get_archive_path(&self, year: i32) -> std::path::PathBuf {
-        self.data_dir.join("archive").join(format!("raw_{}.db", year))
+        self.data_dir
+            .join("archive")
+            .join(format!("raw_{}.db", year))
     }
 
     /// 获取当前年份的存档实例

@@ -18,8 +18,9 @@ impl SqliteArchive {
     /// 打开或创建 SQLite 存档文件
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create archive directory: {}", parent.display()))?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create archive directory: {}", parent.display())
+            })?;
         }
 
         let conn = Connection::open(path)
@@ -53,7 +54,8 @@ impl SqliteArchive {
             CREATE INDEX IF NOT EXISTS idx_project_id ON raw_inputs(project_id);
             CREATE INDEX IF NOT EXISTS idx_memory_type ON raw_inputs(memory_type);
             "#,
-        ).context("Failed to initialize archive schema")?;
+        )
+        .context("Failed to initialize archive schema")?;
 
         Ok(())
     }
@@ -109,7 +111,8 @@ impl SqliteArchive {
             let tags_json: String = row.get(3)?;
             let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
             let metadata_json: String = row.get(8)?;
-            let metadata: serde_json::Value = serde_json::from_str(&metadata_json).unwrap_or(serde_json::Value::Null);
+            let metadata: serde_json::Value =
+                serde_json::from_str(&metadata_json).unwrap_or(serde_json::Value::Null);
             let is_global: i32 = row.get(5)?;
 
             Ok(ArchivedMemory {
@@ -136,11 +139,7 @@ impl SqliteArchive {
     /// 统计存档数量
     pub fn count(&self) -> Result<usize> {
         let conn = self.conn.lock().unwrap();
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM raw_inputs",
-            [],
-            |row| row.get(0),
-        )?;
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM raw_inputs", [], |row| row.get(0))?;
         Ok(count as usize)
     }
 
@@ -161,7 +160,8 @@ impl SqliteArchive {
             let tags_json: String = row.get(3)?;
             let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
             let metadata_json: String = row.get(8)?;
-            let metadata: serde_json::Value = serde_json::from_str(&metadata_json).unwrap_or(serde_json::Value::Null);
+            let metadata: serde_json::Value =
+                serde_json::from_str(&metadata_json).unwrap_or(serde_json::Value::Null);
             let is_global: i32 = row.get(5)?;
 
             Ok(ArchivedMemory {

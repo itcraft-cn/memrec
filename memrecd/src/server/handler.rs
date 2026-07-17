@@ -23,15 +23,16 @@ use crate::project::{detect_project_id, find_project_root};
 use crate::storage::{
     HybridSearchRequest, HybridStorage, MemoryStorage, SearchFilter, VectorPayload, VectorStorage,
 };
-use crate::tiered::{TierAssigner, TieredEngineConfig};
+use crate::tiered::TierAssigner;
 use anyhow::Result;
 use memrec_common::{
     protocol::{
         DreamResult, GetProjectInfoParams, MemoryListResult, MemoryResult, ProjectInfoResult,
         RequestAction, RequestParams, ResponseResult, SearchHit, SemanticSearchResult, StatsResult,
-        SuccessResult, TierThresholdsParams, TieredSearchParams, VersionResult,
+        SuccessResult, VersionResult,
     },
-    JsonRpcError, JsonRpcRequest, JsonRpcResponse, Memory, MemoryType, RepresentationTier, TierThresholds,
+    JsonRpcError, JsonRpcRequest, JsonRpcResponse, Memory, MemoryType, RepresentationTier,
+    TierThresholds,
 };
 use std::sync::Arc;
 use std::time::Instant;
@@ -640,16 +641,23 @@ impl Router {
                 let memory_ids: Vec<Uuid> = result.hits.iter().map(|h| h.memory_id).collect();
                 let scores: Vec<f32> = result.hits.iter().map(|h| h.score).collect();
 
-                let thresholds = p.tier_thresholds.as_ref().map(|t| TierThresholds {
-                    full: t.full,
-                    truncated: t.truncated,
-                    summary: t.summary,
-                }).unwrap_or_default();
+                let thresholds = p
+                    .tier_thresholds
+                    .as_ref()
+                    .map(|t| TierThresholds {
+                        full: t.full,
+                        truncated: t.truncated,
+                        summary: t.summary,
+                    })
+                    .unwrap_or_default();
 
                 let assigner = TierAssigner::new(thresholds);
                 let budget = crate::tiered::BudgetController::new(p.max_total_tokens);
 
-                match self.build_tiered_result(memory_ids, scores, assigner, budget).await {
+                match self
+                    .build_tiered_result(memory_ids, scores, assigner, budget)
+                    .await
+                {
                     Ok(tiered_result) => JsonRpcResponse::success(
                         ResponseResult::TieredSearchResult(tiered_result),
                         id,
@@ -764,7 +772,7 @@ impl Router {
         assigner: TierAssigner,
         budget: crate::tiered::BudgetController,
     ) -> Result<memrec_common::TieredSearchResult> {
-        use memrec_common::{RepresentationTier, TieredMemory};
+        use memrec_common::TieredMemory;
 
         let mut results = Vec::with_capacity(memory_ids.len());
 
@@ -785,7 +793,11 @@ impl Router {
             }
         }
 
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         let total_tokens = budget.check_and_downgrade(&mut results);
 

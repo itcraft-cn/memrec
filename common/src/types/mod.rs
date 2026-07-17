@@ -14,8 +14,8 @@ mod edge;
 mod facet;
 mod memory;
 mod model;
-mod propagation;
 mod project;
+mod propagation;
 mod rule;
 mod tiered;
 
@@ -26,7 +26,7 @@ pub use edge::{EdgeType, MemoryEdge};
 pub use facet::MemoryFacet;
 pub use memory::{Memory, MemoryScope, MemorySource, MemoryType};
 pub use model::{ModelConfig, ModelFile, ModelFileType, ModelType, PoolingStrategy};
-pub use propagation::{DeltaType, PropagationConfig, PropagationDelta};
 pub use project::{Project, ProjectConfig};
+pub use propagation::{DeltaType, PropagationConfig, PropagationDelta};
 pub use rule::{BoostType, RetrievalRule, RuleAction, RuleCondition, RuleStats, TimeRange};
 pub use tiered::{EdgeHint, RepresentationTier, TierThresholds, TieredMemory, TieredSearchResult};

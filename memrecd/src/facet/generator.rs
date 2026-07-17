@@ -50,10 +50,10 @@ impl MockFacetGenerator {
     fn extract_keywords(content: &str) -> Vec<String> {
         let stop_words = [
             "the", "a", "an", "is", "are", "was", "were", "be", "been", "being", "have", "has",
-            "had", "do", "does", "did", "will", "would", "could", "should", "may", "might",
-            "must", "shall", "can", "need", "dare", "ought", "used", "to", "of", "in", "for",
-            "on", "with", "at", "by", "from", "as", "into", "through", "during", "before",
-            "after", "above", "below", "between", "under", "again", "further", "then", "once",
+            "had", "do", "does", "did", "will", "would", "could", "should", "may", "might", "must",
+            "shall", "can", "need", "dare", "ought", "used", "to", "of", "in", "for", "on", "with",
+            "at", "by", "from", "as", "into", "through", "during", "before", "after", "above",
+            "below", "between", "under", "again", "further", "then", "once",
         ];
 
         content
@@ -79,35 +79,19 @@ impl MockFacetGenerator {
         }
 
         if content.contains("偏好") || content.contains("preference") {
-            themes.push((
-                "用户偏好".to_string(),
-                0.9,
-                vec!["preference".to_string()],
-            ));
+            themes.push(("用户偏好".to_string(), 0.9, vec!["preference".to_string()]));
         }
 
         if content.contains("决策") || content.contains("decision") {
-            themes.push((
-                "关键决策".to_string(),
-                0.85,
-                vec!["decision".to_string()],
-            ));
+            themes.push(("关键决策".to_string(), 0.85, vec!["decision".to_string()]));
         }
 
         if content.contains("重要") || content.contains("important") {
-            themes.push((
-                "重要信息".to_string(),
-                0.8,
-                vec!["important".to_string()],
-            ));
+            themes.push(("重要信息".to_string(), 0.8, vec!["important".to_string()]));
         }
 
         if content.contains("Rust") || content.contains("rust") {
-            themes.push((
-                "Rust 技术栈".to_string(),
-                0.75,
-                vec!["rust".to_string()],
-            ));
+            themes.push(("Rust 技术栈".to_string(), 0.75, vec!["rust".to_string()]));
         }
 
         if themes.is_empty() {
@@ -134,7 +118,9 @@ impl FacetGenerator for MockFacetGenerator {
         let themes = Self::create_themes(&memory.content);
         let mut facets = Vec::new();
 
-        for (i, (theme, confidence, keywords)) in themes.into_iter().take(self.max_facets).enumerate() {
+        for (i, (theme, confidence, keywords)) in
+            themes.into_iter().take(self.max_facets).enumerate()
+        {
             let facet = MemoryFacet::new_with_evidence(
                 memory.id,
                 theme,
@@ -170,24 +156,21 @@ mod tests {
 
         let result = generator.generate(&memory).await.unwrap();
 
-        let has_preference_theme = result
-            .facets
-            .iter()
-            .any(|f| f.theme.contains("偏好"));
+        let has_preference_theme = result.facets.iter().any(|f| f.theme.contains("偏好"));
         assert!(has_preference_theme);
     }
 
     #[tokio::test]
     async fn test_generate_with_rust() {
         let generator = MockFacetGenerator::new();
-        let memory = Memory::new("使用 Rust 编写高性能服务".to_string(), MemoryType::Knowledge);
+        let memory = Memory::new(
+            "使用 Rust 编写高性能服务".to_string(),
+            MemoryType::Knowledge,
+        );
 
         let result = generator.generate(&memory).await.unwrap();
 
-        let has_rust_theme = result
-            .facets
-            .iter()
-            .any(|f| f.theme.contains("Rust"));
+        let has_rust_theme = result.facets.iter().any(|f| f.theme.contains("Rust"));
         assert!(has_rust_theme);
     }
 

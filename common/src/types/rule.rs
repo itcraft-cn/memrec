@@ -9,19 +9,14 @@ use uuid::Uuid;
 use super::{EdgeType, MemoryType};
 
 /// 规则动作类型。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BoostType {
+    #[default]
     Boost,
     Suppress,
     Filter,
     Expand,
-}
-
-impl Default for BoostType {
-    fn default() -> Self {
-        Self::Boost
-    }
 }
 
 /// 时间范围条件。
@@ -138,7 +133,12 @@ pub struct RetrievalRule {
 }
 
 impl RetrievalRule {
-    pub fn new(name: String, description: String, condition: RuleCondition, action: RuleAction) -> Self {
+    pub fn new(
+        name: String,
+        description: String,
+        condition: RuleCondition,
+        action: RuleAction,
+    ) -> Self {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4(),
@@ -223,8 +223,8 @@ mod tests {
 
     #[test]
     fn test_rule_condition_with_memory_types() {
-        let cond = RuleCondition::new("test".to_string())
-            .with_memory_types(vec![MemoryType::Knowledge]);
+        let cond =
+            RuleCondition::new("test".to_string()).with_memory_types(vec![MemoryType::Knowledge]);
         assert!(cond.memory_type.is_some());
         assert_eq!(cond.memory_type.unwrap().len(), 1);
     }
@@ -275,7 +275,8 @@ mod tests {
             "desc".to_string(),
             RuleCondition::default(),
             RuleAction::default(),
-        ).with_priority(100);
+        )
+        .with_priority(100);
 
         assert_eq!(rule.priority, 100);
     }

@@ -8,8 +8,8 @@ use std::sync::Arc;
 use tracing::info;
 use uuid::Uuid;
 
-use crate::storage::{EdgeStorage, MemoryStorage, PropagationStorage};
 use super::generator::DeltaGenerator;
+use crate::storage::{EdgeStorage, MemoryStorage, PropagationStorage};
 
 /// 传播结果。
 #[derive(Debug, Clone)]
@@ -53,8 +53,7 @@ impl PropagationEngine {
 
         info!(
             "Propagation: found {} neighbors for memory {}",
-            neighbor_count,
-            consolidated.id
+            neighbor_count, consolidated.id
         );
 
         if neighbors.is_empty() {
@@ -96,8 +95,7 @@ impl PropagationEngine {
 
         info!(
             "Propagation: generated {} deltas for memory {}",
-            delta_count,
-            consolidated.id
+            delta_count, consolidated.id
         );
 
         Ok(PropagationResult {

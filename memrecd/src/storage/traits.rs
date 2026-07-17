@@ -5,7 +5,9 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use memrec_common::{Memory, MemoryEdge, MemoryFacet, MemoryType, PropagationDelta, RetrievalRule, RuleStats};
+use memrec_common::{
+    Memory, MemoryEdge, MemoryFacet, MemoryType, PropagationDelta, RetrievalRule, RuleStats,
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

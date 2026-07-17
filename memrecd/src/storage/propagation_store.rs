@@ -55,11 +55,8 @@ impl PropagationStorage for PropagationStore {
 
         if !delta.applied {
             let cf_pending = self.rocksdb.cf_pending_propagations()?;
-            let pending_key = Self::make_pending_key(
-                &delta.target_id,
-                delta.delta_type.priority(),
-                &delta.id,
-            );
+            let pending_key =
+                Self::make_pending_key(&delta.target_id, delta.delta_type.priority(), &delta.id);
             self.rocksdb
                 .put_cf(cf_pending, pending_key.as_bytes(), key.as_bytes())?;
         }

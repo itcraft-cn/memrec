@@ -194,10 +194,7 @@ mod tests {
         let id2 = Uuid::new_v4();
 
         store
-            .save_keywords_batch(&[
-                (id1, vec!["a".to_string()]),
-                (id2, vec!["b".to_string()]),
-            ])
+            .save_keywords_batch(&[(id1, vec!["a".to_string()]), (id2, vec!["b".to_string()])])
             .await
             .unwrap();
 

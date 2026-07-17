@@ -73,7 +73,9 @@ impl BudgetController {
             }
         }
 
-        results.retain(|r| r.tier != RepresentationTier::DenseProxy || current_total <= self.max_tokens);
+        results.retain(|r| {
+            r.tier != RepresentationTier::DenseProxy || current_total <= self.max_tokens
+        });
 
         results.iter().map(|r| r.token_count).sum()
     }

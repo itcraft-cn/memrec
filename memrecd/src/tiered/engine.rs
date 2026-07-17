@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 use memrec_common::{
-    EdgeHint, EdgeType, Memory, MemoryEdge, RepresentationTier, TierThresholds, TieredMemory,
+    EdgeHint, Memory, MemoryEdge, RepresentationTier, TierThresholds, TieredMemory,
     TieredSearchResult,
 };
 use uuid::Uuid;
@@ -77,7 +77,11 @@ where
             }
         }
 
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         let total_tokens = self.budget.check_and_downgrade(&mut results);
 
@@ -214,9 +218,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::{GraphTraversalParams, GraphSearchHit};
+    use crate::storage::{GraphSearchHit, GraphTraversalParams};
     use async_trait::async_trait;
-    use memrec_common::{MemorySource, MemoryType};
+    use memrec_common::{EdgeType, MemorySource, MemoryType};
     use tempfile::tempdir;
 
     struct MockMemoryStore {
@@ -260,7 +264,11 @@ mod tests {
             let map = self.memories.lock().await;
             Ok(map.values().take(limit).cloned().collect())
         }
-        async fn list_by_type(&self, _memory_type: MemoryType, limit: usize) -> Result<Vec<Memory>> {
+        async fn list_by_type(
+            &self,
+            _memory_type: MemoryType,
+            limit: usize,
+        ) -> Result<Vec<Memory>> {
             self.list(limit).await
         }
         async fn list_by_tag(&self, _tag: &str, limit: usize) -> Result<Vec<Memory>> {

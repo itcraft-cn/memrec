@@ -627,10 +627,7 @@ mod tests {
         let tools = result["result"]["tools"].as_array().unwrap();
         assert!(tools.len() >= 6);
 
-        let tool_names: Vec<&str> = tools
-            .iter()
-            .filter_map(|t| t["name"].as_str())
-            .collect();
+        let tool_names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
         assert!(tool_names.contains(&"mr_add"));
         assert!(tool_names.contains(&"mr_search"));
         assert!(tool_names.contains(&"mr_get"));
@@ -647,10 +644,7 @@ mod tests {
         let resources = result["result"]["resources"].as_array().unwrap();
         assert!(resources.len() >= 2);
 
-        let uris: Vec<&str> = resources
-            .iter()
-            .filter_map(|r| r["uri"].as_str())
-            .collect();
+        let uris: Vec<&str> = resources.iter().filter_map(|r| r["uri"].as_str()).collect();
         assert!(uris.contains(&"memrec://stats"));
         assert!(uris.contains(&"memrec://project"));
     }

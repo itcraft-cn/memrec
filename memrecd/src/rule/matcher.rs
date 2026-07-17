@@ -51,11 +51,7 @@ impl RuleMatcher {
     }
 
     /// 检查候选记忆是否匹配规则条件。
-    pub fn matches_candidate(
-        &self,
-        candidate: &CandidateInfo,
-        condition: &RuleCondition,
-    ) -> bool {
+    pub fn matches_candidate(&self, candidate: &CandidateInfo, condition: &RuleCondition) -> bool {
         if let Some(ref types) = condition.memory_type {
             if !types.contains(&candidate.memory_type) {
                 return false;
@@ -150,8 +146,8 @@ mod tests {
     #[test]
     fn test_matches_candidate_memory_type() {
         let matcher = RuleMatcher::new();
-        let condition = RuleCondition::new("test".to_string())
-            .with_memory_types(vec![MemoryType::Knowledge]);
+        let condition =
+            RuleCondition::new("test".to_string()).with_memory_types(vec![MemoryType::Knowledge]);
 
         let matching = CandidateInfo {
             memory_id: uuid::Uuid::new_v4(),

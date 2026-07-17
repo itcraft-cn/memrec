@@ -27,7 +27,10 @@ pub struct FacetStore {
 
 impl FacetStore {
     pub fn new(rocksdb: RocksDBStore, vector_store: VectorStore) -> Self {
-        Self { rocksdb, vector_store }
+        Self {
+            rocksdb,
+            vector_store,
+        }
     }
 
     fn facet_key(id: &Uuid) -> Vec<u8> {
@@ -102,7 +105,8 @@ impl FacetStorage for FacetStore {
 
                 let memory_facet_key = Self::memory_facet_key(&f.memory_id, id);
                 let cf_memory_facets = self.rocksdb.cf_memory_facets()?;
-                self.rocksdb.delete_cf(cf_memory_facets, &memory_facet_key)?;
+                self.rocksdb
+                    .delete_cf(cf_memory_facets, &memory_facet_key)?;
 
                 self.vector_store.remove(id).await?;
 
@@ -168,7 +172,10 @@ impl FacetStorage for FacetStore {
             min_score,
         };
 
-        let hits = self.vector_store.search(query_embedding, filter, top_k).await?;
+        let hits = self
+            .vector_store
+            .search(query_embedding, filter, top_k)
+            .await?;
 
         let mut facet_hits = Vec::new();
         for hit in hits {

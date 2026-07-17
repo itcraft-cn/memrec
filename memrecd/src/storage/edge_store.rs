@@ -89,7 +89,12 @@ impl EdgeStore {
         Ok(())
     }
 
-    async fn remove_edge_from_index(&self, key: &[u8], edge_id: &Uuid, cf_name: &str) -> Result<()> {
+    async fn remove_edge_from_index(
+        &self,
+        key: &[u8],
+        edge_id: &Uuid,
+        cf_name: &str,
+    ) -> Result<()> {
         let ids = self.get_edge_ids_from_cf(key, cf_name).await?;
 
         let mut new_ids = ids;

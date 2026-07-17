@@ -128,21 +128,15 @@ impl EdgeGenerator for MockEdgeGenerator {
                 continue;
             }
 
-            let similarity =
-                Self::calculate_similarity(&new_memory.content, &candidate.content);
+            let similarity = Self::calculate_similarity(&new_memory.content, &candidate.content);
 
             if similarity >= self.min_similarity {
                 let edge_type = self.infer_edge_type(&new_memory.content, &candidate.content);
                 let evidence = Self::generate_evidence(edge_type, similarity);
 
-                let edge = MemoryEdge::new(
-                    new_memory.id,
-                    candidate.id,
-                    edge_type,
-                    similarity,
-                    evidence,
-                )
-                .auto_generated();
+                let edge =
+                    MemoryEdge::new(new_memory.id, candidate.id, edge_type, similarity, evidence)
+                        .auto_generated();
 
                 edges.push(edge);
                 edge_count += 1;
@@ -162,7 +156,9 @@ pub struct ProjectEdgeGenerator {
 
 impl ProjectEdgeGenerator {
     pub fn new(max_edges_per_project: usize) -> Self {
-        Self { max_edges_per_project }
+        Self {
+            max_edges_per_project,
+        }
     }
 
     pub fn with_defaults() -> Self {
@@ -186,7 +182,13 @@ impl ProjectEdgeGenerator {
         let existing_ids: std::collections::HashSet<Uuid> = existing
             .iter()
             .filter(|e| e.edge_type == EdgeType::SameProject)
-            .map(|e| if e.source_id == memory.id { e.target_id } else { e.source_id })
+            .map(|e| {
+                if e.source_id == memory.id {
+                    e.target_id
+                } else {
+                    e.source_id
+                }
+            })
             .collect();
 
         let mut edges = Vec::new();
@@ -262,7 +264,10 @@ mod tests {
             .map(|i| create_test_memory(&format!("Test memory with keywords {}", i)))
             .collect();
 
-        let edges = generator.generate(&memory, &candidates, &edge_store).await.unwrap();
+        let edges = generator
+            .generate(&memory, &candidates, &edge_store)
+            .await
+            .unwrap();
         assert!(edges.len() <= 2);
     }
 
@@ -272,7 +277,10 @@ mod tests {
         let generator = MockEdgeGenerator::with_defaults();
 
         let memory = create_test_memory("Test content");
-        let edges = generator.generate(&memory, &[memory.clone()], &edge_store).await.unwrap();
+        let edges = generator
+            .generate(&memory, &[memory.clone()], &edge_store)
+            .await
+            .unwrap();
 
         assert!(edges.is_empty());
     }

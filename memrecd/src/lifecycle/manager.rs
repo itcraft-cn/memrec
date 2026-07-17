@@ -167,7 +167,10 @@ mod tests {
         manager.cleanup_cycle().await.unwrap();
 
         let result = storage.get(&memory.id).await.unwrap();
-        assert!(result.is_none(), "Memory should be hard deleted after cleanup");
+        assert!(
+            result.is_none(),
+            "Memory should be hard deleted after cleanup"
+        );
     }
 
     #[tokio::test]
@@ -203,7 +206,10 @@ mod tests {
         storage.save(&memory).await.unwrap();
 
         let low_importance = storage.list_by_importance(0.0, 0.1).await.unwrap();
-        assert!(!low_importance.is_empty(), "Memory should be in low importance list");
+        assert!(
+            !low_importance.is_empty(),
+            "Memory should be in low importance list"
+        );
 
         let config = MemoryConfig {
             hard_delete_importance: 0.1,
@@ -217,6 +223,9 @@ mod tests {
         manager.cleanup_cycle().await.unwrap();
 
         let result = storage.get(&memory.id).await.unwrap();
-        assert!(result.is_some_and(|m| m.is_deleted), "Memory should be soft deleted");
+        assert!(
+            result.is_some_and(|m| m.is_deleted),
+            "Memory should be soft deleted"
+        );
     }
 }

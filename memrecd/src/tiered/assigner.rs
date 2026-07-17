@@ -77,9 +77,6 @@ mod tests {
         assert_eq!(assigner.assign(0.8), RepresentationTier::Full);
         assert_eq!(assigner.assign(0.5), RepresentationTier::Truncated);
         assert_eq!(assigner.assign(0.3), RepresentationTier::Summary);
-        assert_eq!(
-            assigner.assign(0.2999999),
-            RepresentationTier::DenseProxy
-        );
+        assert_eq!(assigner.assign(0.2999999), RepresentationTier::DenseProxy);
     }
 }

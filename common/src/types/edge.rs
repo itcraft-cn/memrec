@@ -242,7 +242,10 @@ mod tests {
     #[test]
     fn test_edge_type_from_str() {
         assert_eq!(EdgeType::from_str("similar").unwrap(), EdgeType::Similar);
-        assert_eq!(EdgeType::from_str("SAME_PROJECT").unwrap(), EdgeType::SameProject);
+        assert_eq!(
+            EdgeType::from_str("SAME_PROJECT").unwrap(),
+            EdgeType::SameProject
+        );
         assert!(EdgeType::from_str("unknown").is_err());
     }
 }
