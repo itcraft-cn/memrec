@@ -1,7 +1,7 @@
 //! # RocksDB 底层封装
 //!
 //! 对 RocksDB 的列族（Column Family）操作进行封装，
-//! 为上层 [`MemoryStore`]、[`FacetStore`] 和 [`RocksDBVectorStore`] 提供基础读写能力。
+//! 为上层 [`MemoryStore`]、[`FacetStore`]、[`EdgeStore`] 和 [`RocksDBVectorStore`] 提供基础读写能力。
 //!
 //! ## 列族划分
 //!
@@ -15,6 +15,9 @@
 //! | `config` | 配置键值对 |
 //! | `facets` | Facet 主存储（UUID → JSON） |
 //! | `memory_facets` | 记忆→Facet 索引（`memory_id:facet_id` → UUID） |
+//! | `edges` | 边主存储（UUID → JSON） |
+//! | `node_edges_out` | 出边索引（`source_id:edge_type` → `[edge_ids]`） |
+//! | `node_edges_in` | 入边索引（`target_id:edge_type` → `[edge_ids]`） |
 
 use anyhow::{Context, Result};
 use rocksdb::{ColumnFamilyDescriptor, Options, DB};
@@ -36,6 +39,12 @@ const CF_CONFIG: &str = "config";
 const CF_FACETS: &str = "facets";
 /// 记忆→Facet 索引列族
 const CF_MEMORY_FACETS: &str = "memory_facets";
+/// 边主存储列族
+const CF_EDGES: &str = "edges";
+/// 出边索引列族
+const CF_NODE_EDGES_OUT: &str = "node_edges_out";
+/// 入边索引列族
+const CF_NODE_EDGES_IN: &str = "node_edges_in";
 
 /// RocksDB 存储封装，提供列族访问和基础读写操作。
 pub struct RocksDBStore {
@@ -58,6 +67,9 @@ impl RocksDBStore {
             ColumnFamilyDescriptor::new(CF_CONFIG, Options::default()),
             ColumnFamilyDescriptor::new(CF_FACETS, Options::default()),
             ColumnFamilyDescriptor::new(CF_MEMORY_FACETS, Options::default()),
+            ColumnFamilyDescriptor::new(CF_EDGES, Options::default()),
+            ColumnFamilyDescriptor::new(CF_NODE_EDGES_OUT, Options::default()),
+            ColumnFamilyDescriptor::new(CF_NODE_EDGES_IN, Options::default()),
         ];
 
         let db = DB::open_cf_descriptors(&options, path, cfs).context("Failed to open RocksDB")?;
@@ -119,6 +131,27 @@ impl RocksDBStore {
         self.db
             .cf_handle(CF_MEMORY_FACETS)
             .context("Column family 'memory_facets' not found")
+    }
+
+    /// 获取 `edges` 列族句柄。
+    pub fn cf_edges(&self) -> Result<&rocksdb::ColumnFamily> {
+        self.db
+            .cf_handle(CF_EDGES)
+            .context("Column family 'edges' not found")
+    }
+
+    /// 获取 `node_edges_out` 列族句柄。
+    pub fn cf_node_edges_out(&self) -> Result<&rocksdb::ColumnFamily> {
+        self.db
+            .cf_handle(CF_NODE_EDGES_OUT)
+            .context("Column family 'node_edges_out' not found")
+    }
+
+    /// 获取 `node_edges_in` 列族句柄。
+    pub fn cf_node_edges_in(&self) -> Result<&rocksdb::ColumnFamily> {
+        self.db
+            .cf_handle(CF_NODE_EDGES_IN)
+            .context("Column family 'node_edges_in' not found")
     }
 
     /// 向指定列族写入键值对。

@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use memrec_common::{Memory, MemoryFacet, MemoryType};
+use memrec_common::{Memory, MemoryEdge, MemoryFacet, MemoryType};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -216,4 +216,58 @@ pub trait FacetStorage: Send + Sync {
         top_k: usize,
         min_score: f32,
     ) -> Result<Vec<FacetSearchHit>>;
+}
+
+/// 图遍历扩散参数。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphTraversalParams {
+    pub max_depth: usize,
+    pub decay: f32,
+    pub min_score: f32,
+    pub max_results: usize,
+    pub edge_types: Option<Vec<memrec_common::EdgeType>>,
+}
+
+impl Default for GraphTraversalParams {
+    fn default() -> Self {
+        Self {
+            max_depth: 3,
+            decay: 0.6,
+            min_score: 0.3,
+            max_results: 50,
+            edge_types: None,
+        }
+    }
+}
+
+/// 图扩散命中结果。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphSearchHit {
+    pub memory_id: Uuid,
+    pub score: f32,
+    pub path: Vec<Uuid>,
+    pub path_types: Vec<memrec_common::EdgeType>,
+}
+
+/// 边存储 trait。
+///
+/// 提供记忆图边的 CRUD、邻接查询、图遍历扩散等功能。
+#[async_trait]
+pub trait EdgeStorage: Send + Sync {
+    async fn save(&self, edge: &MemoryEdge) -> Result<()>;
+    async fn get(&self, id: &Uuid) -> Result<Option<MemoryEdge>>;
+    async fn delete(&self, id: &Uuid) -> Result<bool>;
+
+    async fn list_out_edges(&self, source_id: &Uuid) -> Result<Vec<MemoryEdge>>;
+    async fn list_in_edges(&self, target_id: &Uuid) -> Result<Vec<MemoryEdge>>;
+    async fn list_by_type(&self, edge_type: memrec_common::EdgeType) -> Result<Vec<MemoryEdge>>;
+    async fn count(&self) -> Result<usize>;
+
+    async fn neighbors(&self, memory_id: &Uuid) -> Result<Vec<MemoryEdge>>;
+
+    async fn traverse(
+        &self,
+        seed_ids: &[Uuid],
+        params: GraphTraversalParams,
+    ) -> Result<Vec<GraphSearchHit>>;
 }
