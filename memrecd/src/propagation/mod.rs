@@ -5,7 +5,7 @@
 //! ## 架构
 //!
 //! - [`PropagationEngine`][]: 核心引擎，生成和应用传播增量
-//! - [`MockDeltaGenerator`]: 测试用的 Mock 增量生成器
+//! - [`MockDeltaGenerator`][]: 测试用的 Mock 增量生成器
 //!
 //! ## 流程
 //!

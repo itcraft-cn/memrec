@@ -16,6 +16,7 @@ pub mod memory_store;
 pub mod propagation_store;
 pub mod rocksdb;
 pub mod rocksdb_vector;
+pub mod rule_store;
 pub mod tantivy_store;
 pub mod traits;
 pub mod vector_store;
@@ -27,11 +28,12 @@ pub use memory_store::MemoryStore;
 pub use propagation_store::PropagationStore;
 pub use rocksdb::RocksDBStore;
 pub use rocksdb_vector::RocksDBVectorStore;
+pub use rule_store::RuleStore;
 pub use tantivy_store::TantivyStore;
 pub use traits::{
     ConfigStorage, EdgeStorage, FacetSearchHit, FacetStorage, FtsPayload, FtsStorage,
     GraphSearchHit, GraphTraversalParams, HybridSearchRequest, HybridSearchResult, HybridStorage,
-    MemoryStorage, ProjectStorage, PropagationStorage, SearchFilter, SearchHit, VectorPayload,
-    VectorStorage,
+    MemoryStorage, ProjectStorage, PropagationStorage, RuleStorage, SearchFilter, SearchHit,
+    VectorPayload, VectorStorage,
 };
 pub use vector_store::VectorStore;

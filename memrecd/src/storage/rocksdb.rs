@@ -21,6 +21,8 @@
 //! | `propagation_deltas` | 传播增量主存储（UUID → JSON） |
 //! | `pending_propagations` | 待应用增量队列（`target_id:priority:delta_id` → UUID） |
 //! | `applied_propagations` | 已应用增量索引（`source_id:target_id` → UUID） |
+//! | `rules` | 检索规则主存储（UUID → JSON） |
+//! | `rule_stats` | 规则统计（UUID → JSON） |
 
 use anyhow::{Context, Result};
 use rocksdb::{ColumnFamilyDescriptor, Options, DB};
@@ -54,6 +56,10 @@ const CF_PROPAGATION_DELTAS: &str = "propagation_deltas";
 const CF_PENDING_PROPAGATIONS: &str = "pending_propagations";
 /// 已应用增量索引列族
 const CF_APPLIED_PROPAGATIONS: &str = "applied_propagations";
+/// 检索规则主存储列族
+const CF_RULES: &str = "rules";
+/// 规则统计列族
+const CF_RULE_STATS: &str = "rule_stats";
 
 /// RocksDB 存储封装，提供列族访问和基础读写操作。
 pub struct RocksDBStore {
@@ -82,6 +88,8 @@ impl RocksDBStore {
             ColumnFamilyDescriptor::new(CF_PROPAGATION_DELTAS, Options::default()),
             ColumnFamilyDescriptor::new(CF_PENDING_PROPAGATIONS, Options::default()),
             ColumnFamilyDescriptor::new(CF_APPLIED_PROPAGATIONS, Options::default()),
+            ColumnFamilyDescriptor::new(CF_RULES, Options::default()),
+            ColumnFamilyDescriptor::new(CF_RULE_STATS, Options::default()),
         ];
 
         let db = DB::open_cf_descriptors(&options, path, cfs).context("Failed to open RocksDB")?;
@@ -185,6 +193,20 @@ impl RocksDBStore {
         self.db
             .cf_handle(CF_APPLIED_PROPAGATIONS)
             .context("Column family 'applied_propagations' not found")
+    }
+
+    /// 获取 `rules` 列族句柄。
+    pub fn cf_rules(&self) -> Result<&rocksdb::ColumnFamily> {
+        self.db
+            .cf_handle(CF_RULES)
+            .context("Column family 'rules' not found")
+    }
+
+    /// 获取 `rule_stats` 列族句柄。
+    pub fn cf_rule_stats(&self) -> Result<&rocksdb::ColumnFamily> {
+        self.db
+            .cf_handle(CF_RULE_STATS)
+            .context("Column family 'rule_stats' not found")
     }
 
     /// 向指定列族写入键值对。

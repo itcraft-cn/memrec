@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use memrec_common::{Memory, MemoryEdge, MemoryFacet, MemoryType, PropagationDelta};
+use memrec_common::{Memory, MemoryEdge, MemoryFacet, MemoryType, PropagationDelta, RetrievalRule, RuleStats};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -308,4 +308,34 @@ pub trait PropagationStorage: Send + Sync {
         }
         Ok(())
     }
+}
+
+/// 规则存储 trait。
+///
+/// 提供 RetrievalRule 和 RuleStats 的 CRUD、按优先级查询、启用/禁用等功能。
+#[async_trait]
+pub trait RuleStorage: Send + Sync {
+    /// 保存规则。
+    async fn save(&self, rule: &RetrievalRule) -> Result<()>;
+
+    /// 获取规则。
+    async fn get(&self, id: &Uuid) -> Result<Option<RetrievalRule>>;
+
+    /// 删除规则。
+    async fn delete(&self, id: &Uuid) -> Result<bool>;
+
+    /// 列出所有规则（可选仅启用）。
+    async fn list(&self, enabled_only: bool) -> Result<Vec<RetrievalRule>>;
+
+    /// 按优先级列出规则（高优先级在前）。
+    async fn list_by_priority(&self) -> Result<Vec<RetrievalRule>>;
+
+    /// 更新规则统计。
+    async fn update_stats(&self, stats: &RuleStats) -> Result<()>;
+
+    /// 获取规则统计。
+    async fn get_stats(&self, rule_id: &Uuid) -> Result<Option<RuleStats>>;
+
+    /// 记录规则命中。
+    async fn record_hit(&self, rule_id: &Uuid) -> Result<()>;
 }
