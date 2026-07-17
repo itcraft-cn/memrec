@@ -17,6 +17,7 @@ mod model;
 mod propagation;
 mod project;
 mod rule;
+mod tiered;
 
 pub use config::{
     DreamConfig, ImportanceConfig, MemoryConfig, SearchConfig, ServerConfig, SourceWeights,
@@ -28,3 +29,4 @@ pub use model::{ModelConfig, ModelFile, ModelFileType, ModelType, PoolingStrateg
 pub use propagation::{DeltaType, PropagationConfig, PropagationDelta};
 pub use project::{Project, ProjectConfig};
 pub use rule::{BoostType, RetrievalRule, RuleAction, RuleCondition, RuleStats, TimeRange};
+pub use tiered::{EdgeHint, RepresentationTier, TierThresholds, TieredMemory, TieredSearchResult};

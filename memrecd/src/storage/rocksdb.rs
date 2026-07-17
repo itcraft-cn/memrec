@@ -23,6 +23,8 @@
 //! | `applied_propagations` | 已应用增量索引（`source_id:target_id` → UUID） |
 //! | `rules` | 检索规则主存储（UUID → JSON） |
 //! | `rule_stats` | 规则统计（UUID → JSON） |
+//! | `memory_summaries` | 记忆摘要（UUID → String） |
+//! | `memory_keywords` | 记忆关键词（UUID → JSON） |
 
 use anyhow::{Context, Result};
 use rocksdb::{ColumnFamilyDescriptor, Options, DB};
@@ -60,6 +62,10 @@ const CF_APPLIED_PROPAGATIONS: &str = "applied_propagations";
 const CF_RULES: &str = "rules";
 /// 规则统计列族
 const CF_RULE_STATS: &str = "rule_stats";
+/// 记忆摘要列族
+const CF_MEMORY_SUMMARIES: &str = "memory_summaries";
+/// 记忆关键词列族
+const CF_MEMORY_KEYWORDS: &str = "memory_keywords";
 
 /// RocksDB 存储封装，提供列族访问和基础读写操作。
 pub struct RocksDBStore {
@@ -90,6 +96,8 @@ impl RocksDBStore {
             ColumnFamilyDescriptor::new(CF_APPLIED_PROPAGATIONS, Options::default()),
             ColumnFamilyDescriptor::new(CF_RULES, Options::default()),
             ColumnFamilyDescriptor::new(CF_RULE_STATS, Options::default()),
+            ColumnFamilyDescriptor::new(CF_MEMORY_SUMMARIES, Options::default()),
+            ColumnFamilyDescriptor::new(CF_MEMORY_KEYWORDS, Options::default()),
         ];
 
         let db = DB::open_cf_descriptors(&options, path, cfs).context("Failed to open RocksDB")?;
@@ -207,6 +215,20 @@ impl RocksDBStore {
         self.db
             .cf_handle(CF_RULE_STATS)
             .context("Column family 'rule_stats' not found")
+    }
+
+    /// 获取 `memory_summaries` 列族句柄。
+    pub fn cf_memory_summaries(&self) -> Result<&rocksdb::ColumnFamily> {
+        self.db
+            .cf_handle(CF_MEMORY_SUMMARIES)
+            .context("Column family 'memory_summaries' not found")
+    }
+
+    /// 获取 `memory_keywords` 列族句柄。
+    pub fn cf_memory_keywords(&self) -> Result<&rocksdb::ColumnFamily> {
+        self.db
+            .cf_handle(CF_MEMORY_KEYWORDS)
+            .context("Column family 'memory_keywords' not found")
     }
 
     /// 向指定列族写入键值对。

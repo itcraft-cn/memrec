@@ -339,3 +339,43 @@ pub trait RuleStorage: Send + Sync {
     /// 记录规则命中。
     async fn record_hit(&self, rule_id: &Uuid) -> Result<()>;
 }
+
+/// 分层存储 trait。
+///
+/// 提供记忆摘要和关键词的存储与检索。
+#[async_trait]
+pub trait TieredStorage: Send + Sync {
+    /// 保存记忆摘要。
+    async fn save_summary(&self, memory_id: &Uuid, summary: &str) -> Result<()>;
+
+    /// 获取记忆摘要。
+    async fn get_summary(&self, memory_id: &Uuid) -> Result<Option<String>>;
+
+    /// 删除记忆摘要。
+    async fn delete_summary(&self, memory_id: &Uuid) -> Result<bool>;
+
+    /// 保存记忆关键词。
+    async fn save_keywords(&self, memory_id: &Uuid, keywords: &[String]) -> Result<()>;
+
+    /// 获取记忆关键词。
+    async fn get_keywords(&self, memory_id: &Uuid) -> Result<Option<Vec<String>>>;
+
+    /// 删除记忆关键词。
+    async fn delete_keywords(&self, memory_id: &Uuid) -> Result<bool>;
+
+    /// 批量保存摘要。
+    async fn save_summaries_batch(&self, items: &[(Uuid, String)]) -> Result<()> {
+        for (id, summary) in items {
+            self.save_summary(id, summary).await?;
+        }
+        Ok(())
+    }
+
+    /// 批量保存关键词。
+    async fn save_keywords_batch(&self, items: &[(Uuid, Vec<String>)]) -> Result<()> {
+        for (id, keywords) in items {
+            self.save_keywords(id, keywords).await?;
+        }
+        Ok(())
+    }
+}

@@ -32,3 +32,4 @@ pub mod rule;
 pub mod search;
 pub mod server;
 pub mod storage;
+pub mod tiered;

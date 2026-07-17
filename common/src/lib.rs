@@ -15,7 +15,12 @@ pub mod protocol;
 pub mod types;
 
 pub use types::{DreamConfig, ImportanceConfig, MemoryConfig, ServerConfig};
-pub use types::{BoostType, DeltaType, EdgeType, Memory, MemoryEdge, MemoryFacet, MemoryScope, MemorySource, MemoryType, Project, ProjectConfig, PropagationConfig, PropagationDelta, RetrievalRule, RuleAction, RuleCondition, RuleStats, TimeRange};
+pub use types::{
+    BoostType, DeltaType, EdgeHint, EdgeType, Memory, MemoryEdge, MemoryFacet, MemoryScope,
+    MemorySource, MemoryType, Project, ProjectConfig, PropagationConfig, PropagationDelta,
+    RepresentationTier, RetrievalRule, RuleAction, RuleCondition, RuleStats, TierThresholds,
+    TieredMemory, TieredSearchResult, TimeRange,
+};
 pub use types::{ModelConfig, ModelFile, ModelFileType, ModelType, PoolingStrategy};
 
 pub use protocol::ProjectInfoResult;
