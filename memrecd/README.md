@@ -48,7 +48,7 @@ RUST_LOG=debug memrecd
 
 # Check daemon status
 systemctl --user status memrecd  # Linux
-launchctl list com.itcraft.memrecd  # macOS
+launchctl list cn.itcraft.memrecd  # macOS
 ```
 
 ### Configuration
@@ -261,7 +261,7 @@ RUST_LOG=trace memrecd     # Verbose tracing
 ### Logs
 - Service logs: `~/.memrec/memrecd.log`
 - System logs: `journalctl --user -u memrecd` (Linux)
-- Launchd logs: `log stream --predicate 'subsystem == "com.itcraft.memrecd"'` (macOS)
+- Launchd logs: `log stream --predicate 'subsystem == "cn.itcraft.memrecd"'` (macOS)
 
 ## Contributing
 

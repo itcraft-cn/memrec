@@ -141,4 +141,82 @@ mod tests {
         let retrieved = storage.get(&memory.id).await.unwrap().unwrap();
         assert!(retrieved.importance > 0.0);
     }
+
+    #[tokio::test]
+    async fn test_cleanup_soft_deleted_memories() {
+        let dir = tempdir().unwrap();
+        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let storage = Arc::new(MemoryStore::new(rocksdb));
+
+        let memory = Memory::new("to be deleted".to_string(), MemoryType::Knowledge);
+        storage.save(&memory).await.unwrap();
+        storage.delete(&memory.id).await.unwrap();
+
+        let mut deleted_mem = storage.get(&memory.id).await.unwrap().unwrap();
+        deleted_mem.deleted_at = Some(Utc::now() - chrono::Duration::days(2));
+        storage.update(&deleted_mem).await.unwrap();
+
+        let config = MemoryConfig {
+            soft_delete_recovery_days: 1,
+            ..Default::default()
+        };
+
+        let calc = ImportanceCalculator::default();
+        let manager = LifecycleManager::new(storage.clone(), calc, config);
+
+        manager.cleanup_cycle().await.unwrap();
+
+        let result = storage.get(&memory.id).await.unwrap();
+        assert!(result.is_none(), "Memory should be hard deleted after cleanup");
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_does_not_affect_active_memories() {
+        let dir = tempdir().unwrap();
+        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let storage = Arc::new(MemoryStore::new(rocksdb));
+
+        let active_memory = Memory::new("active memory".to_string(), MemoryType::Knowledge)
+            .with_tags(vec!["critical".to_string()]);
+        storage.save(&active_memory).await.unwrap();
+
+        let calc = ImportanceCalculator::default();
+        let config = MemoryConfig::default();
+
+        let manager = LifecycleManager::new(storage.clone(), calc, config);
+
+        manager.cleanup_cycle().await.unwrap();
+
+        let result = storage.get(&active_memory.id).await.unwrap();
+        assert!(result.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_low_importance_inactive_memories() {
+        let dir = tempdir().unwrap();
+        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let storage = Arc::new(MemoryStore::new(rocksdb));
+
+        let mut memory = Memory::new("low importance".to_string(), MemoryType::Conversation);
+        memory.importance = 0.05;
+        memory.last_accessed = Utc::now() - chrono::Duration::days(35);
+        storage.save(&memory).await.unwrap();
+
+        let low_importance = storage.list_by_importance(0.0, 0.1).await.unwrap();
+        assert!(!low_importance.is_empty(), "Memory should be in low importance list");
+
+        let config = MemoryConfig {
+            hard_delete_importance: 0.1,
+            hard_delete_inactive_days: 30,
+            ..Default::default()
+        };
+
+        let calc = ImportanceCalculator::default();
+        let manager = LifecycleManager::new(storage.clone(), calc, config);
+
+        manager.cleanup_cycle().await.unwrap();
+
+        let result = storage.get(&memory.id).await.unwrap();
+        assert!(result.is_some_and(|m| m.is_deleted), "Memory should be soft deleted");
+    }
 }

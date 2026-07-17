@@ -96,13 +96,13 @@ systemctl --user enable memrecd   # 登录时自动启动
 ~/bin/mr-install           # 安装器本身
 
 # 服务文件
-~/Library/LaunchAgents/com.itcraft.memrecd.plist
+~/Library/LaunchAgents/cn.itcraft.memrecd.plist
 
 # 手动服务控制
-launchctl list com.itcraft.memrecd
-launchctl start com.itcraft.memrecd
-launchctl stop com.itcraft.memrecd
-launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.itcraft.memrecd.plist
+launchctl list cn.itcraft.memrecd
+launchctl start cn.itcraft.memrecd
+launchctl stop cn.itcraft.memrecd
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/cn.itcraft.memrecd.plist
 ```
 
 ## 安全特性
@@ -218,7 +218,7 @@ WantedBy=default.target
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.itcraft.memrecd</string>
+    <string>cn.itcraft.memrecd</string>
     <key>ProgramArguments</key>
     <array>
         <string>/Users/user/bin/memrecd</string>
@@ -310,8 +310,8 @@ systemctl --user status memrecd
 journalctl --user -u memrecd
 
 # macOS: 检查 launchd
-launchctl list com.itcraft.memrecd
-log stream --predicate 'subsystem == "com.itcraft.memrecd"'
+launchctl list cn.itcraft.memrecd
+log stream --predicate 'subsystem == "cn.itcraft.memrecd"'
 
 # 手动启动
 ~/.local/bin/memrecd  # Linux
@@ -352,8 +352,8 @@ RUST_LOG=trace mr-install
 # 停止并禁用服务
 systemctl --user stop memrecd          # Linux
 systemctl --user disable memrecd
-launchctl stop com.itcraft.memrecd     # macOS
-launchctl bootout gui/$UID ~/Library/LaunchAgents/com.itcraft.memrecd.plist
+launchctl stop cn.itcraft.memrecd     # macOS
+launchctl bootout gui/$UID ~/Library/LaunchAgents/cn.itcraft.memrecd.plist
 
 # 移除二进制文件
 rm ~/.local/bin/memrec ~/.local/bin/memrecd ~/.local/bin/mr-install  # Linux
@@ -364,7 +364,7 @@ rm -rf ~/.memrec
 
 # 移除服务文件
 rm ~/.config/systemd/user/memrecd.service                            # Linux
-rm ~/Library/LaunchAgents/com.itcraft.memrecd.plist                  # macOS
+rm ~/Library/LaunchAgents/cn.itcraft.memrecd.plist                  # macOS
 ```
 
 ### 使用包管理器

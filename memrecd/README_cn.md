@@ -48,7 +48,7 @@ RUST_LOG=debug memrecd
 
 # 检查守护进程状态
 systemctl --user status memrecd  # Linux
-launchctl list com.itcraft.memrecd  # macOS
+launchctl list cn.itcraft.memrecd  # macOS
 ```
 
 ### 配置
@@ -261,7 +261,7 @@ RUST_LOG=trace memrecd     # 详细跟踪
 ### 日志
 - 服务日志: `~/.memrec/memrecd.log`
 - 系统日志: `journalctl --user -u memrecd` (Linux)
-- Launchd 日志: `log stream --predicate 'subsystem == "com.itcraft.memrecd"'` (macOS)
+- Launchd 日志: `log stream --predicate 'subsystem == "cn.itcraft.memrecd"'` (macOS)
 
 ## 贡献
 

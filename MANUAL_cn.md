@@ -80,12 +80,12 @@ journalctl --user -u memrecd -f     # 查看日志
 ### macOS (launchd)
 
 ```bash
-launchctl list com.itcraft.memrecd               # 查看状态
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.itcraft.memrecd.plist   # 停止
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.itcraft.memrecd.plist # 启动
+launchctl list cn.itcraft.memrecd               # 查看状态
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/cn.itcraft.memrecd.plist   # 停止
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/cn.itcraft.memrecd.plist # 启动
 ```
 
-配置文件：`~/Library/LaunchAgents/com.itcraft.memrecd.plist`
+配置文件：`~/Library/LaunchAgents/cn.itcraft.memrecd.plist`
 
 特性：RunAtLoad + KeepAlive，登录即启动，崩溃自动重启。
 
@@ -679,8 +679,8 @@ systemctl --user daemon-reload
 rm ~/.local/bin/memrec ~/.local/bin/memrecd ~/.local/bin/mr-install
 
 # macOS
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.itcraft.memrecd.plist
-rm ~/Library/LaunchAgents/com.itcraft.memrecd.plist
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/cn.itcraft.memrecd.plist
+rm ~/Library/LaunchAgents/cn.itcraft.memrecd.plist
 rm ~/bin/memrec ~/bin/memrecd ~/bin/mr-install
 
 # 删除数据（可选，会清除所有记忆）

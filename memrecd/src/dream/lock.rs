@@ -170,4 +170,60 @@ mod tests {
         assert_eq!(content.timestamp, parsed.timestamp);
         assert_eq!(content.session_count, parsed.session_count);
     }
+
+    #[test]
+    fn test_lock_acquire_and_release() {
+        let dir = tempfile::tempdir().unwrap();
+        let lock = DreamLock::new(dir.path());
+
+        let result = lock.try_acquire(10);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+
+        let content = lock.get_lock_content();
+        assert!(content.is_some());
+        let content = content.unwrap();
+        assert_eq!(content.session_count, 10);
+        assert!(content.pid > 0);
+
+        lock.release().unwrap();
+        assert!(lock.get_lock_content().is_none());
+    }
+
+    #[test]
+    fn test_lock_double_acquire_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let lock1 = DreamLock::new(dir.path());
+        let lock2 = DreamLock::new(dir.path());
+
+        lock1.try_acquire(5).unwrap();
+
+        let result = lock2.try_acquire(10);
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+    }
+
+    #[test]
+    fn test_lock_can_execute_no_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let lock = DreamLock::new(dir.path());
+
+        let config = DreamConfig::default();
+        assert!(lock.can_execute(&config));
+    }
+
+    #[test]
+    fn test_lock_can_execute_with_recent_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let lock = DreamLock::new(dir.path());
+
+        lock.try_acquire(5).unwrap();
+
+        let config = DreamConfig {
+            min_hours_between: 24.0,
+            ..Default::default()
+        };
+
+        assert!(!lock.can_execute(&config));
+    }
 }

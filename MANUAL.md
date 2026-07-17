@@ -81,12 +81,12 @@ Service file: `~/.config/systemd/user/memrecd.service`
 ### macOS (launchd)
 
 ```bash
-launchctl list com.itcraft.memrecd               # Check status
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.itcraft.memrecd.plist   # Stop
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.itcraft.memrecd.plist # Start
+launchctl list cn.itcraft.memrecd               # Check status
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/cn.itcraft.memrecd.plist   # Stop
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/cn.itcraft.memrecd.plist # Start
 ```
 
-Config file: `~/Library/LaunchAgents/com.itcraft.memrecd.plist`
+Config file: `~/Library/LaunchAgents/cn.itcraft.memrecd.plist`
 
 Features: RunAtLoad + KeepAlive — starts on login, auto-restarts on crash.
 
@@ -683,8 +683,8 @@ systemctl --user daemon-reload
 rm ~/.local/bin/memrec ~/.local/bin/memrecd ~/.local/bin/mr-install
 
 # macOS
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.itcraft.memrecd.plist
-rm ~/Library/LaunchAgents/com.itcraft.memrecd.plist
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/cn.itcraft.memrecd.plist
+rm ~/Library/LaunchAgents/cn.itcraft.memrecd.plist
 rm ~/bin/memrec ~/bin/memrecd ~/bin/mr-install
 
 # Delete data (optional, clears all memories)

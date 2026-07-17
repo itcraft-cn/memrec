@@ -240,3 +240,89 @@ impl DreamProcessor {
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::{MemoryStore, RocksDBStore};
+    use memrec_common::MemoryType;
+    use tempfile::tempdir;
+
+    fn create_test_processor() -> (DreamProcessor, Arc<MemoryStore>, tempfile::TempDir) {
+        let dir = tempdir().unwrap();
+        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let storage = Arc::new(MemoryStore::new(rocksdb));
+
+        let config = DreamConfig {
+            enabled: true,
+            min_hours_between: 0.0,
+            min_memories: 2,
+            max_age_hours: 1,
+            ..Default::default()
+        };
+
+        let processor = DreamProcessor::new(config, dir.path(), storage.clone());
+        (processor, storage, dir)
+    }
+
+    #[tokio::test]
+    async fn test_execute_disabled() {
+        let dir = tempdir().unwrap();
+        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let storage = Arc::new(MemoryStore::new(rocksdb));
+
+        let config = DreamConfig {
+            enabled: false,
+            ..Default::default()
+        };
+
+        let processor = DreamProcessor::new(config, dir.path(), storage);
+
+        let result = processor.execute(false).await;
+        assert!(matches!(result, Err(DreamError::GateFailed(_))));
+    }
+
+    #[tokio::test]
+    async fn test_execute_not_enough_memories() {
+        let (processor, storage, _dir) = create_test_processor();
+
+        let mut memory = Memory::new("single memory".to_string(), MemoryType::Knowledge);
+        memory.created_at = Utc::now() - chrono::Duration::hours(2);
+        storage.save(&memory).await.unwrap();
+
+        let result = processor.execute(true).await;
+        assert!(matches!(result, Err(DreamError::NotEnoughMemories(1, 2))));
+    }
+
+    #[tokio::test]
+    async fn test_execute_success() {
+        let (processor, storage, _dir) = create_test_processor();
+
+        for i in 0..3 {
+            let mut memory = Memory::new(format!("memory {}", i), MemoryType::Knowledge);
+            memory.created_at = Utc::now() - chrono::Duration::hours(2);
+            storage.save(&memory).await.unwrap();
+        }
+
+        let result = processor.execute(true).await;
+        assert!(result.is_ok());
+
+        let dream_result = result.unwrap();
+        assert_eq!(dream_result.integrated_count, 3);
+        assert!(dream_result.created_memory_id.is_some());
+        assert!(!dream_result.summary.is_empty());
+    }
+
+    #[test]
+    fn test_dream_result_debug() {
+        let result = DreamResult {
+            integrated_count: 5,
+            created_memory_id: Some(Uuid::nil()),
+            summary: "test summary".to_string(),
+        };
+
+        let debug_str = format!("{:?}", result);
+        assert!(debug_str.contains("integrated_count"));
+        assert!(debug_str.contains("5"));
+    }
+}

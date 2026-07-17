@@ -1,6 +1,6 @@
 //! # macOS LaunchAgent 服务
 //!
-//! 生成 `~/Library/LaunchAgents/com.itcraft.memrecd.plist` 并通过 launchctl 管理。
+//! 生成 `~/Library/LaunchAgents/cn.itcraft.memrecd.plist` 并通过 launchctl 管理。
 
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use crate::service::ServiceManager;
 
 /// LaunchAgent 标签
-const LABEL: &str = "com.itcraft.memrecd";
+const LABEL: &str = "cn.itcraft.memrecd";
 
 /// 返回 plist 文件路径
 fn plist_path() -> Result<PathBuf> {
