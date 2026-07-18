@@ -4,7 +4,7 @@
 //! 发送 JSON-RPC 2.0 请求并接收响应。
 
 use anyhow::{Context, Result};
-use memrec_common::{JsonRpcRequest, JsonRpcResponse};
+use mr_protocol::{JsonRpcRequest, JsonRpcResponse};
 use std::path::PathBuf;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;

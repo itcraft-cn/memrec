@@ -3,7 +3,7 @@
 //! 生成 `~/.memrec/config.toml` 配置文件，包含模型参数和服务器路径。
 
 use anyhow::Result;
-use memrec_common::{ModelConfig as CommonModelConfig, ModelType};
+use mr_common::{ModelConfig as CommonModelConfig, ModelType};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 

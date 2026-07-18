@@ -9,12 +9,10 @@
 
 use crate::client::Client;
 use anyhow::Result;
-use memrec_common::{
-    protocol::{
-        AddParams, DeleteParams, DreamParams, GetParams, ListParams, RequestAction, RequestParams,
-        ResponseResult,
-    },
-    JsonRpcRequest, MemoryType,
+use mr_common::MemoryType;
+use mr_protocol::{
+    AddParams, DeleteParams, DreamParams, GetParams, JsonRpcRequest, ListParams, RequestAction,
+    RequestParams, ResponseResult,
 };
 
 /// 单块最大字节数，留余量给 JSON 序列化开销

@@ -9,7 +9,7 @@
 
 use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
-use memrec_common::{ModelConfig, ModelFile};
+use mr_common::{ModelConfig, ModelFile};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
@@ -286,7 +286,7 @@ mod tests {
 
     #[test]
     fn test_model_dir_for_bge_m3_model_dir() {
-        let config = ModelConfig::new(memrec_common::ModelType::BGEM3);
+        let config = ModelConfig::new(mr_common::ModelType::BGEM3);
         let dir = model_dir_for_config(&config).unwrap();
         let path = dir.to_string_lossy();
         assert!(path.contains(".memrec/models"));
@@ -347,7 +347,7 @@ mod tests {
 
     #[test]
     fn test_bge_m3_remote_paths() {
-        let config = ModelConfig::new(memrec_common::ModelType::BGEM3);
+        let config = ModelConfig::new(mr_common::ModelType::BGEM3);
         let onnx_file = config.onnx_model_file().unwrap();
         assert_eq!(onnx_file.remote_path, "onnx/model.onnx");
         assert_eq!(onnx_file.filename, "model.onnx");

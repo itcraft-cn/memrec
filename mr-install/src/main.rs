@@ -11,7 +11,7 @@
 
 use anyhow::Result;
 use clap::Parser;
-use memrec_common::ModelType;
+use mr_common::ModelType;
 
 use mr_install::create_directories;
 use mr_install::default_bin_dir;
@@ -102,7 +102,7 @@ async fn main() -> Result<()> {
     println!();
 
     let model_type = parse_model_type(cli.model.as_deref())?;
-    let model_config = memrec_common::ModelConfig::new(model_type.clone());
+    let model_config = mr_common::ModelConfig::new(model_type.clone());
 
     if let Some(w) = model_type.warning() {
         warn(&w);

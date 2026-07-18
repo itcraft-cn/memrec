@@ -4,9 +4,10 @@
 
 use crate::client::Client;
 use clap::Args;
-use memrec_common::{
-    default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda, JsonRpcRequest, MemoryType,
-    RequestAction, RequestParams, SearchMemoryParams,
+use mr_common::MemoryType;
+use mr_protocol::{
+    default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda, JsonRpcRequest, RequestAction,
+    RequestParams, SearchMemoryParams,
 };
 use uuid::Uuid;
 
@@ -99,10 +100,10 @@ pub async fn search_execute(
 }
 
 /// 人类可读格式输出搜索结果。
-fn print_human_output(response: &memrec_common::JsonRpcResponse) {
+fn print_human_output(response: &mr_protocol::JsonRpcResponse) {
     if let Some(result) = &response.result {
         match result {
-            memrec_common::ResponseResult::SemanticSearchResult(result) => {
+            mr_protocol::ResponseResult::SemanticSearchResult(result) => {
                 println!("Found {} memories:\n", result.total);
 
                 for hit in &result.results {
