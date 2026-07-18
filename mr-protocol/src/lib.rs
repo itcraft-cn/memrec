@@ -8,11 +8,11 @@ pub mod response;
 
 pub use error::{JsonRpcError, MemRecError};
 pub use request::{
-    AddParams, DeleteParams, DreamParams, GetParams, JsonRpcRequest, ListParams, RequestAction,
-    RequestParams, SearchMemoryParams, default_hybrid_alpha, default_mmr_enabled,
-    default_mmr_lambda,
+    AddParams, DeleteParams, DreamParams, GetParams, GetProjectInfoParams, JsonRpcRequest,
+    ListParams, RequestAction, RequestParams, SearchMemoryParams, TieredSearchParams,
+    default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda,
 };
 pub use response::{
-    JsonRpcResponse, MemoryListResult, MemoryResult, ProjectInfoResult, ResponseResult,
-    SearchHit, SemanticSearchResult, StatsResult, SuccessResult,
+    DreamResult, JsonRpcResponse, MemoryListResult, MemoryResult, ProjectInfoResult,
+    ResponseResult, SearchHit, SemanticSearchResult, StatsResult, SuccessResult, VersionResult,
 };

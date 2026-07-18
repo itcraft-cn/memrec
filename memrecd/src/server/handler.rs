@@ -649,7 +649,7 @@ impl Router {
                     .unwrap_or_default();
 
                 let assigner = TierAssigner::new(thresholds);
-                let budget = crate::tiered::BudgetController::new(p.max_total_tokens);
+                let budget = mr_ability::tiered::BudgetController::new(p.max_total_tokens);
 
                 match self
                     .build_tiered_result(memory_ids, scores, assigner, budget)

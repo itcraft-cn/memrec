@@ -125,7 +125,6 @@ impl TantivyStore {
     }
 
     /// 创建测试用的内存索引。
-    #[cfg(test)]
     pub fn new_test() -> Self {
         use tantivy::directory::RamDirectory;
 
