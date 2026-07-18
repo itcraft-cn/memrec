@@ -9,7 +9,7 @@
 //! - [`DaemonServerConfig`]：服务端路径配置（Socket、数据目录、向量目录、日志文件）
 
 use anyhow::Result;
-use memrec_common::{DreamConfig, ModelConfig, ModelType};
+use mr_common::{DreamConfig, ModelConfig, ModelType};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 

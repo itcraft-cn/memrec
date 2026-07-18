@@ -16,24 +16,21 @@
 //! | `GetProjectInfo` | 项目信息 |
 //! | `GetVersion` | 版本号 |
 
-use crate::archive::ArchiveManager;
-use crate::dream::DreamProcessor;
-use crate::embedding::EmbeddingGenerator;
-use crate::project::{detect_project_id, find_project_root};
-use crate::storage::{
+use mr_ability::archive::ArchiveManager;
+use mr_ability::dream::DreamProcessor;
+use mr_ability::embedding::EmbeddingGenerator;
+use mr_ability::project::{detect_project_id, find_project_root};
+use mr_ability::storage::{
     HybridSearchRequest, HybridStorage, MemoryStorage, SearchFilter, VectorPayload, VectorStorage,
 };
-use crate::tiered::TierAssigner;
+use mr_ability::tiered::TierAssigner;
 use anyhow::Result;
-use memrec_common::{
-    protocol::{
-        DreamResult, GetProjectInfoParams, MemoryListResult, MemoryResult, ProjectInfoResult,
-        RequestAction, RequestParams, ResponseResult, SearchHit, SemanticSearchResult, StatsResult,
-        SuccessResult, VersionResult,
-    },
-    JsonRpcError, JsonRpcRequest, JsonRpcResponse, Memory, MemoryType, RepresentationTier,
-    TierThresholds,
+use mr_protocol::{
+    DreamResult, GetProjectInfoParams, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
+    MemoryListResult, MemoryResult, ProjectInfoResult, RequestAction, RequestParams,
+    ResponseResult, SearchHit, SemanticSearchResult, StatsResult, SuccessResult, VersionResult,
 };
+use mr_common::{Memory, MemoryType, RepresentationTier, TierThresholds};
 use std::sync::Arc;
 use std::time::Instant;
 use uuid::Uuid;
@@ -74,15 +71,15 @@ impl Router {
     /// 测试用：仅注入存储，自动创建默认嵌入生成器和内存向量存储。
     #[cfg(test)]
     pub fn new_simple(storage: Arc<dyn MemoryStorage>) -> Self {
-        use crate::embedding::GeneratorFactory;
-        use crate::search::{MmrConfig, ScorerConfig};
-        use crate::storage::HybridStore;
-        use memrec_common::{DreamConfig, ModelConfig};
+        use mr_ability::embedding::GeneratorFactory;
+        use mr_ability::search::{MmrConfig, ScorerConfig};
+        use mr_ability::storage::HybridStore;
+        use mr_common::{DreamConfig, ModelConfig};
 
         let model_config = ModelConfig::default();
         let embedder = GeneratorFactory::create(model_config).unwrap();
-        let vector_store = Arc::new(crate::storage::VectorStore::new(embedder.dimension()));
-        let fts_store = Arc::new(crate::storage::TantivyStore::new_test());
+        let vector_store = Arc::new(mr_ability::storage::VectorStore::new(embedder.dimension()));
+        let fts_store = Arc::new(mr_ability::storage::TantivyStore::new_test());
         let hybrid_store = Arc::new(HybridStore::new(
             vector_store.clone(),
             fts_store,
@@ -770,9 +767,9 @@ impl Router {
         memory_ids: Vec<Uuid>,
         scores: Vec<f32>,
         assigner: TierAssigner,
-        budget: crate::tiered::BudgetController,
-    ) -> Result<memrec_common::TieredSearchResult> {
-        use memrec_common::TieredMemory;
+        budget: mr_ability::tiered::BudgetController,
+    ) -> Result<mr_common::TieredSearchResult> {
+        use mr_common::TieredMemory;
 
         let mut results = Vec::with_capacity(memory_ids.len());
 
@@ -801,7 +798,7 @@ impl Router {
 
         let total_tokens = budget.check_and_downgrade(&mut results);
 
-        Ok(memrec_common::TieredSearchResult {
+        Ok(mr_common::TieredSearchResult {
             total_results: results.len(),
             total_tokens,
             budget: budget.max_tokens(),
@@ -810,7 +807,7 @@ impl Router {
     }
 
     fn generate_tier_content(content: &str, tier: RepresentationTier) -> (String, u32) {
-        let tokens = crate::tiered::BudgetController::estimate_token_count(content);
+        let tokens = mr_ability::tiered::BudgetController::estimate_token_count(content);
 
         match tier {
             RepresentationTier::Full => (content.to_string(), tokens),
@@ -823,7 +820,7 @@ impl Router {
                 } else {
                     content.to_string()
                 };
-                let token_count = crate::tiered::BudgetController::estimate_token_count(&truncated);
+                let token_count = mr_ability::tiered::BudgetController::estimate_token_count(&truncated);
                 (truncated, token_count.min(200))
             }
             RepresentationTier::Summary => {
@@ -857,14 +854,16 @@ impl Router {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::embedding::FastEmbedGenerator;
-    use crate::search::{MmrConfig, ScorerConfig};
-    use crate::storage::rocksdb::RocksDBStore;
-    use crate::storage::{HybridStore, MemoryStore, TantivyStore, VectorStore};
-    use memrec_common::protocol::{
+    use mr_ability::embedding::FastEmbedGenerator;
+    use mr_ability::search::{MmrConfig, ScorerConfig};
+    use mr_ability::storage::rocksdb::RocksDBStore;
+    use mr_ability::storage::{HybridStore, MemoryStore, TantivyStore, VectorStore};
+    use mr_protocol::{
         default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda, GetProjectInfoParams,
         SearchMemoryParams,
     };
+    use mr_common::ModelConfig;
+    use mr_common::DreamConfig;
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -872,7 +871,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
         let storage = Arc::new(MemoryStore::new(rocksdb));
-        let model_config = memrec_common::ModelConfig::default();
+        let model_config = ModelConfig::default();
         let embedder = Arc::new(FastEmbedGenerator::new(model_config).unwrap());
         let vector_store = Arc::new(VectorStore::new(embedder.dimension()));
         let fts_store = Arc::new(TantivyStore::new_test());
@@ -883,7 +882,7 @@ mod tests {
             ScorerConfig::default(),
         ));
 
-        let dream_config = memrec_common::DreamConfig::default();
+        let dream_config = DreamConfig::default();
         let data_dir = std::path::PathBuf::from("/tmp/memrec_test");
         let dream_processor = Arc::new(DreamProcessor::new(
             dream_config,

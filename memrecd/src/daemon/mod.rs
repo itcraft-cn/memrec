@@ -15,13 +15,13 @@ use tokio::signal;
 use tokio::time::interval;
 use tracing::{info, warn};
 
-use crate::archive::ArchiveManager;
+use mr_ability::archive::ArchiveManager;
 use crate::config::DaemonConfig;
-use crate::dream::DreamProcessor;
-use crate::embedding::{EmbeddingGenerator, GeneratorFactory};
-use crate::search::{MmrConfig, ScorerConfig};
+use mr_ability::dream::DreamProcessor;
+use mr_ability::embedding::{EmbeddingGenerator, GeneratorFactory};
+use mr_ability::search::{MmrConfig, ScorerConfig};
 use crate::server::{Router, UnixSocketServer};
-use crate::storage::{
+use mr_ability::storage::{
     HybridStore, MemoryStorage, MemoryStore, RocksDBStore, RocksDBVectorStore, TantivyStore,
     VectorStorage,
 };
@@ -48,7 +48,7 @@ impl Daemon {
 
     /// 从命令行参数创建守护进程，支持覆盖模型类型和模型目录。
     pub fn from_args(
-        model_type: Option<memrec_common::ModelType>,
+        model_type: Option<mr_common::ModelType>,
         model_dir: Option<String>,
     ) -> Result<Self> {
         let mut config = DaemonConfig::load()?;
@@ -182,7 +182,7 @@ impl Daemon {
         for memory in &memories {
             if vector_store.get(&memory.id).await?.is_none() {
                 let embedding = embedder.embed(&memory.content)?;
-                let payload = crate::storage::VectorPayload {
+                let payload = mr_ability::storage::VectorPayload {
                     project_id: memory.project_id,
                     memory_type: memory.memory_type.to_string(),
                     tags: memory.tags.clone(),

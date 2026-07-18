@@ -105,10 +105,13 @@ impl UnixSocketServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dream::DreamProcessor;
-    use crate::embedding::{EmbeddingGenerator, FastEmbedGenerator};
-    use crate::search::{MmrConfig, ScorerConfig};
-    use crate::storage::{HybridStore, MemoryStore, RocksDBStore, TantivyStore, VectorStore};
+    use mr_ability::dream::DreamProcessor;
+    use mr_ability::embedding::{EmbeddingGenerator, FastEmbedGenerator};
+    use mr_ability::search::{MmrConfig, ScorerConfig};
+    use mr_ability::storage::{HybridStore, MemoryStore, RocksDBStore, TantivyStore, VectorStore};
+    use mr_common::ModelConfig;
+    use mr_common::DreamConfig;
+    use mr_ability::archive::ArchiveManager;
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -118,7 +121,7 @@ mod tests {
 
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
         let storage = Arc::new(MemoryStore::new(rocksdb));
-        let model_config = memrec_common::ModelConfig::default();
+        let model_config = ModelConfig::default();
         let embedder = Arc::new(FastEmbedGenerator::new(model_config).unwrap());
         let vector_store = Arc::new(VectorStore::new(embedder.dimension()));
         let fts_store = Arc::new(TantivyStore::new_test());
@@ -128,14 +131,14 @@ mod tests {
             MmrConfig::default(),
             ScorerConfig::default(),
         ));
-        let dream_config = memrec_common::DreamConfig::default();
+        let dream_config = DreamConfig::default();
         let data_dir = std::path::PathBuf::from("/tmp/memrec_test");
         let dream_processor = Arc::new(DreamProcessor::new(
             dream_config,
             &data_dir,
             storage.clone(),
         ));
-        let archive_manager = crate::archive::ArchiveManager::new(data_dir, true);
+        let archive_manager = ArchiveManager::new(data_dir, true);
         let router = Arc::new(Router::new(
             storage,
             vector_store,
