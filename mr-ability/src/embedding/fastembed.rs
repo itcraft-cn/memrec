@@ -153,7 +153,7 @@ impl EmbeddingGenerator for FastEmbedGenerator {
 
     /// 生成单条文本的嵌入向量。
     ///
-    /// 内部加锁访问 ONNX Runtime 会话，返回 384 维（默认模型）浮点向量。
+    /// 内部加锁访问 ONNX Runtime 会话，返回 1024 维（BGE-M3）浮点向量。
     fn embed(&self, text: &str) -> Result<Vec<f32>> {
         let mut model = self
             .model
@@ -198,7 +198,7 @@ mod tests {
     fn test_embedding_dimension() {
         let model_config = ModelConfig::default();
         let generator = FastEmbedGenerator::new(model_config).unwrap();
-        assert_eq!(generator.dimension(), 384);
+        assert_eq!(generator.dimension(), 1024);
     }
 
     #[test]
@@ -207,7 +207,7 @@ mod tests {
         let generator = FastEmbedGenerator::new(model_config).unwrap();
         let embedding = generator.embed("test text").unwrap();
 
-        assert_eq!(embedding.len(), 384);
+        assert_eq!(embedding.len(), 1024);
 
         let non_zero_count = embedding.iter().filter(|v| **v != 0.0).count();
         assert!(non_zero_count > 100);

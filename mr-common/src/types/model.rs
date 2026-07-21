@@ -6,8 +6,8 @@
 //!
 //! [`ModelType`] 支持三种模型：
 //!
-//! - **MiniLM-L6-v2**（默认）：384 维，轻量级，适合本地部署
-//! - **BGE-M3**：1024 维，高精度，需约 2.3GB 额外磁盘空间
+//! - **BGE-M3**（默认）：1024 维，高精度，需约 2.3GB 额外磁盘空间
+//! - **MiniLM-L6-v2**：384 维，轻量级，适合本地部署
 //! - **Custom**：用户自定义模型，需指定名称和维度
 //!
 //! ## 模型文件
@@ -31,9 +31,9 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "kebab-case")]
 pub enum ModelType {
     #[serde(rename = "minilm-l6-v2")]
-    #[default]
     MiniLML6V2,
     #[serde(rename = "bge-m3")]
+    #[default]
     BGEM3,
     Custom {
         name: String,
