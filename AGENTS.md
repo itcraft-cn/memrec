@@ -61,7 +61,7 @@ ${AI_SPEC_ROOT} 定义在 bash/zsh 环境变量中，可被读取: `echo ${AI_SP
     - eza[ls]
     - plocate[类似Windows下的everything]
     - f2[批量重命名]
-    - rrn[同f2,弱化])
+    - rrn[同f2,弱化]
 
 ### 构建命令
 
