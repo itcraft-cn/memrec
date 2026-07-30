@@ -12,6 +12,7 @@ pub mod importance;
 pub mod lifecycle;
 pub mod project;
 pub mod propagation;
+pub mod queue;
 pub mod rule;
 pub mod search;
 pub mod storage;
