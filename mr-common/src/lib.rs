@@ -10,6 +10,8 @@ pub use types::{
     RepresentationTier, RetrievalRule, RuleAction, RuleCondition, RuleStats, TierThresholds,
     TieredMemory, TieredSearchResult, TimeRange,
 };
-pub use types::{DreamConfig, ImportanceConfig, MemoryConfig, SearchConfig, SourceWeights, ServerConfig};
-pub use types::{IdleMonitorConfig, QueueConfig, LogConfig};
+pub use types::{
+    DreamConfig, ImportanceConfig, MemoryConfig, SearchConfig, ServerConfig, SourceWeights,
+};
+pub use types::{IdleMonitorConfig, LogConfig, QueueConfig};
 pub use types::{ModelConfig, ModelFile, ModelFileType, ModelType, PoolingStrategy};

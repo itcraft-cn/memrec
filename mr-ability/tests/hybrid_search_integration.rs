@@ -2,12 +2,12 @@
 //!
 //! 测试 HybridStore、TantivyStore、MMR 重排、评分器等功能。
 
-use mr_common::MemoryScope;
 use mr_ability::search::{apply_scoring, MmrConfig, ScorerConfig, SourceWeights};
 use mr_ability::storage::{
     FtsPayload, FtsStorage, HybridSearchRequest, HybridStorage, HybridStore, SearchFilter,
     TantivyStore, VectorPayload, VectorStorage, VectorStore,
 };
+use mr_common::MemoryScope;
 use std::sync::Arc;
 use tempfile::TempDir;
 use uuid::Uuid;

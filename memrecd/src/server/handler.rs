@@ -16,6 +16,7 @@
 //! | `GetProjectInfo` | 项目信息 |
 //! | `GetVersion` | 版本号 |
 
+use anyhow::Result;
 use mr_ability::archive::ArchiveManager;
 use mr_ability::dream::DreamProcessor;
 use mr_ability::embedding::EmbeddingGenerator;
@@ -24,13 +25,12 @@ use mr_ability::storage::{
     HybridSearchRequest, HybridStorage, MemoryStorage, SearchFilter, VectorPayload, VectorStorage,
 };
 use mr_ability::tiered::TierAssigner;
-use anyhow::Result;
+use mr_common::{Memory, MemoryType, RepresentationTier, TierThresholds};
 use mr_protocol::{
     DreamResult, GetProjectInfoParams, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
     MemoryListResult, MemoryResult, ProjectInfoResult, RequestAction, RequestParams,
     ResponseResult, SearchHit, SemanticSearchResult, StatsResult, SuccessResult, VersionResult,
 };
-use mr_common::{Memory, MemoryType, RepresentationTier, TierThresholds};
 use std::sync::Arc;
 use std::time::Instant;
 use uuid::Uuid;
@@ -820,7 +820,8 @@ impl Router {
                 } else {
                     content.to_string()
                 };
-                let token_count = mr_ability::tiered::BudgetController::estimate_token_count(&truncated);
+                let token_count =
+                    mr_ability::tiered::BudgetController::estimate_token_count(&truncated);
                 (truncated, token_count.min(200))
             }
             RepresentationTier::Summary => {
@@ -858,12 +859,12 @@ mod tests {
     use mr_ability::search::{MmrConfig, ScorerConfig};
     use mr_ability::storage::rocksdb::RocksDBStore;
     use mr_ability::storage::{HybridStore, MemoryStore, TantivyStore, VectorStore};
+    use mr_common::DreamConfig;
+    use mr_common::ModelConfig;
     use mr_protocol::{
         default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda, GetProjectInfoParams,
         SearchMemoryParams,
     };
-    use mr_common::ModelConfig;
-    use mr_common::DreamConfig;
     use tempfile::tempdir;
 
     #[tokio::test]

@@ -134,10 +134,7 @@ impl PropagationEngine {
         Ok(edges)
     }
 
-    async fn load_neighbor_memories(
-        &self,
-        edges: &[mr_common::MemoryEdge],
-    ) -> Result<Vec<Memory>> {
+    async fn load_neighbor_memories(&self, edges: &[mr_common::MemoryEdge]) -> Result<Vec<Memory>> {
         let mut memories = Vec::new();
         for edge in edges {
             if let Some(m) = self.memory_storage.get(&edge.target_id).await? {

@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use tracing::info;
 
-use mr_common::types::{Memory, MemoryScope, MemoryType};
 use crate::storage::MemoryStorage;
+use mr_common::types::{Memory, MemoryScope, MemoryType};
 
 use super::PhaseResult;
 
@@ -20,11 +20,7 @@ pub struct CrossProjectExtractor {
 }
 
 impl CrossProjectExtractor {
-    pub fn new(
-        storage: Arc<dyn MemoryStorage>,
-        batch_size: usize,
-        batch_interval_ms: u64,
-    ) -> Self {
+    pub fn new(storage: Arc<dyn MemoryStorage>, batch_size: usize, batch_interval_ms: u64) -> Self {
         Self {
             storage,
             batch_size,
@@ -48,7 +44,8 @@ impl CrossProjectExtractor {
         let mut tag_project_count: HashMap<String, usize> = HashMap::new();
 
         for memory in &memories {
-            let project_key = memory.project_id
+            let project_key = memory
+                .project_id
                 .map(|p| p.to_string())
                 .unwrap_or_else(|| "global".to_string());
 

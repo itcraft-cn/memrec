@@ -17,13 +17,13 @@ use tokio::sync::mpsc;
 use tokio::time::interval;
 use tracing::{info, warn};
 
+use crate::config::DaemonConfig;
+use crate::server::{Router, UnixSocketServer};
 use mr_ability::archive::ArchiveManager;
 use mr_ability::dream::DreamProcessor;
 use mr_ability::embedding::{EmbeddingGenerator, GeneratorFactory};
 use mr_ability::idle::{DreamRequest, SystemIdleMonitor};
 use mr_ability::search::{MmrConfig, ScorerConfig};
-use crate::config::DaemonConfig;
-use crate::server::{Router, UnixSocketServer};
 use mr_ability::storage::{
     HybridStore, MemoryStorage, MemoryStore, RocksDBStore, RocksDBVectorStore, TantivyStore,
     VectorStorage,
@@ -126,7 +126,8 @@ impl Daemon {
 
         let (dream_tx, dream_rx) = mpsc::channel::<DreamRequest>(10);
 
-        let idle_monitor = SystemIdleMonitor::new(self.config.idle_monitor.clone(), dream_tx.clone());
+        let idle_monitor =
+            SystemIdleMonitor::new(self.config.idle_monitor.clone(), dream_tx.clone());
 
         let archive_manager = ArchiveManager::new(
             self.config.server.data_dir.clone(),

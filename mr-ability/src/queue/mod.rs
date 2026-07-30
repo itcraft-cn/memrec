@@ -12,4 +12,4 @@ mod dispatcher;
 mod types;
 
 pub use dispatcher::QueueDispatcher;
-pub use types::{QueuedRequest, QueueError};
+pub use types::{QueueError, QueuedRequest};

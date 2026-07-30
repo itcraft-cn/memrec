@@ -17,7 +17,7 @@ use tracing::info;
 use mr_common::types::QueueConfig;
 use mr_protocol::JsonRpcResponse;
 
-use super::types::{QueuedRequest, QueueError};
+use super::types::{QueueError, QueuedRequest};
 
 /// 请求处理器 trait。
 #[async_trait::async_trait]

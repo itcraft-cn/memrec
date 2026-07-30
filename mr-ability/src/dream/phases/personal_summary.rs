@@ -8,8 +8,8 @@ use std::sync::Arc;
 use tracing::info;
 use uuid::Uuid;
 
-use mr_common::types::{Memory, MemoryScope, MemoryType};
 use crate::storage::MemoryStorage;
+use mr_common::types::{Memory, MemoryScope, MemoryType};
 
 use super::PhaseResult;
 
@@ -21,11 +21,7 @@ pub struct PersonalSummarizer {
 }
 
 impl PersonalSummarizer {
-    pub fn new(
-        storage: Arc<dyn MemoryStorage>,
-        batch_size: usize,
-        batch_interval_ms: u64,
-    ) -> Self {
+    pub fn new(storage: Arc<dyn MemoryStorage>, batch_size: usize, batch_interval_ms: u64) -> Self {
         Self {
             storage,
             batch_size,
@@ -54,7 +50,7 @@ impl PersonalSummarizer {
             *type_counts
                 .entry(memory.memory_type.to_string())
                 .or_insert(0) += 1;
-            
+
             for tag in &memory.tags {
                 *tag_counts.entry(tag.clone()).or_insert(0) += 1;
             }

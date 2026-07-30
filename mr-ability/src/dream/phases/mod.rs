@@ -6,14 +6,14 @@
 //! 3. Cleanup: 记忆清理
 //! 4. VectorRegen: 向量重新生成
 
+mod cleanup;
 mod cross_project;
 mod personal_summary;
-mod cleanup;
 mod vector_regen;
 
+pub use cleanup::MemoryCleaner;
 pub use cross_project::CrossProjectExtractor;
 pub use personal_summary::PersonalSummarizer;
-pub use cleanup::MemoryCleaner;
 pub use vector_regen::VectorRegenerator;
 
 /// 阶段执行结果。

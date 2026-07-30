@@ -105,13 +105,13 @@ impl UnixSocketServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mr_ability::archive::ArchiveManager;
     use mr_ability::dream::DreamProcessor;
     use mr_ability::embedding::{EmbeddingGenerator, FastEmbedGenerator};
     use mr_ability::search::{MmrConfig, ScorerConfig};
     use mr_ability::storage::{HybridStore, MemoryStore, RocksDBStore, TantivyStore, VectorStore};
-    use mr_common::ModelConfig;
     use mr_common::DreamConfig;
-    use mr_ability::archive::ArchiveManager;
+    use mr_common::ModelConfig;
     use tempfile::tempdir;
 
     #[tokio::test]

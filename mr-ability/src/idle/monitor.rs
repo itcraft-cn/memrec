@@ -62,10 +62,7 @@ pub fn get_system_load_1min() -> Result<f64, IdleMonitorError> {
             .map_err(|e| IdleMonitorError::LoadRead(e.to_string()))?;
 
         let content = String::from_utf8_lossy(&output.stdout);
-        let load_str = content
-            .trim()
-            .replace("{ ", "")
-            .replace(" }", "");
+        let load_str = content.trim().replace("{ ", "").replace(" }", "");
 
         load_str
             .split_whitespace()
@@ -135,7 +132,8 @@ impl SystemIdleMonitor {
                     } else {
                         tracing::debug!(
                             "IdleMonitor: system load {:.2} >= threshold {:.2}, skipping",
-                            load, self.config.load_threshold
+                            load,
+                            self.config.load_threshold
                         );
                     }
                 }

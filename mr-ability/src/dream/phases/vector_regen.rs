@@ -58,31 +58,31 @@ impl VectorRegenerator {
             for memory in batch {
                 match self.vector_store.get(&memory.id).await {
                     Ok(Some(_)) => {}
-                    Ok(None) => {
-                        match self.embedder.embed(&memory.content) {
-                            Ok(embedding) => {
-                                let payload = VectorPayload {
-                                    project_id: memory.project_id,
-                                    memory_type: memory.memory_type.to_string(),
-                                    tags: memory.tags.clone(),
-                                    content_preview: memory.content.chars().take(200).collect(),
-                                    importance: memory.importance,
-                                    chunk_group_id: memory.chunk_group_id,
-                                    chunk_index: memory.chunk_index,
-                                    chunk_total: memory.chunk_total,
-                                };
+                    Ok(None) => match self.embedder.embed(&memory.content) {
+                        Ok(embedding) => {
+                            let payload = VectorPayload {
+                                project_id: memory.project_id,
+                                memory_type: memory.memory_type.to_string(),
+                                tags: memory.tags.clone(),
+                                content_preview: memory.content.chars().take(200).collect(),
+                                importance: memory.importance,
+                                chunk_group_id: memory.chunk_group_id,
+                                chunk_index: memory.chunk_index,
+                                chunk_total: memory.chunk_total,
+                            };
 
-                                if let Err(e) = self.vector_store.add(&memory.id, &embedding, payload).await {
-                                    tracing::warn!("Failed to add vector for {}: {}", memory.id, e);
-                                } else {
-                                    regenerated += 1;
-                                }
-                            }
-                            Err(e) => {
-                                tracing::warn!("Failed to embed memory {}: {}", memory.id, e);
+                            if let Err(e) =
+                                self.vector_store.add(&memory.id, &embedding, payload).await
+                            {
+                                tracing::warn!("Failed to add vector for {}: {}", memory.id, e);
+                            } else {
+                                regenerated += 1;
                             }
                         }
-                    }
+                        Err(e) => {
+                            tracing::warn!("Failed to embed memory {}: {}", memory.id, e);
+                        }
+                    },
                     Err(e) => {
                         tracing::warn!("Failed to check vector for {}: {}", memory.id, e);
                     }
@@ -135,14 +135,8 @@ mod tests {
         let embedder = Arc::new(MockEmbedder);
         let vector_store = Arc::new(VectorStore::new(embedder.dimension()));
 
-        let regenerator = VectorRegenerator::new(
-            storage,
-            vector_store,
-            embedder,
-            100,
-            10,
-        );
-        
+        let regenerator = VectorRegenerator::new(storage, vector_store, embedder, 100, 10);
+
         let result = regenerator.execute().await;
 
         assert!(result.success);
@@ -161,14 +155,8 @@ mod tests {
         let embedder = Arc::new(MockEmbedder);
         let vector_store = Arc::new(VectorStore::new(embedder.dimension()));
 
-        let regenerator = VectorRegenerator::new(
-            storage,
-            vector_store,
-            embedder,
-            100,
-            10,
-        );
-        
+        let regenerator = VectorRegenerator::new(storage, vector_store, embedder, 100, 10);
+
         let result = regenerator.execute().await;
 
         assert!(result.success);

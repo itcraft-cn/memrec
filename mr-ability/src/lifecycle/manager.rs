@@ -7,11 +7,11 @@
 //!
 //! 还支持全量重要性重算，确保评分随时间推移保持准确。
 
+use crate::importance::ImportanceCalculator;
 use anyhow::Result;
 use chrono::Utc;
 use std::sync::Arc;
 use tracing::info;
-use crate::importance::ImportanceCalculator;
 
 use crate::storage::MemoryStorage;
 use mr_common::MemoryConfig;

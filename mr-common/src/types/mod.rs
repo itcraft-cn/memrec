@@ -20,8 +20,8 @@ mod rule;
 mod tiered;
 
 pub use config::{
-    DreamConfig, ImportanceConfig, MemoryConfig, SearchConfig, ServerConfig, SourceWeights,
-    IdleMonitorConfig, QueueConfig, LogConfig,
+    DreamConfig, IdleMonitorConfig, ImportanceConfig, LogConfig, MemoryConfig, QueueConfig,
+    SearchConfig, ServerConfig, SourceWeights,
 };
 pub use edge::{EdgeType, MemoryEdge};
 pub use facet::MemoryFacet;

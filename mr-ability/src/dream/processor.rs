@@ -23,7 +23,9 @@ use crate::storage::{MemoryStorage, VectorStorage};
 
 use super::gate::{DreamGate, DreamGateResult};
 use super::lock::DreamLock;
-use super::phases::{CrossProjectExtractor, MemoryCleaner, PersonalSummarizer, PhaseResult, VectorRegenerator};
+use super::phases::{
+    CrossProjectExtractor, MemoryCleaner, PersonalSummarizer, PhaseResult, VectorRegenerator,
+};
 
 #[derive(Debug, Error)]
 pub enum DreamError {
@@ -203,7 +205,8 @@ impl DreamProcessor {
             return Ok(DreamResult {
                 integrated_count: 0,
                 created_memory_id: None,
-                summary: "Phases completed, but not enough old memories for integration".to_string(),
+                summary: "Phases completed, but not enough old memories for integration"
+                    .to_string(),
                 phase_results,
             });
         }
