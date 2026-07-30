@@ -9,7 +9,7 @@
 //! - [`DaemonServerConfig`]：服务端路径配置（Socket、数据目录、向量目录、日志文件）
 
 use anyhow::Result;
-use mr_common::{DreamConfig, ModelConfig, ModelType};
+use mr_common::{DreamConfig, IdleMonitorConfig, LogConfig, ModelConfig, ModelType, QueueConfig};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -22,6 +22,12 @@ pub struct DaemonConfig {
     pub dream: DreamConfig,
     #[serde(default)]
     pub archive: ArchiveConfig,
+    #[serde(default)]
+    pub idle_monitor: IdleMonitorConfig,
+    #[serde(default)]
+    pub queue: QueueConfig,
+    #[serde(default)]
+    pub log: LogConfig,
 }
 
 /// 服务端路径配置。
@@ -68,6 +74,9 @@ impl Default for DaemonConfig {
             },
             dream: DreamConfig::default(),
             archive: ArchiveConfig::default(),
+            idle_monitor: IdleMonitorConfig::default(),
+            queue: QueueConfig::default(),
+            log: LogConfig::default(),
         }
     }
 }
