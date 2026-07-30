@@ -1,6 +1,6 @@
 [package]
 name = "mr-ability"
-version = "0.6.0-dev" # managed by updgitver
+version = "0.6.0" # managed by updgitver
 edition = "2021"
 authors = ["Helly Guo <hellyguo@foxmail.com>"]
 homepage = "https://itcraft.cn/memrec/"
@@ -17,7 +17,7 @@ name = "mr_ability"
 path = "src/lib.rs"
 
 [dependencies]
-mr-common = { path = "../mr-common", version = "0.6.0-dev" }
+mr-common = { path = "../mr-common", version = "0.6.0" } # managed by updgitver
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
