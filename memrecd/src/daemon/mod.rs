@@ -6,20 +6,23 @@
 //! 2. 初始化 RocksDB 存储、向量存储、全文索引和嵌入生成器
 //! 3. 启动 Unix Socket 服务器接收 JSON-RPC 请求
 //! 4. 运行定时同步任务（向量存储持久化）
-//! 5. 监听 SIGTERM/SIGINT 信号优雅关闭
+//! 5. 运行空闲监控和 Dream 整合任务
+//! 6. 监听 SIGTERM/SIGINT 信号优雅关闭
 
 use anyhow::Result;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
+use tokio::sync::mpsc;
 use tokio::time::interval;
 use tracing::{info, warn};
 
 use mr_ability::archive::ArchiveManager;
-use crate::config::DaemonConfig;
 use mr_ability::dream::DreamProcessor;
 use mr_ability::embedding::{EmbeddingGenerator, GeneratorFactory};
+use mr_ability::idle::{DreamRequest, SystemIdleMonitor};
 use mr_ability::search::{MmrConfig, ScorerConfig};
+use crate::config::DaemonConfig;
 use crate::server::{Router, UnixSocketServer};
 use mr_ability::storage::{
     HybridStore, MemoryStorage, MemoryStore, RocksDBStore, RocksDBVectorStore, TantivyStore,
@@ -111,11 +114,19 @@ impl Daemon {
         self.rebuild_missing_embeddings(&storage, &vector_store, &embedder)
             .await?;
 
-        let dream_processor = Arc::new(DreamProcessor::new(
-            self.config.dream.clone(),
-            &self.config.server.data_dir,
-            storage.clone(),
-        ));
+        let dream_processor = Arc::new(
+            DreamProcessor::new(
+                self.config.dream.clone(),
+                &self.config.server.data_dir,
+                storage.clone(),
+            )
+            .with_vector_store(vector_store.clone())
+            .with_embedder(embedder.clone()),
+        );
+
+        let (dream_tx, dream_rx) = mpsc::channel::<DreamRequest>(10);
+
+        let idle_monitor = SystemIdleMonitor::new(self.config.idle_monitor.clone(), dream_tx.clone());
 
         let archive_manager = ArchiveManager::new(
             self.config.server.data_dir.clone(),
@@ -127,13 +138,15 @@ impl Daemon {
             vector_store.clone(),
             hybrid_store,
             embedder,
-            dream_processor,
+            dream_processor.clone(),
             archive_manager,
         ));
 
         let server = UnixSocketServer::bind(&self.config.server.socket_path, router).await?;
 
         let sync_task = tokio::spawn(Self::sync_loop(vector_store.clone()));
+        let idle_task = tokio::spawn(idle_monitor.run());
+        let dream_task = tokio::spawn(Self::dream_loop(dream_processor, dream_rx));
 
         let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())?;
         let mut sigint = signal::unix::signal(signal::unix::SignalKind::interrupt())?;
@@ -151,6 +164,8 @@ impl Daemon {
         }
 
         sync_task.abort();
+        idle_task.abort();
+        dream_task.abort();
 
         self.shutdown(&vector_store)
     }
@@ -235,5 +250,32 @@ impl Daemon {
         }
 
         Ok(())
+    }
+
+    /// Dream 整合循环，接收空闲监控触发请求并执行 Dream。
+    async fn dream_loop(
+        processor: Arc<DreamProcessor>,
+        mut receiver: mpsc::Receiver<DreamRequest>,
+    ) {
+        info!("Dream loop started");
+
+        while let Some(request) = receiver.recv().await {
+            info!(target: "dream", "Dream triggered: force={}", request.force);
+
+            match processor.execute(request.force).await {
+                Ok(result) => {
+                    info!(
+                        target: "dream",
+                        "Dream completed: integrated {} memories",
+                        result.integrated_count
+                    );
+                }
+                Err(e) => {
+                    warn!(target: "dream", "Dream failed: {}", e);
+                }
+            }
+        }
+
+        info!("Dream loop stopped");
     }
 }
