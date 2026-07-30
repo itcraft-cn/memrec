@@ -13,6 +13,7 @@ use crate::storage::MemoryStorage;
 
 use super::PhaseResult;
 
+#[allow(dead_code)]
 pub struct PersonalSummarizer {
     storage: Arc<dyn MemoryStorage>,
     batch_size: usize,

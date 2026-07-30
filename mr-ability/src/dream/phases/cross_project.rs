@@ -12,6 +12,7 @@ use crate::storage::MemoryStorage;
 
 use super::PhaseResult;
 
+#[allow(dead_code)]
 pub struct CrossProjectExtractor {
     storage: Arc<dyn MemoryStorage>,
     batch_size: usize,
@@ -58,7 +59,7 @@ impl CrossProjectExtractor {
         }
 
         let mut cross_project_tags: HashMap<String, usize> = HashMap::new();
-        for (key, _count) in &tag_project_count {
+        for key in tag_project_count.keys() {
             let parts: Vec<&str> = key.splitn(2, ':').collect();
             if parts.len() == 2 {
                 let tag = parts[1];
