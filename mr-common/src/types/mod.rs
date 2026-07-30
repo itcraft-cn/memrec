@@ -21,6 +21,7 @@ mod tiered;
 
 pub use config::{
     DreamConfig, ImportanceConfig, MemoryConfig, SearchConfig, ServerConfig, SourceWeights,
+    IdleMonitorConfig, QueueConfig, LogConfig,
 };
 pub use edge::{EdgeType, MemoryEdge};
 pub use facet::MemoryFacet;

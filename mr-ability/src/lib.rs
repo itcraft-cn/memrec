@@ -7,6 +7,7 @@ pub mod dream;
 pub mod edge;
 pub mod embedding;
 pub mod facet;
+pub mod idle;
 pub mod importance;
 pub mod lifecycle;
 pub mod project;
