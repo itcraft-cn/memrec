@@ -17,11 +17,11 @@ name = "memrec"
 path = "src/main.rs"
 
 [dependencies]
-mr-common = { path = "../mr-common", version = "0.6.0-dev" }
-mr-protocol = { path = "../mr-protocol", version = "0.6.0-dev" }
+mr-common = { path = "../mr-common", version = "0.7.0-dev" } # managed by updgitver
+mr-protocol = { path = "../mr-protocol", version = "0.7.0-dev" } # managed by updgitver
 anyhow.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
-tokio = { version = "1", features = ["full"] }
-clap = { version = "4", features = ["derive", "color"] }
-dirs = "5"
+tokio.workspace = true
+clap.workspace = true
+dirs.workspace = true

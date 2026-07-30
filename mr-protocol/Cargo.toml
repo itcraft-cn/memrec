@@ -13,7 +13,7 @@ documentation = "https://docs.rs/crate/memrec/latest"
 keywords = ["Local", "Isolation", "Memory"]
 
 [dependencies]
-mr-common = { path = "../mr-common", version = "0.6.0-dev" }
+mr-common = { path = "../mr-common", version = "0.7.0-dev" }  # managed by updgitver
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
