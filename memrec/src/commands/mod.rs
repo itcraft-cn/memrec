@@ -5,5 +5,5 @@
 mod memory;
 mod search;
 
-pub use memory::{add, delete, dream, get, list, stats, version};
+pub use memory::{add, delete, dream, get, list, stats, version, AddOptions};
 pub use search::{search_execute, SearchArgs};

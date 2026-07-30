@@ -18,21 +18,31 @@ use mr_protocol::{
 /// 单块最大字节数，留余量给 JSON 序列化开销
 const MAX_CHUNK_SIZE: usize = 7500;
 
+/// `add` 命令参数集合
+pub struct AddOptions {
+    pub content: String,
+    pub mtype: String,
+    pub tags: Vec<String>,
+    pub is_global: bool,
+    pub working_dir: Option<String>,
+    pub source: Option<String>,
+    pub scope: Option<String>,
+}
+
 /// 添加记忆命令。
 ///
 /// 内容超长时自动分块，每块独立发送 Add 请求。
 /// 默认输出 JSON-RPC 响应，`human=true` 时输出人类可读格式。
-pub async fn add(
-    client: &Client,
-    content: String,
-    mtype: String,
-    tags: Vec<String>,
-    is_global: bool,
-    working_dir: Option<String>,
-    source: Option<String>,
-    scope: Option<String>,
-    human: bool,
-) -> Result<()> {
+pub async fn add(client: &Client, opts: AddOptions, human: bool) -> Result<()> {
+    let AddOptions {
+        content,
+        mtype,
+        tags,
+        is_global,
+        working_dir,
+        source,
+        scope,
+    } = opts;
     let memory_type = parse_memory_type(&mtype)?;
 
     if content.len() > MAX_CHUNK_SIZE {
