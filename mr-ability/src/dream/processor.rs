@@ -18,10 +18,12 @@ use uuid::Uuid;
 
 use mr_common::types::{DreamConfig, Memory, MemoryScope, MemorySource, MemoryType};
 
-use crate::storage::MemoryStorage;
+use crate::embedding::EmbeddingGenerator;
+use crate::storage::{MemoryStorage, VectorStorage};
 
 use super::gate::{DreamGate, DreamGateResult};
 use super::lock::DreamLock;
+use super::phases::{CrossProjectExtractor, MemoryCleaner, PersonalSummarizer, PhaseResult, VectorRegenerator};
 
 #[derive(Debug, Error)]
 pub enum DreamError {
@@ -42,12 +44,15 @@ pub struct DreamResult {
     pub integrated_count: usize,
     pub created_memory_id: Option<Uuid>,
     pub summary: String,
+    pub phase_results: Vec<PhaseResult>,
 }
 
 pub struct DreamProcessor {
     config: DreamConfig,
     lock: DreamLock,
     storage: Arc<dyn MemoryStorage>,
+    vector_store: Option<Arc<dyn VectorStorage>>,
+    embedder: Option<Arc<dyn EmbeddingGenerator>>,
     session_count: Arc<RwLock<u32>>,
 }
 
@@ -61,8 +66,20 @@ impl DreamProcessor {
             config,
             lock: DreamLock::new(data_dir),
             storage,
+            vector_store: None,
+            embedder: None,
             session_count: Arc::new(RwLock::new(0)),
         }
+    }
+
+    pub fn with_vector_store(mut self, vector_store: Arc<dyn VectorStorage>) -> Self {
+        self.vector_store = Some(vector_store);
+        self
+    }
+
+    pub fn with_embedder(mut self, embedder: Arc<dyn EmbeddingGenerator>) -> Self {
+        self.embedder = Some(embedder);
+        self
     }
 
     pub fn increment_session(&self) {
@@ -120,6 +137,54 @@ impl DreamProcessor {
     }
 
     async fn process_inner(&self) -> Result<DreamResult, DreamError> {
+        let mut phase_results = Vec::new();
+
+        if self.config.phase_cross_project {
+            let extractor = CrossProjectExtractor::new(
+                self.storage.clone(),
+                self.config.batch_size,
+                self.config.batch_interval_ms,
+            );
+            let result = extractor.execute().await;
+            phase_results.push(result);
+        }
+
+        if self.config.phase_personal_summary {
+            let summarizer = PersonalSummarizer::new(
+                self.storage.clone(),
+                self.config.batch_size,
+                self.config.batch_interval_ms,
+            );
+            let result = summarizer.execute().await;
+            phase_results.push(result);
+        }
+
+        if self.config.phase_cleanup {
+            let cleaner = MemoryCleaner::new(
+                self.storage.clone(),
+                self.config.batch_size,
+                self.config.batch_interval_ms,
+                90,
+                0.1,
+            );
+            let result = cleaner.execute().await;
+            phase_results.push(result);
+        }
+
+        if self.config.phase_vector_regen {
+            if let (Some(vector_store), Some(embedder)) = (&self.vector_store, &self.embedder) {
+                let regenerator = VectorRegenerator::new(
+                    self.storage.clone(),
+                    vector_store.clone(),
+                    embedder.clone(),
+                    self.config.batch_size,
+                    self.config.batch_interval_ms,
+                );
+                let result = regenerator.execute().await;
+                phase_results.push(result);
+            }
+        }
+
         let cutoff = Utc::now() - chrono::Duration::hours(self.config.max_age_hours as i64);
         let cutoff_str = cutoff.to_rfc3339();
 
@@ -131,14 +196,16 @@ impl DreamProcessor {
 
         if memories.len() < self.config.min_memories {
             warn!(
-                "Not enough memories for Dream: {} < {}",
+                "Not enough memories for Dream integration: {} < {}",
                 memories.len(),
                 self.config.min_memories
             );
-            return Err(DreamError::NotEnoughMemories(
-                memories.len(),
-                self.config.min_memories,
-            ));
+            return Ok(DreamResult {
+                integrated_count: 0,
+                created_memory_id: None,
+                summary: "Phases completed, but not enough old memories for integration".to_string(),
+                phase_results,
+            });
         }
 
         info!(
@@ -202,6 +269,7 @@ impl DreamProcessor {
             integrated_count: memories.len(),
             created_memory_id: Some(created_id),
             summary,
+            phase_results,
         })
     }
 
@@ -291,7 +359,10 @@ mod tests {
         storage.save(&memory).await.unwrap();
 
         let result = processor.execute(true).await;
-        assert!(matches!(result, Err(DreamError::NotEnoughMemories(1, 2))));
+        assert!(result.is_ok());
+        let dream_result = result.unwrap();
+        assert_eq!(dream_result.integrated_count, 0);
+        assert!(dream_result.created_memory_id.is_none());
     }
 
     #[tokio::test]
@@ -311,6 +382,7 @@ mod tests {
         assert_eq!(dream_result.integrated_count, 3);
         assert!(dream_result.created_memory_id.is_some());
         assert!(!dream_result.summary.is_empty());
+        assert!(!dream_result.phase_results.is_empty());
     }
 
     #[test]
@@ -319,6 +391,7 @@ mod tests {
             integrated_count: 5,
             created_memory_id: Some(Uuid::nil()),
             summary: "test summary".to_string(),
+            phase_results: vec![],
         };
 
         let debug_str = format!("{:?}", result);
