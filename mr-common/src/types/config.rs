@@ -205,6 +205,7 @@ impl Default for ServerConfig {
 /// Dream 后台整合配置。
 ///
 /// 控制记忆压缩和整合行为，类似人类睡眠中的记忆巩固过程。
+/// 支持4阶段处理：交叉项目提取、个人提炼、清理、向量重生成。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DreamConfig {
     /// 是否启用 Dream 整合
@@ -230,6 +231,30 @@ pub struct DreamConfig {
     /// 整合后生成的记忆标签
     #[serde(default = "default_integration_tags")]
     pub integration_tags: Vec<String>,
+
+    /// Phase 1: 交叉项目记忆提取开关
+    #[serde(default = "default_phase_cross_project")]
+    pub phase_cross_project: bool,
+
+    /// Phase 2: 个人总体记忆提炼开关
+    #[serde(default = "default_phase_personal_summary")]
+    pub phase_personal_summary: bool,
+
+    /// Phase 3: 记忆清理开关
+    #[serde(default = "default_phase_cleanup")]
+    pub phase_cleanup: bool,
+
+    /// Phase 4: 向量重新生成开关（资源消耗大，默认关闭）
+    #[serde(default = "default_phase_vector_regen")]
+    pub phase_vector_regen: bool,
+
+    /// 批处理大小
+    #[serde(default = "default_batch_size")]
+    pub batch_size: usize,
+
+    /// 批处理间隔（毫秒）
+    #[serde(default = "default_batch_interval_ms")]
+    pub batch_interval_ms: u64,
 }
 
 fn default_dream_enabled() -> bool {
@@ -250,6 +275,24 @@ fn default_integration_type() -> String {
 fn default_integration_tags() -> Vec<String> {
     vec!["dream-integrated".to_string()]
 }
+fn default_phase_cross_project() -> bool {
+    true
+}
+fn default_phase_personal_summary() -> bool {
+    true
+}
+fn default_phase_cleanup() -> bool {
+    true
+}
+fn default_phase_vector_regen() -> bool {
+    false
+}
+fn default_batch_size() -> usize {
+    100
+}
+fn default_batch_interval_ms() -> u64 {
+    1000
+}
 
 impl Default for DreamConfig {
     fn default() -> Self {
@@ -260,6 +303,150 @@ impl Default for DreamConfig {
             min_hours_between: 24.0,
             integration_type: "knowledge".to_string(),
             integration_tags: vec!["dream-integrated".to_string()],
+            phase_cross_project: true,
+            phase_personal_summary: true,
+            phase_cleanup: true,
+            phase_vector_regen: false,
+            batch_size: 100,
+            batch_interval_ms: 1000,
+        }
+    }
+}
+
+/// 系统空闲监控配置。
+///
+/// 控制系统空闲检测行为，用于自动触发 Dream 整合。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IdleMonitorConfig {
+    /// 是否启用空闲监控
+    #[serde(default = "default_idle_enabled")]
+    pub enabled: bool,
+
+    /// 检查间隔（秒），默认 300 = 5分钟
+    #[serde(default = "default_check_interval_secs")]
+    pub check_interval_secs: u64,
+
+    /// load average 阈值，低于此值视为空闲
+    #[serde(default = "default_load_threshold")]
+    pub load_threshold: f64,
+
+    /// 是否启用自动触发 dream
+    #[serde(default = "default_auto_dream_enabled")]
+    pub auto_dream_enabled: bool,
+}
+
+fn default_idle_enabled() -> bool {
+    true
+}
+fn default_check_interval_secs() -> u64 {
+    300
+}
+fn default_load_threshold() -> f64 {
+    0.5
+}
+fn default_auto_dream_enabled() -> bool {
+    true
+}
+
+impl Default for IdleMonitorConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            check_interval_secs: 300,
+            load_threshold: 0.5,
+            auto_dream_enabled: true,
+        }
+    }
+}
+
+/// 队列配置。
+///
+/// 控制请求队列容量和行为。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueueConfig {
+    /// Normal Queue 容量
+    #[serde(default = "default_normal_queue_capacity")]
+    pub normal_queue_capacity: usize,
+
+    /// Dream Queue 容量
+    #[serde(default = "default_dream_queue_capacity")]
+    pub dream_queue_capacity: usize,
+}
+
+fn default_normal_queue_capacity() -> usize {
+    1000
+}
+fn default_dream_queue_capacity() -> usize {
+    10
+}
+
+impl Default for QueueConfig {
+    fn default() -> Self {
+        Self {
+            normal_queue_capacity: 1000,
+            dream_queue_capacity: 10,
+        }
+    }
+}
+
+/// 日志配置。
+///
+/// 控制日志文件位置、滚存和清理策略。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogConfig {
+    /// 是否启用日志滚存
+    #[serde(default = "default_log_enabled")]
+    pub enabled: bool,
+
+    /// 日志级别
+    #[serde(default = "default_log_level")]
+    pub level: String,
+
+    /// 日志保留天数
+    #[serde(default = "default_rotation_days")]
+    pub rotation_days: u64,
+
+    /// 是否压缩旧日志
+    #[serde(default = "default_compress")]
+    pub compress: bool,
+
+    /// memrecd 主日志文件路径
+    #[serde(default = "default_memrecd_log_path")]
+    pub memrecd_log: String,
+
+    /// dream 作业日志文件路径
+    #[serde(default = "default_dream_log_path")]
+    pub dream_log: String,
+}
+
+fn default_log_enabled() -> bool {
+    true
+}
+fn default_log_level() -> String {
+    "info".to_string()
+}
+fn default_rotation_days() -> u64 {
+    7
+}
+fn default_compress() -> bool {
+    false
+}
+fn default_memrecd_log_path() -> String {
+    "~/.memrec/logs/memrecd.log".to_string()
+}
+fn default_dream_log_path() -> String {
+    "~/.memrec/logs/dream.log".to_string()
+}
+
+impl Default for LogConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            level: "info".to_string(),
+            rotation_days: 7,
+            compress: false,
+            memrecd_log: "~/.memrec/logs/memrecd.log".to_string(),
+            dream_log: "~/.memrec/logs/dream.log".to_string(),
         }
     }
 }
@@ -403,5 +590,97 @@ mod tests {
         assert_eq!(parsed.min_memories, 50);
         assert_eq!(parsed.max_age_hours, 168);
         assert_eq!(parsed.min_hours_between, 24.0);
+    }
+
+    #[test]
+    fn test_dream_config_new_fields() {
+        let config = DreamConfig::default();
+
+        assert!(config.phase_cross_project);
+        assert!(config.phase_personal_summary);
+        assert!(config.phase_cleanup);
+        assert!(!config.phase_vector_regen);
+        assert_eq!(config.batch_size, 100);
+        assert_eq!(config.batch_interval_ms, 1000);
+    }
+
+    #[test]
+    fn test_dream_config_serde_new_fields() {
+        let json = r#"{"enabled": true, "phase_cross_project": false, "batch_size": 50}"#;
+        let parsed: DreamConfig = serde_json::from_str(json).unwrap();
+
+        assert!(parsed.enabled);
+        assert!(!parsed.phase_cross_project);
+        assert!(parsed.phase_personal_summary);
+        assert_eq!(parsed.batch_size, 50);
+        assert_eq!(parsed.batch_interval_ms, 1000);
+    }
+
+    #[test]
+    fn test_idle_monitor_config_defaults() {
+        let config = IdleMonitorConfig::default();
+
+        assert!(config.enabled);
+        assert_eq!(config.check_interval_secs, 300);
+        assert_eq!(config.load_threshold, 0.5);
+        assert!(config.auto_dream_enabled);
+    }
+
+    #[test]
+    fn test_idle_monitor_config_serde() {
+        let config = IdleMonitorConfig::default();
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: IdleMonitorConfig = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(config.check_interval_secs, parsed.check_interval_secs);
+    }
+
+    #[test]
+    fn test_idle_monitor_config_partial_deserialize() {
+        let json = r#"{"enabled": false, "load_threshold": 1.0}"#;
+        let parsed: IdleMonitorConfig = serde_json::from_str(json).unwrap();
+
+        assert!(!parsed.enabled);
+        assert_eq!(parsed.load_threshold, 1.0);
+        assert_eq!(parsed.check_interval_secs, 300);
+    }
+
+    #[test]
+    fn test_queue_config_defaults() {
+        let config = QueueConfig::default();
+
+        assert_eq!(config.normal_queue_capacity, 1000);
+        assert_eq!(config.dream_queue_capacity, 10);
+    }
+
+    #[test]
+    fn test_queue_config_serde() {
+        let json = r#"{"normal_queue_capacity": 500}"#;
+        let parsed: QueueConfig = serde_json::from_str(json).unwrap();
+
+        assert_eq!(parsed.normal_queue_capacity, 500);
+        assert_eq!(parsed.dream_queue_capacity, 10);
+    }
+
+    #[test]
+    fn test_log_config_defaults() {
+        let config = LogConfig::default();
+
+        assert!(config.enabled);
+        assert_eq!(config.level, "info");
+        assert_eq!(config.rotation_days, 7);
+        assert!(!config.compress);
+        assert!(config.memrecd_log.contains("memrecd.log"));
+        assert!(config.dream_log.contains("dream.log"));
+    }
+
+    #[test]
+    fn test_log_config_serde() {
+        let json = r#"{"rotation_days": 14, "level": "debug"}"#;
+        let parsed: LogConfig = serde_json::from_str(json).unwrap();
+
+        assert_eq!(parsed.rotation_days, 14);
+        assert_eq!(parsed.level, "debug");
+        assert!(parsed.enabled);
     }
 }
