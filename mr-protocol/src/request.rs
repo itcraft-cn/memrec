@@ -499,7 +499,7 @@ mod tests {
             mmr_lambda: default_mmr_lambda(),
         };
 
-        assert_eq!(params.include_global, true);
+        assert!(params.include_global);
         assert_eq!(params.top_k, 10);
         assert_eq!(params.min_score, 0.5);
     }

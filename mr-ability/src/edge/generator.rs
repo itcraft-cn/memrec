@@ -249,7 +249,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(edges.len() >= 1);
+        assert!(!edges.is_empty());
         assert!(edges[0].edge_type == EdgeType::Similar);
         assert!(edges[0].auto_generated);
     }
@@ -278,7 +278,7 @@ mod tests {
 
         let memory = create_test_memory("Test content");
         let edges = generator
-            .generate(&memory, &[memory.clone()], &edge_store)
+            .generate(&memory, std::slice::from_ref(&memory), &edge_store)
             .await
             .unwrap();
 

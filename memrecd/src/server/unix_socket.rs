@@ -148,7 +148,7 @@ mod tests {
             archive_manager,
         ));
 
-        let server = UnixSocketServer::bind(&socket_path, router).await.unwrap();
+        let _server = UnixSocketServer::bind(&socket_path, router).await.unwrap();
         assert!(socket_path.exists());
     }
 }
