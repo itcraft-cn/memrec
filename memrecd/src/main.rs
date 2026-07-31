@@ -11,7 +11,10 @@
 //! ```
 
 use anyhow::Result;
+use memrecd::config::DaemonConfig;
 use tracing::{info, Level};
+use tracing_appender::rolling::RollingFileAppender;
+use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::FmtSubscriber;
 
 use memrecd::daemon::Daemon;
@@ -23,8 +26,31 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    let config = DaemonConfig::load()?;
+
+    let home = dirs::home_dir().expect("Failed to get home directory");
+    let log_path = if config.log.memrecd_log.starts_with('~') {
+        let rest = config.log.memrecd_log.strip_prefix('~').unwrap_or(&config.log.memrecd_log);
+        home.join(rest.strip_prefix('/').unwrap_or(rest))
+    } else {
+        std::path::PathBuf::from(&config.log.memrecd_log)
+    };
+
+    let log_dir = log_path.parent().unwrap();
+    std::fs::create_dir_all(log_dir)?;
+
+    let file_appender = RollingFileAppender::builder()
+        .rotation(tracing_appender::rolling::Rotation::NEVER)
+        .filename_prefix("memrecd")
+        .filename_suffix("log")
+        .max_log_files(7)
+        .build(log_dir)?;
+
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::INFO)
+        .with_ansi(false)
+        .with_writer(file_appender)
+        .with_span_events(FmtSpan::CLOSE)
         .finish();
 
     tracing::subscriber::set_global_default(subscriber)?;

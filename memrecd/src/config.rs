@@ -36,7 +36,6 @@ pub struct DaemonServerConfig {
     pub socket_path: PathBuf,
     pub data_dir: PathBuf,
     pub vectors_dir: PathBuf,
-    pub log_file: PathBuf,
 }
 
 /// 存档配置。
@@ -70,7 +69,6 @@ impl Default for DaemonConfig {
                 socket_path: base_dir.join("memrecd.sock"),
                 data_dir: base_dir.join("data"),
                 vectors_dir: base_dir.join("vectors"),
-                log_file: base_dir.join("memrecd.log"),
             },
             dream: DreamConfig::default(),
             archive: ArchiveConfig::default(),
@@ -119,7 +117,6 @@ impl DaemonConfig {
         self.server.socket_path = expand_tilde(&self.server.socket_path, &home);
         self.server.data_dir = expand_tilde(&self.server.data_dir, &home);
         self.server.vectors_dir = expand_tilde(&self.server.vectors_dir, &home);
-        self.server.log_file = expand_tilde(&self.server.log_file, &home);
     }
 
     /// 切换嵌入模型类型，返回新的配置。
