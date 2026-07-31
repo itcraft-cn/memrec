@@ -65,9 +65,9 @@ mod tests {
     #[test]
     fn test_config_default() {
         let config = InstallConfig::default();
-        assert_eq!(config.model.dimension, 384);
+        assert_eq!(config.model.dimension, 1024);
         assert_eq!(config.model.source, "huggingface");
-        assert_eq!(config.model.model_type.name(), "minilm-l6-v2");
+        assert_eq!(config.model.model_type.name(), "bge-m3");
     }
 
     #[test]

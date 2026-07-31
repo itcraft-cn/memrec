@@ -68,16 +68,15 @@ impl Router {
         }
     }
 
-    /// 测试用：仅注入存储，自动创建默认嵌入生成器和内存向量存储。
+    /// 测试用：仅注入存储，自动创建 MockEmbedder 和内存向量存储。
     #[cfg(test)]
     pub fn new_simple(storage: Arc<dyn MemoryStorage>) -> Self {
-        use mr_ability::embedding::GeneratorFactory;
+        use mr_ability::embedding::MockEmbedder;
         use mr_ability::search::{MmrConfig, ScorerConfig};
         use mr_ability::storage::HybridStore;
-        use mr_common::{DreamConfig, ModelConfig};
+        use mr_common::DreamConfig;
 
-        let model_config = ModelConfig::default();
-        let embedder = GeneratorFactory::create(model_config).unwrap();
+        let embedder = Arc::new(MockEmbedder::new());
         let vector_store = Arc::new(mr_ability::storage::VectorStore::new(embedder.dimension()));
         let fts_store = Arc::new(mr_ability::storage::TantivyStore::new_test());
         let hybrid_store = Arc::new(HybridStore::new(
@@ -855,12 +854,11 @@ impl Router {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mr_ability::embedding::FastEmbedGenerator;
+    use mr_ability::embedding::MockEmbedder;
     use mr_ability::search::{MmrConfig, ScorerConfig};
     use mr_ability::storage::rocksdb::RocksDBStore;
     use mr_ability::storage::{HybridStore, MemoryStore, TantivyStore, VectorStore};
     use mr_common::DreamConfig;
-    use mr_common::ModelConfig;
     use mr_protocol::{
         default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda, GetProjectInfoParams,
         SearchMemoryParams,
@@ -872,8 +870,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
         let storage = Arc::new(MemoryStore::new(rocksdb));
-        let model_config = ModelConfig::default();
-        let embedder = Arc::new(FastEmbedGenerator::new(model_config).unwrap());
+        let embedder = Arc::new(MockEmbedder::new());
         let vector_store = Arc::new(VectorStore::new(embedder.dimension()));
         let fts_store = Arc::new(TantivyStore::new_test());
         let hybrid_store = Arc::new(HybridStore::new(

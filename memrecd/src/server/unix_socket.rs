@@ -107,11 +107,10 @@ mod tests {
     use super::*;
     use mr_ability::archive::ArchiveManager;
     use mr_ability::dream::DreamProcessor;
-    use mr_ability::embedding::{EmbeddingGenerator, FastEmbedGenerator};
+    use mr_ability::embedding::{EmbeddingGenerator, MockEmbedder};
     use mr_ability::search::{MmrConfig, ScorerConfig};
     use mr_ability::storage::{HybridStore, MemoryStore, RocksDBStore, TantivyStore, VectorStore};
     use mr_common::DreamConfig;
-    use mr_common::ModelConfig;
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -121,8 +120,7 @@ mod tests {
 
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
         let storage = Arc::new(MemoryStore::new(rocksdb));
-        let model_config = ModelConfig::default();
-        let embedder = Arc::new(FastEmbedGenerator::new(model_config).unwrap());
+        let embedder = Arc::new(MockEmbedder::new());
         let vector_store = Arc::new(VectorStore::new(embedder.dimension()));
         let fts_store = Arc::new(TantivyStore::new_test());
         let hybrid_store = Arc::new(HybridStore::new(

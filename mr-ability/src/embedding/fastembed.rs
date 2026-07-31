@@ -195,6 +195,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "需要模型文件，使用 --ignored 手动运行"]
     fn test_embedding_dimension() {
         let model_config = ModelConfig::default();
         let generator = FastEmbedGenerator::new(model_config).unwrap();
@@ -202,6 +203,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "需要模型文件，使用 --ignored 手动运行"]
     fn test_single_embedding() {
         let model_config = ModelConfig::default();
         let generator = FastEmbedGenerator::new(model_config).unwrap();
@@ -214,6 +216,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "需要模型文件，使用 --ignored 手动运行"]
     fn test_semantic_similarity() {
         let model_config = ModelConfig::default();
         let generator = FastEmbedGenerator::new(model_config).unwrap();

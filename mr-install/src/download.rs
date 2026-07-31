@@ -277,7 +277,7 @@ mod tests {
 
     #[test]
     fn test_model_dir_for_minilm() {
-        let config = ModelConfig::default();
+        let config = ModelConfig::new(mr_common::ModelType::MiniLML6V2);
         let dir = model_dir_for_config(&config).unwrap();
         let path = dir.to_string_lossy();
         assert!(path.contains(".memrec/models"));
