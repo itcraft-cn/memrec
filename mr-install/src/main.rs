@@ -41,11 +41,11 @@ struct Cli {
     #[arg(long, help = "Git repository URL for cargo install")]
     repo_url: Option<String>,
 
-    /// 嵌入模型选择：minilm-l6-v2（默认，384d，英文）或 bge-m3（1024d，多语言/中文）
+    /// 嵌入模型选择：bge-m3（默认，1024d，多语言/中文）或 minilm-l6-v2（384d，英文）
     #[arg(
         long,
         value_name = "MODEL",
-        help = "Embedding model: minilm-l6-v2 (default, 384d, English) or bge-m3 (1024d, multilingual/Chinese)"
+        help = "Embedding model: bge-m3 (default, 1024d, multilingual/Chinese) or minilm-l6-v2 (384d, English)"
     )]
     model: Option<String>,
 
@@ -268,11 +268,11 @@ fn confirm(msg: &str) -> bool {
     input.trim().eq_ignore_ascii_case("y")
 }
 
-/// 解析模型类型字符串，支持 minilm-l6-v2 和 bge-m3
+/// 解析模型类型字符串，支持 bge-m3 和 minilm-l6-v2
 fn parse_model_type(model: Option<&str>) -> Result<ModelType> {
     match model {
-        None | Some("minilm-l6-v2") => Ok(ModelType::MiniLML6V2),
-        Some("bge-m3") => Ok(ModelType::BGEM3),
-        Some(other) => anyhow::bail!("Unknown model '{}'. Supported: minilm-l6-v2, bge-m3", other),
+        None | Some("bge-m3") => Ok(ModelType::BGEM3),
+        Some("minilm-l6-v2") => Ok(ModelType::MiniLML6V2),
+        Some(other) => anyhow::bail!("Unknown model '{}'. Supported: bge-m3, minilm-l6-v2", other),
     }
 }
