@@ -25,6 +25,10 @@
 //! | `rule_stats` | 规则统计（UUID → JSON） |
 //! | `memory_summaries` | 记忆摘要（UUID → String） |
 //! | `memory_keywords` | 记忆关键词（UUID → JSON） |
+//! | `scenes` | 场景主存储（UUID → JSON） |
+//! | `by_scene` | 场景-记忆索引（`scene_id:memory_id` → UUID） |
+//! | `by_heat` | 热度索引（`heat:scene_id` → UUID） |
+//! | `by_theme` | 主题索引（`theme:scene_id` → UUID） |
 
 use anyhow::{Context, Result};
 use rocksdb::{ColumnFamilyDescriptor, Options, DB};
@@ -66,6 +70,14 @@ const CF_RULE_STATS: &str = "rule_stats";
 const CF_MEMORY_SUMMARIES: &str = "memory_summaries";
 /// 记忆关键词列族
 const CF_MEMORY_KEYWORDS: &str = "memory_keywords";
+/// 场景主存储列族
+const CF_SCENES: &str = "scenes";
+/// 场景-记忆索引列族
+const CF_BY_SCENE: &str = "by_scene";
+/// 热度索引列族
+const CF_BY_HEAT: &str = "by_heat";
+/// 主题索引列族
+const CF_BY_THEME: &str = "by_theme";
 
 /// RocksDB 存储封装，提供列族访问和基础读写操作。
 pub struct RocksDBStore {
@@ -98,6 +110,10 @@ impl RocksDBStore {
             ColumnFamilyDescriptor::new(CF_RULE_STATS, Options::default()),
             ColumnFamilyDescriptor::new(CF_MEMORY_SUMMARIES, Options::default()),
             ColumnFamilyDescriptor::new(CF_MEMORY_KEYWORDS, Options::default()),
+            ColumnFamilyDescriptor::new(CF_SCENES, Options::default()),
+            ColumnFamilyDescriptor::new(CF_BY_SCENE, Options::default()),
+            ColumnFamilyDescriptor::new(CF_BY_HEAT, Options::default()),
+            ColumnFamilyDescriptor::new(CF_BY_THEME, Options::default()),
         ];
 
         let db = DB::open_cf_descriptors(&options, path, cfs).context("Failed to open RocksDB")?;
@@ -229,6 +245,34 @@ impl RocksDBStore {
         self.db
             .cf_handle(CF_MEMORY_KEYWORDS)
             .context("Column family 'memory_keywords' not found")
+    }
+
+    /// 获取 `scenes` 列族句柄。
+    pub fn cf_scenes(&self) -> Result<&rocksdb::ColumnFamily> {
+        self.db
+            .cf_handle(CF_SCENES)
+            .context("Column family 'scenes' not found")
+    }
+
+    /// 获取 `by_scene` 列族句柄。
+    pub fn cf_by_scene(&self) -> Result<&rocksdb::ColumnFamily> {
+        self.db
+            .cf_handle(CF_BY_SCENE)
+            .context("Column family 'by_scene' not found")
+    }
+
+    /// 获取 `by_heat` 列族句柄。
+    pub fn cf_by_heat(&self) -> Result<&rocksdb::ColumnFamily> {
+        self.db
+            .cf_handle(CF_BY_HEAT)
+            .context("Column family 'by_heat' not found")
+    }
+
+    /// 获取 `by_theme` 列族句柄。
+    pub fn cf_by_theme(&self) -> Result<&rocksdb::ColumnFamily> {
+        self.db
+            .cf_handle(CF_BY_THEME)
+            .context("Column family 'by_theme' not found")
     }
 
     /// 向指定列族写入键值对。

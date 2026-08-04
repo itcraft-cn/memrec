@@ -8,6 +8,7 @@
 //! - [`memory`]：记忆实体与记忆类型枚举，系统的核心数据单元
 //! - [`model`]：嵌入模型抽象，支持多模型切换（MiniLM-L6-v2 / BGE-M3 / 自定义）
 //! - [`project`]：项目隔离模型，实现多项目独立记忆空间
+//! - [`scene`]：场景聚合层，组织同主题的记忆卡片（L2 层）
 
 mod config;
 mod edge;
@@ -17,6 +18,7 @@ mod model;
 mod project;
 mod propagation;
 mod rule;
+mod scene;
 mod tiered;
 
 pub use config::{
@@ -30,4 +32,5 @@ pub use model::{ModelConfig, ModelFile, ModelFileType, ModelType, PoolingStrateg
 pub use project::{Project, ProjectConfig};
 pub use propagation::{DeltaType, PropagationConfig, PropagationDelta};
 pub use rule::{BoostType, RetrievalRule, RuleAction, RuleCondition, RuleStats, TimeRange};
+pub use scene::Scene;
 pub use tiered::{EdgeHint, RepresentationTier, TierThresholds, TieredMemory, TieredSearchResult};

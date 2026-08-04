@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::error::JsonRpcError;
-use mr_common::{Memory, MemoryType, Project, TieredSearchResult};
+use mr_common::{Memory, MemoryType, Project, Scene, TieredSearchResult};
 
 /// JSON-RPC 2.0 标准响应对象。
 ///
@@ -77,6 +77,8 @@ pub enum ResponseResult {
     Config(ConfigResult),
     Stats(StatsResult),
     Success(SuccessResult),
+    Scene(SceneResult),
+    SceneList(SceneListResult),
 }
 
 /// 单条记忆操作结果，用于 Add/Get/Update 等操作。
@@ -283,4 +285,17 @@ mod tests {
 
         assert_eq!(result.total, parsed.total);
     }
+}
+
+/// 场景结果。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SceneResult {
+    pub scene: Scene,
+}
+
+/// 场景列表结果。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SceneListResult {
+    pub scenes: Vec<Scene>,
+    pub total: usize,
 }

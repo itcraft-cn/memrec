@@ -7,8 +7,8 @@ pub mod types;
 pub use types::{
     BoostType, DeltaType, EdgeHint, EdgeType, Memory, MemoryEdge, MemoryFacet, MemoryScope,
     MemorySource, MemoryType, Project, ProjectConfig, PropagationConfig, PropagationDelta,
-    RepresentationTier, RetrievalRule, RuleAction, RuleCondition, RuleStats, TierThresholds,
-    TieredMemory, TieredSearchResult, TimeRange,
+    RepresentationTier, RetrievalRule, RuleAction, RuleCondition, RuleStats, Scene,
+    TierThresholds, TieredMemory, TieredSearchResult, TimeRange,
 };
 pub use types::{
     DreamConfig, ImportanceConfig, MemoryConfig, SearchConfig, ServerConfig, SourceWeights,

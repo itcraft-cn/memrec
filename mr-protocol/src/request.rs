@@ -48,6 +48,14 @@ pub enum RequestAction {
     ConfigSet,
 
     Stats,
+
+    SceneCreate,
+    SceneGet,
+    SceneList,
+    SceneDelete,
+    SceneAddMemory,
+    SceneRemoveMemory,
+    SceneUpdateHeat,
 }
 
 impl std::fmt::Display for RequestAction {
@@ -72,6 +80,13 @@ impl std::fmt::Display for RequestAction {
             RequestAction::ConfigGet => write!(f, "config_get"),
             RequestAction::ConfigSet => write!(f, "config_set"),
             RequestAction::Stats => write!(f, "stats"),
+            RequestAction::SceneCreate => write!(f, "scene_create"),
+            RequestAction::SceneGet => write!(f, "scene_get"),
+            RequestAction::SceneList => write!(f, "scene_list"),
+            RequestAction::SceneDelete => write!(f, "scene_delete"),
+            RequestAction::SceneAddMemory => write!(f, "scene_add_memory"),
+            RequestAction::SceneRemoveMemory => write!(f, "scene_remove_memory"),
+            RequestAction::SceneUpdateHeat => write!(f, "scene_update_heat"),
         }
     }
 }
@@ -122,10 +137,20 @@ pub enum RequestParams {
     Dream(DreamParams),
 
     ProjectCreate(ProjectCreateParams),
+    ProjectList(ProjectListParams),
     ProjectSwitch(ProjectSwitchParams),
     ProjectDelete(ProjectDeleteParams),
 
+    ConfigGet(ConfigGetParams),
     ConfigSet(ConfigSetParams),
+
+    SceneCreate(SceneCreateParams),
+    SceneGet(SceneGetParams),
+    SceneList(SceneListParams),
+    SceneDelete(SceneDeleteParams),
+    SceneAddMemory(SceneAddMemoryParams),
+    SceneRemoveMemory(SceneRemoveMemoryParams),
+    SceneUpdateHeat(SceneUpdateHeatParams),
 }
 
 /// 添加记忆的参数。
@@ -416,11 +441,72 @@ pub struct ProjectDeleteParams {
     pub force: bool,
 }
 
+/// 列出项目参数。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectListParams {}
+
+/// 获取配置项参数。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigGetParams {
+    pub key: String,
+}
+
 /// 设置配置项的参数。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigSetParams {
     pub key: String,
     pub value: String,
+}
+
+/// 创建场景参数。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SceneCreateParams {
+    pub theme: String,
+    pub project_id: Option<Uuid>,
+    pub tags: Vec<String>,
+}
+
+/// 获取场景参数。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SceneGetParams {
+    pub id: Uuid,
+}
+
+/// 列出场景参数。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SceneListParams {
+    #[serde(default = "default_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub sort_by_heat: bool,
+    pub project_id: Option<Uuid>,
+}
+
+/// 删除场景参数。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SceneDeleteParams {
+    pub id: Uuid,
+}
+
+/// 添加记忆到场景参数。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SceneAddMemoryParams {
+    pub scene_id: Uuid,
+    pub memory_id: Uuid,
+}
+
+/// 从场景移除记忆参数。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SceneRemoveMemoryParams {
+    pub scene_id: Uuid,
+    pub memory_id: Uuid,
+}
+
+/// 更新场景热度参数。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SceneUpdateHeatParams {
+    pub scene_id: Uuid,
+    pub heat: f32,
 }
 
 #[cfg(test)]

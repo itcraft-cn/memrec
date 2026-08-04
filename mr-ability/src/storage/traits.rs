@@ -6,7 +6,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use mr_common::{
-    Memory, MemoryEdge, MemoryFacet, MemoryType, PropagationDelta, RetrievalRule, RuleStats,
+    Memory, MemoryEdge, MemoryFacet, MemoryType, PropagationDelta, RetrievalRule, RuleStats, Scene,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -380,4 +380,51 @@ pub trait TieredStorage: Send + Sync {
         }
         Ok(())
     }
+}
+
+/// 场景存储 trait。
+///
+/// 提供场景的 CRUD、记忆关联管理、热度更新等功能。
+#[async_trait]
+pub trait SceneStorage: Send + Sync {
+    /// 保存场景（新建或更新）。
+    async fn save_scene(&self, scene: &Scene) -> Result<()>;
+
+    /// 获取场景。
+    async fn get_scene(&self, id: &Uuid) -> Result<Option<Scene>>;
+
+    /// 删除场景（软删除）。
+    async fn delete_scene(&self, id: &Uuid) -> Result<bool>;
+
+    /// 列出场景。
+    ///
+    /// # 参数
+    ///
+    /// - `limit`: 最大返回数量
+    /// - `sort_by_heat`: 是否按热度排序（降序）
+    /// - `project_id`: 可选的项目 ID 过滤
+    async fn list_scenes(
+        &self,
+        limit: usize,
+        sort_by_heat: bool,
+        project_id: Option<Uuid>,
+    ) -> Result<Vec<Scene>>;
+
+    /// 添加记忆到场景。
+    async fn add_memory_to_scene(&self, scene_id: &Uuid, memory_id: &Uuid) -> Result<()>;
+
+    /// 从场景移除记忆。
+    async fn remove_memory_from_scene(&self, scene_id: &Uuid, memory_id: &Uuid) -> Result<()>;
+
+    /// 查询记忆所属场景列表。
+    async fn get_memory_scenes(&self, memory_id: &Uuid) -> Result<Vec<Uuid>>;
+
+    /// 更新场景热度值。
+    async fn update_scene_heat(&self, scene_id: &Uuid, heat: f32) -> Result<()>;
+
+    /// 按主题查询场景。
+    async fn get_scene_by_theme(&self, theme: &str) -> Result<Option<Scene>>;
+
+    /// 统计场景数量。
+    async fn count_scenes(&self) -> Result<usize>;
 }
