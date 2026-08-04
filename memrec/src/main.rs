@@ -23,10 +23,11 @@ mod mcp;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use uuid::Uuid;
 
 use client::Client;
 use commands::{
-    add, delete, dream, get, list, search_execute, stats, version, AddOptions, SearchArgs,
+    add, delete, dream, get, list, scene, search_execute, stats, version, AddOptions, SearchArgs,
 };
 
 /// 检测当前工作目录，优先使用 Git 仓库根目录。
@@ -103,6 +104,45 @@ enum Commands {
     Stats,
     Search(SearchArgs),
     Version,
+    #[command(subcommand)]
+    Scene(SceneCommands),
+}
+
+#[derive(Subcommand)]
+enum SceneCommands {
+    Create {
+        theme: String,
+        #[arg(long)]
+        project_id: Option<String>,
+        #[arg(long)]
+        tag: Vec<String>,
+    },
+    Get {
+        id: String,
+    },
+    List {
+        #[arg(short, long, default_value = "20")]
+        limit: usize,
+        #[arg(long)]
+        sort_by_heat: bool,
+        #[arg(long)]
+        project_id: Option<String>,
+    },
+    Delete {
+        id: String,
+    },
+    AddMemory {
+        scene_id: String,
+        memory_id: String,
+    },
+    RemoveMemory {
+        scene_id: String,
+        memory_id: String,
+    },
+    UpdateHeat {
+        scene_id: String,
+        heat: f64,
+    },
 }
 
 #[tokio::main]
@@ -176,6 +216,40 @@ async fn main() -> Result<()> {
         }
         Commands::Version => {
             version(&client, human).await?;
+        }
+        Commands::Scene(cmd) => {
+            match cmd {
+                SceneCommands::Create { theme, project_id, tag } => {
+                    let project_uuid = project_id.and_then(|s| Uuid::parse_str(&s).ok());
+                    scene::create(&client, theme, project_uuid, tag, human).await?;
+                }
+                SceneCommands::Get { id } => {
+                    let uuid = Uuid::parse_str(&id)?;
+                    scene::get(&client, uuid, human).await?;
+                }
+                SceneCommands::List { limit, sort_by_heat, project_id } => {
+                    let project_uuid = project_id.and_then(|s| Uuid::parse_str(&s).ok());
+                    scene::list(&client, limit, sort_by_heat, project_uuid, human).await?;
+                }
+                SceneCommands::Delete { id } => {
+                    let uuid = Uuid::parse_str(&id)?;
+                    scene::delete(&client, uuid, human).await?;
+                }
+                SceneCommands::AddMemory { scene_id, memory_id } => {
+                    let scene_uuid = Uuid::parse_str(&scene_id)?;
+                    let memory_uuid = Uuid::parse_str(&memory_id)?;
+                    scene::add_memory(&client, scene_uuid, memory_uuid, human).await?;
+                }
+                SceneCommands::RemoveMemory { scene_id, memory_id } => {
+                    let scene_uuid = Uuid::parse_str(&scene_id)?;
+                    let memory_uuid = Uuid::parse_str(&memory_id)?;
+                    scene::remove_memory(&client, scene_uuid, memory_uuid, human).await?;
+                }
+                SceneCommands::UpdateHeat { scene_id, heat } => {
+                    let uuid = Uuid::parse_str(&scene_id)?;
+                    scene::update_heat(&client, uuid, heat as f32, human).await?;
+                }
+            }
         }
     }
 

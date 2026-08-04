@@ -22,14 +22,16 @@ use mr_ability::dream::DreamProcessor;
 use mr_ability::embedding::EmbeddingGenerator;
 use mr_ability::project::{detect_project_id, find_project_root};
 use mr_ability::storage::{
-    HybridSearchRequest, HybridStorage, MemoryStorage, SearchFilter, VectorPayload, VectorStorage,
+    HybridSearchRequest, HybridStorage, MemoryStorage, SceneStorage, SearchFilter, VectorPayload,
+    VectorStorage,
 };
 use mr_ability::tiered::TierAssigner;
 use mr_common::{Memory, MemoryType, RepresentationTier, TierThresholds};
 use mr_protocol::{
     DreamResult, GetProjectInfoParams, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
     MemoryListResult, MemoryResult, ProjectInfoResult, RequestAction, RequestParams,
-    ResponseResult, SearchHit, SemanticSearchResult, StatsResult, SuccessResult, VersionResult,
+    ResponseResult, SceneListResult, SceneResult, SearchHit, SemanticSearchResult, StatsResult,
+    SuccessResult, VersionResult,
 };
 use std::sync::Arc;
 use std::time::Instant;
@@ -47,6 +49,7 @@ pub struct Router {
     embedder: Arc<dyn EmbeddingGenerator>,
     dream_processor: Arc<DreamProcessor>,
     archive_manager: ArchiveManager,
+    scene_store: Arc<dyn SceneStorage>,
 }
 
 impl Router {
@@ -57,6 +60,7 @@ impl Router {
         embedder: Arc<dyn EmbeddingGenerator>,
         dream_processor: Arc<DreamProcessor>,
         archive_manager: ArchiveManager,
+        scene_store: Arc<dyn SceneStorage>,
     ) -> Self {
         Self {
             storage,
@@ -65,6 +69,7 @@ impl Router {
             embedder,
             dream_processor,
             archive_manager,
+            scene_store,
         }
     }
 
@@ -73,7 +78,7 @@ impl Router {
     pub fn new_simple(storage: Arc<dyn MemoryStorage>) -> Self {
         use mr_ability::embedding::MockEmbedder;
         use mr_ability::search::{MmrConfig, ScorerConfig};
-        use mr_ability::storage::HybridStore;
+        use mr_ability::storage::{HybridStore, SceneStore};
         use mr_common::DreamConfig;
 
         let embedder = Arc::new(MockEmbedder::new());
@@ -92,7 +97,11 @@ impl Router {
             &data_dir,
             storage.clone(),
         ));
-        let archive_manager = ArchiveManager::new(data_dir, true);
+        let archive_manager = ArchiveManager::new(data_dir.clone(), true);
+        
+        let rocksdb = mr_ability::storage::RocksDBStore::open(&data_dir).unwrap();
+        let scene_store = Arc::new(SceneStore::new(rocksdb));
+        
         Self {
             storage,
             vector_store,
@@ -100,6 +109,7 @@ impl Router {
             embedder,
             dream_processor,
             archive_manager,
+            scene_store,
         }
     }
 
@@ -123,6 +133,24 @@ impl Router {
             }
             RequestAction::GetVersion => self.handle_version(request.id).await,
             RequestAction::Dream => self.handle_dream(request.params, request.id).await,
+
+            RequestAction::SceneCreate => {
+                self.handle_scene_create(request.params, request.id).await
+            }
+            RequestAction::SceneGet => self.handle_scene_get(request.params, request.id).await,
+            RequestAction::SceneList => self.handle_scene_list(request.params, request.id).await,
+            RequestAction::SceneDelete => {
+                self.handle_scene_delete(request.params, request.id).await
+            }
+            RequestAction::SceneAddMemory => {
+                self.handle_scene_add_memory(request.params, request.id).await
+            }
+            RequestAction::SceneRemoveMemory => {
+                self.handle_scene_remove_memory(request.params, request.id).await
+            }
+            RequestAction::SceneUpdateHeat => {
+                self.handle_scene_update_heat(request.params, request.id).await
+            }
 
             _ => JsonRpcResponse::error(
                 JsonRpcError {
@@ -849,6 +877,241 @@ impl Router {
         serde_json::to_string(response)
             .map_err(|e| anyhow::anyhow!("Failed to serialize response: {}", e))
     }
+
+    /// 处理 SceneCreate 请求：创建场景。
+    async fn handle_scene_create(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+        match params {
+            Some(RequestParams::SceneCreate(p)) => {
+                let mut scene = mr_common::Scene::new(p.theme);
+                if let Some(project_id) = p.project_id {
+                    scene.project_id = Some(project_id);
+                }
+                scene.tags = p.tags;
+
+                match self.scene_store.save_scene(&scene).await {
+                    Ok(_) => JsonRpcResponse::success(ResponseResult::Scene(SceneResult { scene }), id),
+                    Err(e) => JsonRpcResponse::error(
+                        JsonRpcError {
+                            code: -32000,
+                            message: format!("Failed to create scene: {}", e),
+                            data: None,
+                        },
+                        id,
+                    ),
+                }
+            }
+            _ => JsonRpcResponse::error(
+                JsonRpcError {
+                    code: -32602,
+                    message: "Invalid params for SceneCreate".to_string(),
+                    data: None,
+                },
+                id,
+            ),
+        }
+    }
+
+    /// 处理 SceneGet 请求：获取场景。
+    async fn handle_scene_get(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+        match params {
+            Some(RequestParams::SceneGet(p)) => {
+                match self.scene_store.get_scene(&p.id).await {
+                    Ok(Some(scene)) => JsonRpcResponse::success(ResponseResult::Scene(SceneResult { scene }), id),
+                    Ok(None) => JsonRpcResponse::error(
+                        JsonRpcError {
+                            code: -32001,
+                            message: "Scene not found".to_string(),
+                            data: None,
+                        },
+                        id,
+                    ),
+                    Err(e) => JsonRpcResponse::error(
+                        JsonRpcError {
+                            code: -32000,
+                            message: format!("Failed to get scene: {}", e),
+                            data: None,
+                        },
+                        id,
+                    ),
+                }
+            }
+            _ => JsonRpcResponse::error(
+                JsonRpcError {
+                    code: -32602,
+                    message: "Invalid params for SceneGet".to_string(),
+                    data: None,
+                },
+                id,
+            ),
+        }
+    }
+
+    /// 处理 SceneList 请求：列出场景。
+    async fn handle_scene_list(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+        match params {
+            Some(RequestParams::SceneList(p)) => {
+                match self.scene_store.list_scenes(p.limit, p.sort_by_heat, p.project_id).await {
+                    Ok(scenes) => {
+                        let total = scenes.len();
+                        JsonRpcResponse::success(
+                            ResponseResult::SceneList(SceneListResult { scenes, total }),
+                            id,
+                        )
+                    }
+                    Err(e) => JsonRpcResponse::error(
+                        JsonRpcError {
+                            code: -32000,
+                            message: format!("Failed to list scenes: {}", e),
+                            data: None,
+                        },
+                        id,
+                    ),
+                }
+            }
+            _ => JsonRpcResponse::error(
+                JsonRpcError {
+                    code: -32602,
+                    message: "Invalid params for SceneList".to_string(),
+                    data: None,
+                },
+                id,
+            ),
+        }
+    }
+
+    /// 处理 SceneDelete 请求：删除场景。
+    async fn handle_scene_delete(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+        match params {
+            Some(RequestParams::SceneDelete(p)) => {
+                match self.scene_store.delete_scene(&p.id).await {
+                    Ok(true) => JsonRpcResponse::success(
+                        ResponseResult::Success(SuccessResult {
+                            message: "Scene deleted".to_string(),
+                        }),
+                        id,
+                    ),
+                    Ok(false) => JsonRpcResponse::success(
+                        ResponseResult::Success(SuccessResult {
+                            message: "Scene marked as deleted".to_string(),
+                        }),
+                        id,
+                    ),
+                    Err(e) => JsonRpcResponse::error(
+                        JsonRpcError {
+                            code: -32000,
+                            message: format!("Failed to delete scene: {}", e),
+                            data: None,
+                        },
+                        id,
+                    ),
+                }
+            }
+            _ => JsonRpcResponse::error(
+                JsonRpcError {
+                    code: -32602,
+                    message: "Invalid params for SceneDelete".to_string(),
+                    data: None,
+                },
+                id,
+            ),
+        }
+    }
+
+    /// 处理 SceneAddMemory 请求：添加记忆到场景。
+    async fn handle_scene_add_memory(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+        match params {
+            Some(RequestParams::SceneAddMemory(p)) => {
+                match self.scene_store.add_memory_to_scene(&p.scene_id, &p.memory_id).await {
+                    Ok(_) => JsonRpcResponse::success(
+                        ResponseResult::Success(SuccessResult {
+                            message: "Memory added to scene".to_string(),
+                        }),
+                        id,
+                    ),
+                    Err(e) => JsonRpcResponse::error(
+                        JsonRpcError {
+                            code: -32000,
+                            message: format!("Failed to add memory to scene: {}", e),
+                            data: None,
+                        },
+                        id,
+                    ),
+                }
+            }
+            _ => JsonRpcResponse::error(
+                JsonRpcError {
+                    code: -32602,
+                    message: "Invalid params for SceneAddMemory".to_string(),
+                    data: None,
+                },
+                id,
+            ),
+        }
+    }
+
+    /// 处理 SceneRemoveMemory 请求：从场景移除记忆。
+    async fn handle_scene_remove_memory(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+        match params {
+            Some(RequestParams::SceneRemoveMemory(p)) => {
+                match self.scene_store.remove_memory_from_scene(&p.scene_id, &p.memory_id).await {
+                    Ok(_) => JsonRpcResponse::success(
+                        ResponseResult::Success(SuccessResult {
+                            message: "Memory removed from scene".to_string(),
+                        }),
+                        id,
+                    ),
+                    Err(e) => JsonRpcResponse::error(
+                        JsonRpcError {
+                            code: -32000,
+                            message: format!("Failed to remove memory from scene: {}", e),
+                            data: None,
+                        },
+                        id,
+                    ),
+                }
+            }
+            _ => JsonRpcResponse::error(
+                JsonRpcError {
+                    code: -32602,
+                    message: "Invalid params for SceneRemoveMemory".to_string(),
+                    data: None,
+                },
+                id,
+            ),
+        }
+    }
+
+    /// 处理 SceneUpdateHeat 请求：更新场景热度。
+    async fn handle_scene_update_heat(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+        match params {
+            Some(RequestParams::SceneUpdateHeat(p)) => {
+                match self.scene_store.update_scene_heat(&p.scene_id, p.heat).await {
+                    Ok(_) => JsonRpcResponse::success(
+                        ResponseResult::Success(SuccessResult {
+                            message: "Scene heat updated".to_string(),
+                        }),
+                        id,
+                    ),
+                    Err(e) => JsonRpcResponse::error(
+                        JsonRpcError {
+                            code: -32000,
+                            message: format!("Failed to update scene heat: {}", e),
+                            data: None,
+                        },
+                        id,
+                    ),
+                }
+            }
+            _ => JsonRpcResponse::error(
+                JsonRpcError {
+                    code: -32602,
+                    message: "Invalid params for SceneUpdateHeat".to_string(),
+                    data: None,
+                },
+                id,
+            ),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -887,7 +1150,10 @@ mod tests {
             &data_dir,
             storage.clone(),
         ));
-        let archive_manager = ArchiveManager::new(data_dir, true);
+        let archive_manager = ArchiveManager::new(data_dir.clone(), true);
+
+        let rocksdb_for_scene = RocksDBStore::open(&data_dir).unwrap();
+        let scene_store = Arc::new(SceneStore::new(rocksdb_for_scene));
 
         let router = Router::new(
             storage,
@@ -896,6 +1162,7 @@ mod tests {
             embedder,
             dream_processor,
             archive_manager,
+            scene_store,
         );
 
         let request = JsonRpcRequest::new(

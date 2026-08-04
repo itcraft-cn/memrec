@@ -134,6 +134,11 @@ impl Daemon {
             self.config.archive.enabled,
         );
 
+        let rocksdb_for_scene = mr_ability::storage::rocksdb::RocksDBStore::open(
+            &self.config.server.data_dir,
+        )?;
+        let scene_store = Arc::new(mr_ability::storage::SceneStore::new(rocksdb_for_scene));
+
         let router = Arc::new(Router::new(
             storage.clone(),
             vector_store.clone(),
@@ -141,6 +146,7 @@ impl Daemon {
             embedder,
             dream_processor.clone(),
             archive_manager,
+            scene_store,
         ));
 
         let server = UnixSocketServer::bind(&self.config.server.socket_path, router).await?;
