@@ -111,7 +111,7 @@ mod tests {
     async fn test_personal_summarizer_empty() {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        let storage = Arc::new(MemoryStore::new(rocksdb));
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
 
         let summarizer = PersonalSummarizer::new(storage, 100, 10);
         let result = summarizer.execute().await;
@@ -124,7 +124,7 @@ mod tests {
     async fn test_personal_summarizer_with_memories() {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        let storage = Arc::new(MemoryStore::new(rocksdb));
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
 
         let mut m1 = Memory::new("global memory 1".to_string(), MemoryType::Knowledge)
             .with_project(Uuid::nil())

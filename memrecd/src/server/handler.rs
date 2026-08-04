@@ -100,7 +100,7 @@ impl Router {
         let archive_manager = ArchiveManager::new(data_dir.clone(), true);
         
         let rocksdb = mr_ability::storage::RocksDBStore::open(&data_dir).unwrap();
-        let scene_store = Arc::new(SceneStore::new(rocksdb));
+        let scene_store = Arc::new(SceneStore::new(std::sync::Arc::new(rocksdb)));
         
         Self {
             storage,
@@ -1120,7 +1120,7 @@ mod tests {
     use mr_ability::embedding::MockEmbedder;
     use mr_ability::search::{MmrConfig, ScorerConfig};
     use mr_ability::storage::rocksdb::RocksDBStore;
-    use mr_ability::storage::{HybridStore, MemoryStore, TantivyStore, VectorStore};
+    use mr_ability::storage::{HybridStore, MemoryStore, SceneStore, TantivyStore, VectorStore};
     use mr_common::DreamConfig;
     use mr_protocol::{
         default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda, GetProjectInfoParams,
@@ -1132,7 +1132,7 @@ mod tests {
     async fn test_router_search_memory() {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        let storage = Arc::new(MemoryStore::new(rocksdb));
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
         let embedder = Arc::new(MockEmbedder::new());
         let vector_store = Arc::new(VectorStore::new(embedder.dimension()));
         let fts_store = Arc::new(TantivyStore::new_test());
@@ -1152,7 +1152,7 @@ mod tests {
         ));
         let archive_manager = ArchiveManager::new(data_dir.clone(), true);
 
-        let rocksdb_for_scene = RocksDBStore::open(&data_dir).unwrap();
+        let rocksdb_for_scene = Arc::new(RocksDBStore::open(&data_dir).unwrap());
         let scene_store = Arc::new(SceneStore::new(rocksdb_for_scene));
 
         let router = Router::new(
@@ -1193,7 +1193,7 @@ mod tests {
     async fn test_router_project_info() {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        let storage = Arc::new(MemoryStore::new(rocksdb));
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
 
         let router = Router::new_simple(storage);
 

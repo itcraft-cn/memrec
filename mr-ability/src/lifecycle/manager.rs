@@ -126,7 +126,7 @@ mod tests {
     async fn test_recalculate_importance() {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        let storage = Arc::new(MemoryStore::new(rocksdb));
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
 
         let memory = Memory::new("test".to_string(), MemoryType::Knowledge);
         storage.save(&memory).await.unwrap();
@@ -146,7 +146,7 @@ mod tests {
     async fn test_cleanup_soft_deleted_memories() {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        let storage = Arc::new(MemoryStore::new(rocksdb));
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
 
         let memory = Memory::new("to be deleted".to_string(), MemoryType::Knowledge);
         storage.save(&memory).await.unwrap();
@@ -177,7 +177,7 @@ mod tests {
     async fn test_cleanup_does_not_affect_active_memories() {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        let storage = Arc::new(MemoryStore::new(rocksdb));
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
 
         let active_memory = Memory::new("active memory".to_string(), MemoryType::Knowledge)
             .with_tags(vec!["critical".to_string()]);
@@ -198,7 +198,7 @@ mod tests {
     async fn test_cleanup_low_importance_inactive_memories() {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        let storage = Arc::new(MemoryStore::new(rocksdb));
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
 
         let mut memory = Memory::new("low importance".to_string(), MemoryType::Conversation);
         memory.importance = 0.05;

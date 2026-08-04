@@ -130,7 +130,7 @@ mod tests {
     async fn test_vector_regenerator_empty() {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        let storage = Arc::new(MemoryStore::new(rocksdb));
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
 
         let embedder = Arc::new(MockEmbedder);
         let vector_store = Arc::new(VectorStore::new(embedder.dimension()));
@@ -147,7 +147,7 @@ mod tests {
     async fn test_vector_regenerator_with_memories() {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        let storage = Arc::new(MemoryStore::new(rocksdb));
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
 
         let m1 = Memory::new("test memory".to_string(), MemoryType::Knowledge);
         storage.save(&m1).await.unwrap();

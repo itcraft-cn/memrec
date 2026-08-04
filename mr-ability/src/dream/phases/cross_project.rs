@@ -124,7 +124,7 @@ mod tests {
     async fn test_cross_project_extractor_empty() {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        let storage = Arc::new(MemoryStore::new(rocksdb));
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
 
         let extractor = CrossProjectExtractor::new(storage, 100, 10);
         let result = extractor.execute().await;
@@ -137,7 +137,7 @@ mod tests {
     async fn test_cross_project_extractor_with_memories() {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        let storage = Arc::new(MemoryStore::new(rocksdb));
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
 
         let mut m1 = Memory::new("memory 1".to_string(), MemoryType::Knowledge);
         m1.tags = vec!["rust".to_string()];

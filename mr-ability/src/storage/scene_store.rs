@@ -25,12 +25,12 @@ use uuid::Uuid;
 
 /// 基于 RocksDB 的场景存储实现。
 pub struct SceneStore {
-    rocksdb: RocksDBStore,
+    rocksdb: std::sync::Arc<RocksDBStore>,
 }
 
 impl SceneStore {
     /// 创建场景存储实例。
-    pub fn new(rocksdb: RocksDBStore) -> Self {
+    pub fn new(rocksdb: std::sync::Arc<RocksDBStore>) -> Self {
         Self { rocksdb }
     }
 
@@ -317,7 +317,7 @@ mod tests {
     #[tokio::test]
     async fn test_scene_save_and_get() {
         let dir = tempdir().unwrap();
-        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let rocksdb = std::sync::Arc::new(RocksDBStore::open(dir.path()).unwrap());
         let store = SceneStore::new(rocksdb);
 
         let scene = Scene::new("Test Scene".to_string());
@@ -332,7 +332,7 @@ mod tests {
     #[tokio::test]
     async fn test_scene_list() {
         let dir = tempdir().unwrap();
-        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let rocksdb = std::sync::Arc::new(RocksDBStore::open(dir.path()).unwrap());
         let store = SceneStore::new(rocksdb);
 
         for i in 0..5 {
@@ -348,7 +348,7 @@ mod tests {
     #[tokio::test]
     async fn test_scene_list_by_heat() {
         let dir = tempdir().unwrap();
-        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let rocksdb = std::sync::Arc::new(RocksDBStore::open(dir.path()).unwrap());
         let store = SceneStore::new(rocksdb);
 
         let mut scene1 = Scene::new("Low Heat".to_string());
@@ -368,7 +368,7 @@ mod tests {
     #[tokio::test]
     async fn test_scene_add_memory() {
         let dir = tempdir().unwrap();
-        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let rocksdb = std::sync::Arc::new(RocksDBStore::open(dir.path()).unwrap());
         let store = SceneStore::new(rocksdb);
 
         let scene = Scene::new("Test".to_string());
@@ -388,7 +388,7 @@ mod tests {
     #[tokio::test]
     async fn test_scene_remove_memory() {
         let dir = tempdir().unwrap();
-        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let rocksdb = std::sync::Arc::new(RocksDBStore::open(dir.path()).unwrap());
         let store = SceneStore::new(rocksdb);
 
         let scene = Scene::new("Test".to_string());
@@ -412,7 +412,7 @@ mod tests {
     #[tokio::test]
     async fn test_scene_soft_delete() {
         let dir = tempdir().unwrap();
-        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let rocksdb = std::sync::Arc::new(RocksDBStore::open(dir.path()).unwrap());
         let store = SceneStore::new(rocksdb);
 
         let scene = Scene::new("Test".to_string());
@@ -428,7 +428,7 @@ mod tests {
     #[tokio::test]
     async fn test_scene_get_memory_scenes() {
         let dir = tempdir().unwrap();
-        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let rocksdb = std::sync::Arc::new(RocksDBStore::open(dir.path()).unwrap());
         let store = SceneStore::new(rocksdb);
 
         let scene1 = Scene::new("Scene 1".to_string());
@@ -453,7 +453,7 @@ mod tests {
     #[tokio::test]
     async fn test_scene_get_by_theme() {
         let dir = tempdir().unwrap();
-        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let rocksdb = std::sync::Arc::new(RocksDBStore::open(dir.path()).unwrap());
         let store = SceneStore::new(rocksdb);
 
         let scene = Scene::new("Unique Theme".to_string());

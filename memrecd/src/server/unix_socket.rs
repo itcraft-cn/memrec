@@ -109,7 +109,9 @@ mod tests {
     use mr_ability::dream::DreamProcessor;
     use mr_ability::embedding::{EmbeddingGenerator, MockEmbedder};
     use mr_ability::search::{MmrConfig, ScorerConfig};
-    use mr_ability::storage::{HybridStore, MemoryStore, RocksDBStore, TantivyStore, VectorStore};
+    use mr_ability::storage::{
+        HybridStore, MemoryStore, RocksDBStore, SceneStore, TantivyStore, VectorStore,
+    };
     use mr_common::DreamConfig;
     use tempfile::tempdir;
 
@@ -119,7 +121,7 @@ mod tests {
         let socket_path = dir.path().join("test.sock");
 
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        let storage = Arc::new(MemoryStore::new(rocksdb));
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
         let embedder = Arc::new(MockEmbedder::new());
         let vector_store = Arc::new(VectorStore::new(embedder.dimension()));
         let fts_store = Arc::new(TantivyStore::new_test());
@@ -136,7 +138,11 @@ mod tests {
             &data_dir,
             storage.clone(),
         ));
-        let archive_manager = ArchiveManager::new(data_dir, true);
+        let archive_manager = ArchiveManager::new(data_dir.clone(), true);
+
+        let rocksdb_for_scene = Arc::new(RocksDBStore::open(&data_dir).unwrap());
+        let scene_store = Arc::new(SceneStore::new(rocksdb_for_scene));
+
         let router = Arc::new(Router::new(
             storage,
             vector_store,
@@ -144,6 +150,7 @@ mod tests {
             embedder,
             dream_processor,
             archive_manager,
+            scene_store,
         ));
 
         let _server = UnixSocketServer::bind(&socket_path, router).await.unwrap();

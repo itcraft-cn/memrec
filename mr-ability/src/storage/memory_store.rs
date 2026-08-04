@@ -25,12 +25,12 @@ use uuid::Uuid;
 
 /// 基于 RocksDB 的记忆存储实现。
 pub struct MemoryStore {
-    rocksdb: RocksDBStore,
+    rocksdb: std::sync::Arc<RocksDBStore>,
 }
 
 impl MemoryStore {
     /// 创建记忆存储实例。
-    pub fn new(rocksdb: RocksDBStore) -> Self {
+    pub fn new(rocksdb: std::sync::Arc<RocksDBStore>) -> Self {
         Self { rocksdb }
     }
 
@@ -309,7 +309,7 @@ mod tests {
     async fn test_memory_save_and_get() {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        let store = MemoryStore::new(rocksdb);
+        let store = MemoryStore::new(std::sync::Arc::new(rocksdb));
 
         let memory = Memory::new("test content".to_string(), MemoryType::Knowledge)
             .with_tags(vec!["tag1".to_string()]);
@@ -325,7 +325,7 @@ mod tests {
     async fn test_memory_list() {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        let store = MemoryStore::new(rocksdb);
+        let store = MemoryStore::new(std::sync::Arc::new(rocksdb));
 
         for i in 0..5 {
             let memory = Memory::new(format!("content {}", i), MemoryType::Conversation);
@@ -340,7 +340,7 @@ mod tests {
     async fn test_memory_list_by_tag() {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        let store = MemoryStore::new(rocksdb);
+        let store = MemoryStore::new(std::sync::Arc::new(rocksdb));
 
         let m1 = Memory::new("content 1".to_string(), MemoryType::Knowledge)
             .with_tags(vec!["rust".to_string()]);
@@ -358,7 +358,7 @@ mod tests {
     async fn test_memory_soft_delete() {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        let store = MemoryStore::new(rocksdb);
+        let store = MemoryStore::new(std::sync::Arc::new(rocksdb));
 
         let memory = Memory::new("test".to_string(), MemoryType::Conversation);
         store.save(&memory).await.unwrap();

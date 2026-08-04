@@ -93,7 +93,7 @@ mod tests {
     async fn test_memory_cleaner_empty() {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        let storage = Arc::new(MemoryStore::new(rocksdb));
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
 
         let cleaner = MemoryCleaner::new(storage, 100, 10, 90, 0.1);
         let result = cleaner.execute().await;
@@ -106,7 +106,7 @@ mod tests {
     async fn test_memory_cleaner_with_memories() {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        let storage = Arc::new(MemoryStore::new(rocksdb));
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
 
         let mut m1 = Memory::new("old low importance".to_string(), MemoryType::Knowledge);
         m1.created_at = Utc::now() - chrono::Duration::days(100);

@@ -322,7 +322,7 @@ mod tests {
     fn create_test_processor() -> (DreamProcessor, Arc<MemoryStore>, tempfile::TempDir) {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        let storage = Arc::new(MemoryStore::new(rocksdb));
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
 
         let config = DreamConfig {
             enabled: true,
@@ -340,7 +340,7 @@ mod tests {
     async fn test_execute_disabled() {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        let storage = Arc::new(MemoryStore::new(rocksdb));
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
 
         let config = DreamConfig {
             enabled: false,

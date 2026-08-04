@@ -86,8 +86,9 @@ impl Daemon {
             );
         }
 
-        let rocksdb = RocksDBStore::open(&self.config.server.data_dir)?;
-        let storage = Arc::new(MemoryStore::new(rocksdb));
+        let rocksdb = Arc::new(RocksDBStore::open(&self.config.server.data_dir)?);
+        let storage = Arc::new(MemoryStore::new(rocksdb.clone()));
+        let scene_store = Arc::new(mr_ability::storage::SceneStore::new(rocksdb));
 
         let embedder = GeneratorFactory::create(self.config.model.clone())?;
         let vector_store = Arc::new(RocksDBVectorStore::open(
@@ -133,11 +134,6 @@ impl Daemon {
             self.config.server.data_dir.clone(),
             self.config.archive.enabled,
         );
-
-        let rocksdb_for_scene = mr_ability::storage::rocksdb::RocksDBStore::open(
-            &self.config.server.data_dir,
-        )?;
-        let scene_store = Arc::new(mr_ability::storage::SceneStore::new(rocksdb_for_scene));
 
         let router = Arc::new(Router::new(
             storage.clone(),
