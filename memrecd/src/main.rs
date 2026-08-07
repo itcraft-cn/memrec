@@ -59,7 +59,12 @@ fn main() -> Result<()> {
 
     let daemon = Daemon::new()?;
 
-    tokio::runtime::Runtime::new()?.block_on(async { daemon.run().await })?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .thread_name("tokio-worker")
+        .enable_all()
+        .build()?;
+
+    runtime.block_on(async { daemon.run().await })?;
 
     info!("memrecd stopped");
     Ok(())
