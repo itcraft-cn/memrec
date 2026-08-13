@@ -21,3 +21,8 @@ Cargo.lock
 # Memory
 MEMORY.md
 .mr_pid
+
+# DSH plugin
+dsh-plugin/node_modules/
+dsh-plugin/lib/
+.npm-cache/

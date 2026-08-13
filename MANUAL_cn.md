@@ -613,6 +613,45 @@ AI CLI 工具（如 opencode）可通过 Skill 集成：
 - Skill 文件：`~/.opencode/skills/memrec/SKILL.md`
 - AI agent 自动读取 Skill，了解命令用法和最佳实践
 
+## DeepSeek Harness (DSH) 插件集成
+
+MemRec 提供 DSH 原生插件（仓库 `dsh-plugin/` 目录，npm 包 `@memrec/dsh-plugin`），
+比 MCP 桥接更深度：
+
+| 能力 | 说明 |
+|------|------|
+| 原生工具 | `mr_add` / `mr_search` / `mr_get` / `mr_list` / `mr_delete` / `mr_stats` / `mr_dream`，无 `mcp__` 前缀 |
+| 项目隔离 | 工具自动携带会话工作目录（MCP 模式不传 `working_dir`，项目隔离失效；插件修复此问题） |
+| 上下文注入 | 模型请求前自动检索当前项目相关记忆注入会话 |
+| 自动记录 | turn 结束时 LLM 提取决策/知识/偏好写入 memrec（`source: inferred`） |
+
+启用步骤：
+
+```bash
+# 1. 构建插件
+cd dsh-plugin && npm install && npm run build
+
+# 2. 安装到 profile（如 web）
+dsh plugin --profile web add /abs/path/to/memrec/dsh-plugin
+
+# 3. 在 $DSH_HOME/profiles/web/cordis.patch.yml 追加：
+# - insert:
+#     - id: memrec
+#       name: '/abs/path/to/memrec/dsh-plugin/lib/index.js'
+#       config:
+#         socketPath: '~/.memrec/memrecd.sock'
+#         injectContext: true
+#         autoRecord: true
+
+# 4. 重启 DSH 进程后生效
+```
+
+配置项（均可选）：`socketPath`、`injectContext`、`contextTopK`、
+`contextMinScore`、`contextRefreshTurns`、`autoRecord`、
+`autoRecordProvider`、`autoRecordModel`、`autoRecordInterval`、
+`autoRecordMaxPerSession`。详见 `dsh-plugin/README.md` 与
+`docs/design/dsh-plugin-design.md`。
+
 ## 性能参考
 
 | 指标 | MiniLM-L6-v2 | BGE-M3 |
