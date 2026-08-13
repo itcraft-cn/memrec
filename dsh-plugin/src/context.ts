@@ -45,11 +45,29 @@ function renderHit(hit: {
   return `- [${score}] (${type})${tags}\n  ${body}`
 }
 
-/** 将 daemon 检索结果渲染为注入文本。 */
-export function renderContextText(result: unknown): string {
+/**
+ * 将 daemon 检索结果渲染为注入文本。
+ *
+ * 防御性过滤（服务端 `min_score` 仅作用于向量侧原始过滤，融合后的
+ * 分数可能低于阈值；部分记忆 `content_preview` 为空、无信息量）：
+ * - 过滤 `score < minScore` 的条目；
+ * - 过滤 `content_preview` 为空的条目；
+ * - 注入上限 8 条，控制 token 成本。
+ */
+export function renderContextText(result: unknown, minScore = 0): string {
   const results = (result as { results?: unknown[] })?.results
   if (!Array.isArray(results) || results.length === 0) return ''
-  const lines = results.map((r) => renderHit(r as Parameters<typeof renderHit>[0]))
+  const kept = results
+    .filter((r) => {
+      const hit = r as { score?: unknown; content_preview?: unknown }
+      const score = typeof hit.score === 'number' ? hit.score : 0
+      if (score < minScore) return false
+      const preview = typeof hit.content_preview === 'string' ? hit.content_preview.trim() : ''
+      return preview.length > 0
+    })
+    .slice(0, 8)
+  if (kept.length === 0) return ''
+  const lines = kept.map((r) => renderHit(r as Parameters<typeof renderHit>[0]))
   return `## MemRec 项目记忆（自动检索）\n${lines.join('\n')}`
 }
 
@@ -117,7 +135,7 @@ export function installContextInjection(
       try {
         result = await daemon.call('search_memory', {
           query,
-          top_k: config.topK,
+          top_k: Math.max(config.topK, 8),
           min_score: config.minScore,
           include_global: true,
           working_dir: payload.agent.session.header.cwd ?? process.cwd(),
@@ -134,7 +152,7 @@ export function installContextInjection(
         return decision
       }
 
-      const text = renderContextText(result)
+      const text = renderContextText(result, config.minScore)
       if (text.length === 0) return decision
 
       lastInjectedTurn.set(agentId, payload.turn)

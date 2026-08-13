@@ -154,9 +154,32 @@ test('renderContextText 渲染检索结果', () => {
   assert.ok(text.includes('选择JWT认证方案'))
 })
 
+test('renderContextText 过滤低分与空 preview 条目', () => {
+  const text = renderContextText(
+    {
+      results: [
+        { score: 0.9, memory_type: 'knowledge', content_preview: '有效内容' },
+        { score: 0.42, memory_type: 'knowledge', content_preview: '低于阈值' },
+        { score: 0.5, memory_type: 'knowledge', content_preview: '  ' },
+        { score: 0.6, memory_type: 'decision', content_preview: '' },
+        { score: 0.55 }, // 无 preview 字段
+      ],
+    },
+    0.45,
+  )
+  assert.ok(text.includes('有效内容'), '高分且非空 preview 应保留')
+  assert.ok(!text.includes('低于阈值'), '低于 minScore 应过滤')
+  assert.ok(!text.includes('内容为空'), '空 preview 应过滤')
+  assert.ok(!text.includes('0.5]'), '空白 preview 应过滤')
+})
+
 test('renderContextText 空结果返回空串', () => {
   assert.equal(renderContextText({ results: [] }), '')
   assert.equal(renderContextText({}), '')
+  assert.equal(
+    renderContextText({ results: [{ score: 0.8, content_preview: '' }] }, 0.45),
+    '',
+  )
 })
 
 test('parseExtraction 容错解析 LLM 输出', () => {

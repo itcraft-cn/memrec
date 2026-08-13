@@ -149,10 +149,11 @@ impl MmrHit for MmrSearchHit {
 #[async_trait]
 impl HybridStorage for HybridStore {
     async fn search(&self, req: HybridSearchRequest) -> Result<HybridSearchResult> {
+        let filter = req.filter.clone();
         let (vec_result, fts_result) = tokio::join!(
             self.vector_store
-                .search(&req.query_embedding, req.filter.clone(), req.top_k),
-            self.fts_store.search(&req.query, req.filter, req.top_k)
+                .search(&req.query_embedding, filter.clone(), req.top_k),
+            self.fts_store.search(&req.query, filter.clone(), req.top_k)
         );
 
         let vec_hits = vec_result?;
@@ -174,6 +175,10 @@ impl HybridStorage for HybridStore {
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
+        // 融合分数过滤：min_score 语义为"最终相似度下限"，向量侧的原始
+        // 过滤无法覆盖 BM25 融合后的归一化分数，这里对融合结果统一过滤，
+        // 避免低于阈值的低相关条目混入结果（影响 CLI/MCP/DSH 插件）。
+        sorted.retain(|h| h.score >= filter.min_score);
         sorted.truncate(req.top_k);
 
         let final_hits = if req.mmr_enabled {
