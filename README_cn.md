@@ -10,6 +10,11 @@
 
 - **项目隔离** — 自动检测git root，.mr_pid持久化，多项目独立记忆
 - **混合检索** — KNN向量搜索 + BM25全文检索，MMR重排，中文搜索支持
+- **场景聚合** — L2场景聚合层，按主题聚合记忆卡片，热度排序（记忆金字塔 L0-L3）
+- **Dream 整合** — 空闲时自动触发的四阶段记忆整合，可选 LLM 摘要
+- **LLM 接入** — 可选 OpenAI 兼容大模型，驱动 Dream 摘要
+- **写入去重** — 每次写入 ADD/UPDATE/NOOP 决策
+- **插件生态** — pi 扩展与 DeepSeek Harness 原生插件
 - **语义检索** — 本地ONNX模型 — MiniLM-L6-v2（384维）或 BGE-M3（1024维，多语言），零API费用
 - **智能评分** — 时间衰减、常青豁免、来源权重
 - **跨项目搜索** — `--all`标志发现跨项目关联知识
@@ -82,6 +87,14 @@ memrec list --limit 20
 memrec get <id>
 memrec stats
 memrec version
+
+# L2 场景聚合
+memrec scene create "Rust开发规范" --tag rust
+memrec scene list --sort-by-heat
+memrec scene add-memory <scene-id> <memory-id>
+
+# Dream 整合（空闲自动触发，或手动）
+memrec dream --force
 ```
 
 ## 项目隔离
@@ -109,6 +122,21 @@ project-a/           project-b/
 | 上下文 | `context` | 项目配置、环境信息 |
 | 偏好 | `preference` | 用户偏好（推荐 `--global`） |
 | 对话 | `conversation` | 对话记录（默认） |
+
+## 场景聚合（L2）
+
+记忆按金字塔组织：L0 流水账 → L1 记忆卡片 → L2 场景档案 → L3 人格摘要（暂不实现）。L2 场景层按主题聚合 L1 记忆卡片，并按访问热度排序：
+
+```bash
+memrec scene create "Rust开发规范" --tag rust   # 创建场景
+memrec scene list --sort-by-heat                 # 按热度排序列表
+memrec scene add-memory <scene-id> <memory-id>   # 关联记忆卡片
+memrec scene remove-memory <scene-id> <memory-id>
+memrec scene get <scene-id>                      # 场景详情（含证据链）
+memrec scene update-heat <scene-id> 0.8
+```
+
+每个场景包含 `theme`、`memory_ids`、`heat`、`tags`；热度随记忆访问上升，热点主题优先可见。设计文档：[L2-scene-aggregation-design.md](docs/design/L2-scene-aggregation-design.md)
 
 ## LLM 接入（OpenAI 兼容）
 
@@ -156,6 +184,51 @@ update_threshold = 0.85      # 高于此值合并更新已有记忆
 单次调用可用 `--no-dedup`（CLI）或 `"dedup": false`（协议）关闭。
 决策层可插拔：当前为规则版，LLM 版（真正的 DELETE/矛盾消解）预留演进。
 
+## Dream 记忆整合
+
+Dream 是后台记忆整合作业，类比睡眠中的记忆巩固——系统空闲时自动触发，或通过 `memrec dream --force` 手动触发。共 4 个阶段：
+
+1. **CrossProjectExtract** — 提取跨项目共性主题
+2. **PersonalSummary** — 聚合全局记忆，生成个人画像
+3. **Cleanup** — 清理过期、低重要性记忆
+4. **VectorRegen** — 为缺失向量重新生成嵌入（资源消耗大，默认关闭）
+
+门槛条件：至少 `min_memories`（20）条记忆、最老记忆年龄 ≥ `max_age_hours`（168h）、距上次执行 ≥ `min_hours_between`（24h）。配置 `[llm]` 后，整合会生成 LLM 摘要记忆，标记 `dream-integrated`。
+
+```toml
+[dream]
+enabled = false            # 设为 true 解锁后台整合
+requires_llm = true        # 未配置 [llm] 时门槛检查失败
+min_memories = 20
+max_age_hours = 168
+min_hours_between = 24.0
+phase_vector_regen = false # 阶段4，资源消耗大，默认关闭
+
+[idle]
+enabled = true             # 空闲监控
+check_interval_secs = 300  # 每 5 分钟检查一次
+load_threshold = 0.5       # load average 低于此值视为空闲
+auto_dream_enabled = true  # 空闲时自动触发 Dream
+
+[queue]
+normal_queue_capacity = 1000
+dream_queue_capacity = 10
+
+[log]
+enabled = true
+rotation_days = 7          # 日志保留 7 天
+```
+
+## 插件
+
+| 插件 | 平台 | 能力 |
+|------|------|------|
+| `pi-extensions/memrec.ts` | pi 编码代理 | 6 个 LLM 工具（`memrec_search`/`add`/`get`/`list`/`delete`/`stats`）+ agent 启动自动注入上下文；命令 `/memrec`、`/memrec-auto` |
+| `dsh-plugin/` | DeepSeek Harness | 7 个原生工具（`mr_add`/`mr_search`/`mr_get`/`mr_list`/`mr_delete`/`mr_stats`/`mr_dream`）+ 上下文注入 + 会话自动记录（LLM 提取） |
+
+- **pi**：将 `pi-extensions/memrec.ts` 复制到 `~/.pi/agent/extensions/`，然后 `/reload`
+- **DSH**：详见 [dsh-plugin/README.md](dsh-plugin/README.md)
+
 ## 数据位置
 
 ```
@@ -189,6 +262,9 @@ update_threshold = 0.85      # 高于此值合并更新已有记忆
 - [使用手册](MANUAL_cn.md)
 - [Manual (English)](MANUAL.md)
 - [Skill文档](skills/memrec/SKILL.md)
+- [L2 场景聚合设计](docs/design/L2-scene-aggregation-design.md)
+- [DSH 插件设计](docs/design/dsh-plugin-design.md)
+- [空闲触发 Dream 设计](docs/superpowers/specs/2026-07-30-idle-dream-design.md)
 
 ## 项目结构
 
@@ -198,6 +274,11 @@ memrec/
 ├── memrecd/      # 守护进程服务
 ├── memrec/       # CLI工具
 ├── mr-install/   # 安装器
+├── mr-ability/   # 核心能力库（检索/嵌入/Dream/LLM/去重/队列/空闲监控）
+├── mr-common/    # 共享类型
+├── mr-protocol/  # JSON-RPC 协议
+├── dsh-plugin/   # DeepSeek Harness 插件
+├── pi-extensions/# pi 扩展
 └── docs/         # 文档
 ```
 

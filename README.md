@@ -10,6 +10,11 @@ Local memory persistence system for AI CLI tools, providing cross-session memory
 
 - **Project Isolation** — Auto-detect git root, .mr_pid persistence, independent memory per project
 - **Hybrid Search** — KNN vector search + BM25 full-text, MMR reranking, Chinese text support
+- **Scene Aggregation** — L2 theme-based aggregation over memory cards, heat-ranked (memory pyramid L0-L3)
+- **Dream Consolidation** — idle-triggered 4-phase memory consolidation with optional LLM summaries
+- **LLM Integration** — optional OpenAI-compatible LLM for Dream summaries
+- **Write Dedup** — ADD/UPDATE/NOOP decision on every write
+- **Plugin Ecosystem** — pi extension & DeepSeek Harness native plugin
 - **Semantic Search** — Local ONNX model — MiniLM-L6-v2 (384d) or BGE-M3 (1024d, multilingual), zero API cost
 - **Smart Scoring** — Time decay, evergreen exemption, source weighting
 - **Cross-Project Search** — `--all` flag to discover related knowledge across projects
@@ -82,6 +87,14 @@ memrec list --limit 20
 memrec get <id>
 memrec stats
 memrec version
+
+# L2 场景聚合
+memrec scene create "Rust coding standards" --tag rust
+memrec scene list --sort-by-heat
+memrec scene add-memory <scene-id> <memory-id>
+
+# Dream 整合（空闲自动触发，或手动）
+memrec dream --force
 ```
 
 ## Project Isolation
@@ -109,6 +122,21 @@ project-a/           project-b/
 | Context | `context` | Project config, environment info |
 | Preference | `preference` | User preferences (recommend `--global`) |
 | Conversation | `conversation` | Conversation records (default) |
+
+## Scene Aggregation (L2)
+
+Memories are organized as a pyramid: L0 raw conversations → L1 memory cards → L2 scene archives → L3 persona (not yet implemented). The L2 scene layer aggregates L1 cards by theme, ranked by access heat:
+
+```bash
+memrec scene create "Rust coding standards" --tag rust   # create a scene
+memrec scene list --sort-by-heat                         # heat-ranked list
+memrec scene add-memory <scene-id> <memory-id>           # attach a memory card
+memrec scene remove-memory <scene-id> <memory-id>
+memrec scene get <scene-id>                              # detail with evidence chain
+memrec scene update-heat <scene-id> 0.8
+```
+
+Each scene carries `theme`, `memory_ids`, `heat` and `tags`; heat rises with memory access, giving hot topics priority visibility. Design: [L2-scene-aggregation-design.md](docs/design/L2-scene-aggregation-design.md)
 
 ## LLM Integration (OpenAI-compatible)
 
@@ -156,6 +184,51 @@ update_threshold = 0.85      # above this = update existing
 Disable per-call with `--no-dedup` (CLI) or `"dedup": false` (protocol).
 The decision layer is pluggable: rule-based today, LLM-based (true DELETE/conflict resolution) is reserved for evolution.
 
+## Dream Consolidation
+
+Dream is a background job that consolidates memories like human sleep does — triggered automatically when the system is idle, or manually via `memrec dream --force`. It runs 4 phases:
+
+1. **CrossProjectExtract** — extract cross-project common themes
+2. **PersonalSummary** — aggregate global memories into a personal profile
+3. **Cleanup** — remove stale / low-importance memories
+4. **VectorRegen** — regenerate missing embeddings (off by default, heavy)
+
+Gate conditions: at least `min_memories` (20) memories, oldest memory age ≥ `max_age_hours` (168h), and `min_hours_between` (24h) since the last run. With `[llm]` configured, consolidation produces an LLM summary memory tagged `dream-integrated`.
+
+```toml
+[dream]
+enabled = false            # enable to unlock background consolidation
+requires_llm = true        # gate fails when [llm] not configured
+min_memories = 20
+max_age_hours = 168
+min_hours_between = 24.0
+phase_vector_regen = false # Phase 4, resource-heavy, off by default
+
+[idle]
+enabled = true             # idle monitor
+check_interval_secs = 300  # check every 5 minutes
+load_threshold = 0.5       # idle when load average below this
+auto_dream_enabled = true  # auto-trigger Dream when idle
+
+[queue]
+normal_queue_capacity = 1000
+dream_queue_capacity = 10
+
+[log]
+enabled = true
+rotation_days = 7          # keep 7 days of logs
+```
+
+## Plugins
+
+| Plugin | Platform | Capabilities |
+|--------|----------|--------------|
+| `pi-extensions/memrec.ts` | pi coding agent | 6 LLM tools (`memrec_search`/`add`/`get`/`list`/`delete`/`stats`) + auto context injection on agent start; commands `/memrec`, `/memrec-auto` |
+| `dsh-plugin/` | DeepSeek Harness | 7 native tools (`mr_add`/`mr_search`/`mr_get`/`mr_list`/`mr_delete`/`mr_stats`/`mr_dream`) + context injection + auto session recording (LLM-extracted) |
+
+- **pi**: copy `pi-extensions/memrec.ts` to `~/.pi/agent/extensions/`, then `/reload`
+- **DSH**: see [dsh-plugin/README.md](dsh-plugin/README.md)
+
 ## Data Location
 
 ```
@@ -189,6 +262,9 @@ The decision layer is pluggable: rule-based today, LLM-based (true DELETE/confli
 - [Manual](MANUAL.md)
 - [Manual (Chinese)](MANUAL_cn.md)
 - [Skill Documentation](skills/memrec/SKILL.md)
+- [L2 Scene Aggregation Design](docs/design/L2-scene-aggregation-design.md)
+- [DSH Plugin Design](docs/design/dsh-plugin-design.md)
+- [Idle-triggered Dream Design](docs/superpowers/specs/2026-07-30-idle-dream-design.md)
 
 ## Project Structure
 
@@ -198,6 +274,11 @@ memrec/
 ├── memrecd/      # Daemon service
 ├── memrec/       # CLI tool
 ├── mr-install/   # Installer
+├── mr-ability/   # Core library (search/embedding/dream/llm/dedup/queue/idle)
+├── mr-common/    # Shared types
+├── mr-protocol/  # JSON-RPC protocol
+├── dsh-plugin/   # DeepSeek Harness plugin
+├── pi-extensions/# pi extension
 └── docs/         # Documentation
 ```
 

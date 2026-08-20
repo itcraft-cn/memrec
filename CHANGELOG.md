@@ -5,6 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-08-21
+
+### Added
+
+- **L2 Scene Aggregation**: theme-based aggregation layer over L1 memory cards
+  - `memrec scene` subcommands: `create` / `get` / `list` / `delete` / `add-memory` / `remove-memory` / `update-heat`
+  - `Scene` entity (`theme`, `memory_ids`, `heat`, `tags`) with heat-based ranking, memory pyramid L0-L3
+  - `SceneStore` backed by RocksDB, shared instance with `MemoryStore`
+- **Dream Consolidation**: background memory consolidation (sleep-like)
+  - 4 phase processors: `CrossProjectExtract` / `PersonalSummary` / `Cleanup` / `VectorRegen` (off by default)
+  - `memrec dream --force` manual trigger; `DreamGate` (min 20 memories, max 168h age, 24h interval) + `DreamLock`
+  - LLM-powered integration summaries (requires `[llm]` config), tagged `dream-integrated`
+  - Auto-triggered by `SystemIdleMonitor` when system is idle (load average < 0.5)
+- **LLM Integration (OpenAI-compatible)**: `[llm]` config section
+  - `LlmClient` trait with `OpenAiCompatibleClient` (reqwest) and `MockLlmClient`
+  - Providers `deepseek` / `openai` / `custom`; `think_level` mapping (DeepSeek `thinking` effort, OpenAI `reasoning_effort`)
+- **Write Deduplication**: rule-based dedup decider on every `add`
+  - `score >= duplicate_threshold` (0.92) → skip (NOOP), `>= update_threshold` (0.85) → update, else add
+  - `--no-dedup` CLI flag and `dedup: false` protocol option; LLM-based decider reserved for evolution
+- **SystemIdleMonitor**: load-average idle detection (5min interval, threshold 0.5), auto-triggers Dream
+- **QueueDispatcher**: dual-queue scheduler (normal 1000 / dream 10 capacity)
+- **Log rotation**: `[log]` config — `memrecd.log` / `dream.log`, 7-day retention, optional compression
+- **dsh-plugin**: native MemRec plugin for DeepSeek Harness
+  - 7 native tools: `mr_add` / `mr_search` / `mr_get` / `mr_list` / `mr_delete` / `mr_stats` / `mr_dream`
+  - Context injection (`agent/pre-step` hook) + auto session recording (LLM-extracted, fire-and-forget)
+  - Fixes project isolation lost in MCP mode by passing `working_dir`
+- **pi extension**: `pi-extensions/memrec.ts`
+  - 6 LLM tools: `memrec_search` / `memrec_add` / `memrec_get` / `memrec_list` / `memrec_delete` / `memrec_stats`
+  - Auto memory injection on agent start; `/memrec` and `/memrec-auto` commands
+- **Thread naming** for tokio workers
+- New config types: `LlmConfig`, `DedupConfig`, `DreamConfig`, `IdleMonitorConfig`, `QueueConfig`, `LogConfig`
+
+### Changed
+
+- RocksDB instance shared between `MemoryStore` and `SceneStore` (single open)
+- `mr-install` default model switched to BGE-M3 to match memrecd
+- `add` parameters encapsulated into `AddOptions` struct
+- Tests use `MockEmbedder`; model-dependent tests marked ignored
+- Log file path resolution and color rendering fixes
+
+### Fixed
+
+- Deleted memories no longer returned by hybrid search (search index removed on delete)
+- `min_score` now applied to fused hybrid scores
+- Empty previews filtered in plugin context injection
+- Clippy warnings
+
+### Docs
+
+- `docs/design/L2-scene-aggregation-design.md`
+- `docs/design/dsh-plugin-design.md`
+- `docs/superpowers/specs/2026-07-30-idle-dream-design.md`
+- `dsh-plugin/README.md`
+
+---
+
 ## [0.5.0] - 2026-07-16
 
 ### Added
