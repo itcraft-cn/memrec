@@ -5,6 +5,62 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.7.0] - 2026-08-21
+
+### 新增
+
+- **L2 场景聚合层**：基于主题聚合 L1 记忆卡片
+  - `memrec scene` 子命令：`create` / `get` / `list` / `delete` / `add-memory` / `remove-memory` / `update-heat`
+  - `Scene` 实体（`theme`、`memory_ids`、`heat`、`tags`），热度排序，记忆金字塔 L0-L3
+  - `SceneStore` 基于 RocksDB，与 `MemoryStore` 共享实例
+- **Dream 记忆整合**：后台记忆压缩与整合（类比睡眠记忆巩固）
+  - 4 个阶段处理器：`CrossProjectExtract`（交叉项目提取）/ `PersonalSummary`（个人提炼）/ `Cleanup`（清理）/ `VectorRegen`（向量重生成，默认关闭）
+  - `memrec dream --force` 手动触发；`DreamGate`（最少 20 条记忆、最大 168h 年龄、间隔 24h）+ `DreamLock`
+  - LLM 摘要整合（需配置 `[llm]`），结果标记 `dream-integrated`
+  - `SystemIdleMonitor` 检测系统空闲（load average < 0.5）时自动触发
+- **LLM 接入（OpenAI 兼容）**：`[llm]` 配置节
+  - `LlmClient` trait，含 `OpenAiCompatibleClient`（reqwest）与 `MockLlmClient`
+  - provider 支持 `deepseek` / `openai` / `custom`；`think_level` 映射（DeepSeek `thinking` effort、OpenAI `reasoning_effort`）
+- **写入去重**：每次 `add` 基于规则的决策
+  - `score >= duplicate_threshold`（0.92）→ 跳过（NOOP），`>= update_threshold`（0.85）→ 更新，否则新增
+  - CLI `--no-dedup` 标志与协议 `dedup: false` 选项；LLM 版决策器预留演进
+- **SystemIdleMonitor**：基于 load average 的空闲检测（5 分钟间隔、阈值 0.5），空闲自动触发 Dream
+- **QueueDispatcher**：双队列调度器（普通队列 1000 / Dream 队列 10）
+- **日志滚存**：`[log]` 配置 — `memrecd.log` / `dream.log`，保留 7 天，可选压缩
+- **dsh-plugin**：DeepSeek Harness 原生 MemRec 插件
+  - 7 个原生工具：`mr_add` / `mr_search` / `mr_get` / `mr_list` / `mr_delete` / `mr_stats` / `mr_dream`
+  - 上下文注入（`agent/pre-step` 钩子）+ 会话自动记录（LLM 提取，fire-and-forget）
+  - 通过传递 `working_dir` 修复 MCP 模式丢失的项目隔离
+- **pi 扩展**：`pi-extensions/memrec.ts`
+  - 6 个 LLM 工具：`memrec_search` / `memrec_add` / `memrec_get` / `memrec_list` / `memrec_delete` / `memrec_stats`
+  - agent 启动时自动记忆注入；`/memrec` 与 `/memrec-auto` 命令
+- **线程命名**：tokio worker 线程命名
+- 新增配置类型：`LlmConfig`、`DedupConfig`、`DreamConfig`、`IdleMonitorConfig`、`QueueConfig`、`LogConfig`
+
+### 变更
+
+- RocksDB 实例在 `MemoryStore` 与 `SceneStore` 间共享（单实例打开）
+- `mr-install` 默认模型改为 BGE-M3，与 memrecd 保持一致
+- `add` 参数封装为 `AddOptions` 结构体
+- 测试改用 `MockEmbedder`；模型依赖测试标记为 ignored
+- 日志写入路径解析与颜色渲染修复
+
+### 修复
+
+- 删除的记忆不再出现在混合检索结果中（删除时同步移除搜索索引）
+- `min_score` 现在应用于融合后的混合分数
+- 插件上下文注入过滤空 previews
+- clippy 警告
+
+### 文档
+
+- `docs/design/L2-scene-aggregation-design.md`
+- `docs/design/dsh-plugin-design.md`
+- `docs/superpowers/specs/2026-07-30-idle-dream-design.md`
+- `dsh-plugin/README.md`
+
+---
+
 ## [0.5.0] - 2026-07-16
 
 ### 新增
