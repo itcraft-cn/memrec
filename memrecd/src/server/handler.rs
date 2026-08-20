@@ -571,6 +571,14 @@ impl Router {
         match params {
             Some(RequestParams::Delete(p)) => match self.storage.delete(&p.id).await {
                 Ok(deleted) => {
+                    // 同步移除搜索索引（向量 + 全文），避免已删记忆仍被检索命中
+                    if let Err(e) = self.hybrid_store.remove(&p.id).await {
+                        tracing::warn!(
+                            "Delete: failed to remove search index for {:?}: {}",
+                            p.id,
+                            e
+                        );
+                    }
                     let message = if deleted {
                         "Memory hard deleted"
                     } else {
@@ -1502,6 +1510,67 @@ mod tests {
 
         let count = router.storage.count().await.unwrap();
         assert_eq!(count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_delete_removes_search_index() {
+        let router = router_with_dedup(0.95, 0.80);
+        let content = "delete index test unique token abc123";
+
+        let add = router.route(add_request(content, 1)).await;
+        let mem_id = match &add.result {
+            Some(ResponseResult::Memory(m)) => m.memory.id,
+            _ => panic!("expected memory result"),
+        };
+
+        // 删除前可检索到
+        let before = router
+            .vector_store
+            .search(
+                &router.embedder.embed(content).unwrap(),
+                SearchFilter {
+                    project_id: None,
+                    include_global: true,
+                    memory_type: None,
+                    min_score: 0.5,
+                },
+                5,
+            )
+            .await
+            .unwrap();
+        assert!(!before.is_empty(), "delete 前应能检索到");
+
+        let del = router
+            .route(JsonRpcRequest::new(
+                RequestAction::Delete,
+                Some(RequestParams::Delete(mr_protocol::DeleteParams {
+                    id: mem_id,
+                    force: false,
+                })),
+                2,
+            ))
+            .await;
+        assert!(del.result.is_some());
+
+        // 删除后索引同步移除，不再命中
+        let after = router
+            .vector_store
+            .search(
+                &router.embedder.embed(content).unwrap(),
+                SearchFilter {
+                    project_id: None,
+                    include_global: true,
+                    memory_type: None,
+                    min_score: 0.5,
+                },
+                5,
+            )
+            .await
+            .unwrap();
+        assert!(
+            after.iter().all(|h| h.memory_id != mem_id),
+            "delete 后索引应移除该记忆"
+        );
     }
 
     #[tokio::test]
