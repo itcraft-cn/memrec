@@ -6,8 +6,8 @@ use crate::client::Client;
 use anyhow::Result;
 use mr_protocol::{
     JsonRpcRequest, RequestAction, RequestParams, ResponseResult, SceneAddMemoryParams,
-    SceneCreateParams, SceneDeleteParams, SceneGetParams, SceneListParams,
-    SceneRemoveMemoryParams, SceneUpdateHeatParams,
+    SceneCreateParams, SceneDeleteParams, SceneGetParams, SceneListParams, SceneRemoveMemoryParams,
+    SceneUpdateHeatParams,
 };
 use uuid::Uuid;
 
@@ -112,12 +112,7 @@ pub async fn list(
             Some(ResponseResult::SceneList(result)) => {
                 println!("Found {} scenes:", result.total);
                 for (i, scene) in result.scenes.iter().enumerate() {
-                    println!(
-                        "\n[{}] {} - {}",
-                        i + 1,
-                        scene.id,
-                        scene.theme
-                    );
+                    println!("\n[{}] {} - {}", i + 1, scene.id, scene.theme);
                     println!("  Heat: {:.4}", scene.heat);
                     println!("  Memories: {}", scene.memory_ids.len());
                     println!("  Tags: {:?}", scene.tags);
@@ -224,7 +219,10 @@ pub async fn remove_memory(
 pub async fn update_heat(client: &Client, scene_id: Uuid, heat: f32, human: bool) -> Result<()> {
     let request = JsonRpcRequest::new(
         RequestAction::SceneUpdateHeat,
-        Some(RequestParams::SceneUpdateHeat(SceneUpdateHeatParams { scene_id, heat })),
+        Some(RequestParams::SceneUpdateHeat(SceneUpdateHeatParams {
+            scene_id,
+            heat,
+        })),
         1,
     );
 

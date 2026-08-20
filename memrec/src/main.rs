@@ -80,6 +80,9 @@ enum Commands {
         source: Option<String>,
         #[arg(short = 'c', long)]
         scope: Option<String>,
+        /// 跳过写入去重检测
+        #[arg(long)]
+        no_dedup: bool,
     },
     Get {
         id: String,
@@ -166,6 +169,7 @@ async fn main() -> Result<()> {
             global,
             source,
             scope,
+            no_dedup,
         } => {
             let working_dir = if global {
                 None
@@ -182,6 +186,7 @@ async fn main() -> Result<()> {
                     working_dir,
                     source,
                     scope,
+                    dedup: Some(!no_dedup),
                 },
                 human,
             )
@@ -217,40 +222,52 @@ async fn main() -> Result<()> {
         Commands::Version => {
             version(&client, human).await?;
         }
-        Commands::Scene(cmd) => {
-            match cmd {
-                SceneCommands::Create { theme, project_id, tag } => {
-                    let project_uuid = project_id.and_then(|s| Uuid::parse_str(&s).ok());
-                    scene::create(&client, theme, project_uuid, tag, human).await?;
-                }
-                SceneCommands::Get { id } => {
-                    let uuid = Uuid::parse_str(&id)?;
-                    scene::get(&client, uuid, human).await?;
-                }
-                SceneCommands::List { limit, sort_by_heat, project_id } => {
-                    let project_uuid = project_id.and_then(|s| Uuid::parse_str(&s).ok());
-                    scene::list(&client, limit, sort_by_heat, project_uuid, human).await?;
-                }
-                SceneCommands::Delete { id } => {
-                    let uuid = Uuid::parse_str(&id)?;
-                    scene::delete(&client, uuid, human).await?;
-                }
-                SceneCommands::AddMemory { scene_id, memory_id } => {
-                    let scene_uuid = Uuid::parse_str(&scene_id)?;
-                    let memory_uuid = Uuid::parse_str(&memory_id)?;
-                    scene::add_memory(&client, scene_uuid, memory_uuid, human).await?;
-                }
-                SceneCommands::RemoveMemory { scene_id, memory_id } => {
-                    let scene_uuid = Uuid::parse_str(&scene_id)?;
-                    let memory_uuid = Uuid::parse_str(&memory_id)?;
-                    scene::remove_memory(&client, scene_uuid, memory_uuid, human).await?;
-                }
-                SceneCommands::UpdateHeat { scene_id, heat } => {
-                    let uuid = Uuid::parse_str(&scene_id)?;
-                    scene::update_heat(&client, uuid, heat as f32, human).await?;
-                }
+        Commands::Scene(cmd) => match cmd {
+            SceneCommands::Create {
+                theme,
+                project_id,
+                tag,
+            } => {
+                let project_uuid = project_id.and_then(|s| Uuid::parse_str(&s).ok());
+                scene::create(&client, theme, project_uuid, tag, human).await?;
             }
-        }
+            SceneCommands::Get { id } => {
+                let uuid = Uuid::parse_str(&id)?;
+                scene::get(&client, uuid, human).await?;
+            }
+            SceneCommands::List {
+                limit,
+                sort_by_heat,
+                project_id,
+            } => {
+                let project_uuid = project_id.and_then(|s| Uuid::parse_str(&s).ok());
+                scene::list(&client, limit, sort_by_heat, project_uuid, human).await?;
+            }
+            SceneCommands::Delete { id } => {
+                let uuid = Uuid::parse_str(&id)?;
+                scene::delete(&client, uuid, human).await?;
+            }
+            SceneCommands::AddMemory {
+                scene_id,
+                memory_id,
+            } => {
+                let scene_uuid = Uuid::parse_str(&scene_id)?;
+                let memory_uuid = Uuid::parse_str(&memory_id)?;
+                scene::add_memory(&client, scene_uuid, memory_uuid, human).await?;
+            }
+            SceneCommands::RemoveMemory {
+                scene_id,
+                memory_id,
+            } => {
+                let scene_uuid = Uuid::parse_str(&scene_id)?;
+                let memory_uuid = Uuid::parse_str(&memory_id)?;
+                scene::remove_memory(&client, scene_uuid, memory_uuid, human).await?;
+            }
+            SceneCommands::UpdateHeat { scene_id, heat } => {
+                let uuid = Uuid::parse_str(&scene_id)?;
+                scene::update_heat(&client, uuid, heat as f32, human).await?;
+            }
+        },
     }
 
     Ok(())

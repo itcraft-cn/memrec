@@ -27,6 +27,8 @@ pub struct AddOptions {
     pub working_dir: Option<String>,
     pub source: Option<String>,
     pub scope: Option<String>,
+    /// 去重检测开关：`None` 用服务端配置，`Some(false)` 显式关闭
+    pub dedup: Option<bool>,
 }
 
 /// 添加记忆命令。
@@ -42,6 +44,7 @@ pub async fn add(client: &Client, opts: AddOptions, human: bool) -> Result<()> {
         working_dir,
         source,
         scope,
+        dedup,
     } = opts;
     let memory_type = parse_memory_type(&mtype)?;
 
@@ -75,6 +78,7 @@ pub async fn add(client: &Client, opts: AddOptions, human: bool) -> Result<()> {
                     working_dir: working_dir.clone(),
                     source: source.clone(),
                     scope: scope.clone(),
+                    dedup,
                 })),
                 i as u64 + 1,
             );
@@ -107,6 +111,7 @@ pub async fn add(client: &Client, opts: AddOptions, human: bool) -> Result<()> {
                 working_dir,
                 source,
                 scope,
+                dedup,
             })),
             1,
         );
@@ -116,12 +121,34 @@ pub async fn add(client: &Client, opts: AddOptions, human: bool) -> Result<()> {
         if human {
             if let Some(result) = response.result {
                 match result {
-                    ResponseResult::Memory(m) => {
-                        println!("Added memory: {}", m.memory.id);
-                        println!("Content: {}", m.memory.content);
-                        println!("Type: {:?}", m.memory.memory_type);
-                        println!("Tags: {:?}", m.memory.tags);
-                    }
+                    ResponseResult::Memory(m) => match m.action.as_str() {
+                        "skipped" => {
+                            println!("Skipped (duplicate): {}", m.memory.id);
+                            for d in &m.duplicates {
+                                println!(
+                                    "  similar to {:?} (score={:.3}): {}",
+                                    d.memory_id, d.score, d.content
+                                );
+                            }
+                        }
+                        "updated" => {
+                            println!("Updated existing memory: {}", m.memory.id);
+                            println!("Content: {}", m.memory.content);
+                            println!("Tags: {:?}", m.memory.tags);
+                        }
+                        _ => {
+                            println!("Added memory: {}", m.memory.id);
+                            println!("Content: {}", m.memory.content);
+                            println!("Type: {:?}", m.memory.memory_type);
+                            println!("Tags: {:?}", m.memory.tags);
+                            for d in &m.duplicates {
+                                println!(
+                                    "  WARN: similar memory {:?} (score={:.3})",
+                                    d.memory_id, d.score
+                                );
+                            }
+                        }
+                    },
                     _ => println!("Unexpected response type"),
                 }
             } else if let Some(err) = response.error {
@@ -267,7 +294,7 @@ pub async fn list(
                         println!(
                             "\n[{:?}] {}...",
                             memory.memory_type,
-                            &memory.content.chars().take(50).collect::<String>()
+                            memory.content.chars().take(50).collect::<String>()
                         );
                         println!("  ID: {}", memory.id);
                         println!("  Tags: {:?}", memory.tags);

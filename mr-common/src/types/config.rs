@@ -212,6 +212,11 @@ pub struct DreamConfig {
     #[serde(default = "default_dream_enabled")]
     pub enabled: bool,
 
+    /// 是否要求配置 LLM 才能执行。
+    /// 为 true 且未接入 LLM 时，Dream 视为不启用（Gate 检查失败）
+    #[serde(default = "default_requires_llm")]
+    pub requires_llm: bool,
+
     /// 触发整合的最小记忆数量
     #[serde(default = "default_min_memories")]
     pub min_memories: usize,
@@ -260,6 +265,9 @@ pub struct DreamConfig {
 fn default_dream_enabled() -> bool {
     false
 }
+fn default_requires_llm() -> bool {
+    true
+}
 fn default_min_memories() -> usize {
     20
 }
@@ -298,6 +306,7 @@ impl Default for DreamConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            requires_llm: true,
             min_memories: 20,
             max_age_hours: 168,
             min_hours_between: 24.0,
@@ -562,6 +571,7 @@ mod tests {
         let config = DreamConfig::default();
 
         assert!(!config.enabled);
+        assert!(config.requires_llm);
         assert_eq!(config.min_memories, 20);
         assert_eq!(config.max_age_hours, 168);
         assert_eq!(config.min_hours_between, 24.0);
@@ -587,6 +597,7 @@ mod tests {
         let parsed: DreamConfig = serde_json::from_str(json).unwrap();
 
         assert!(parsed.enabled);
+        assert!(parsed.requires_llm);
         assert_eq!(parsed.min_memories, 50);
         assert_eq!(parsed.max_age_hours, 168);
         assert_eq!(parsed.min_hours_between, 24.0);
@@ -610,6 +621,7 @@ mod tests {
         let parsed: DreamConfig = serde_json::from_str(json).unwrap();
 
         assert!(parsed.enabled);
+        assert!(parsed.requires_llm);
         assert!(!parsed.phase_cross_project);
         assert!(parsed.phase_personal_summary);
         assert_eq!(parsed.batch_size, 50);

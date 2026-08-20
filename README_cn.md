@@ -110,6 +110,52 @@ project-a/           project-b/
 | 偏好 | `preference` | 用户偏好（推荐 `--global`） |
 | 对话 | `conversation` | 对话记录（默认） |
 
+## LLM 接入（OpenAI 兼容）
+
+可选接入 OpenAI 兼容大模型，用于 **Dream 整合摘要**。
+未启用（`[llm].enabled = false`）时，Dream 视为不启用。
+
+```toml
+# ~/.memrec/config.toml
+[llm]
+enabled = false            # 设为 true 解锁 Dream 摘要
+provider = "deepseek"       # deepseek / openai / custom（任意 OpenAI 兼容服务）
+url = "https://api.deepseek.com/v1"
+api_key = ""                # API Key
+model = "deepseek-chat"     # 如 deepseek-reasoner、gpt-4o-mini
+think_level = "medium"      # off / minimal / low / medium / high / xhigh
+timeout_secs = 120
+max_tokens = 4096
+temperature = 0.3
+```
+
+`think_level` 按 provider 映射：
+
+| think_level | DeepSeek（`thinking` 参数） | OpenAI（`reasoning_effort`） |
+|-------------|------------------------------|------------------------------|
+| `off`       | 不发送                       | 不发送                       |
+| `minimal`/`low`/`medium`/`high` | `{type: enabled, effort: high}` | `minimal`/`low`/`medium`/`high` |
+| `xhigh`     | `{type: enabled, effort: max}` | `high`                        |
+
+## 写入去重（ADD/UPDATE/NOOP）
+
+每次 `add` 时检索相似记忆（余弦相似度）并决策：
+
+- `score >= duplicate_threshold` → **跳过**（NOOP），不写入
+- `update_threshold <= score < duplicate_threshold` → **更新**已有记忆（合并 tags、内容取新）
+- 否则 → **新增**
+
+```toml
+[dedup]
+enabled = true
+top_k = 5
+duplicate_threshold = 0.92   # 高于此值视为重复，跳过
+update_threshold = 0.85      # 高于此值合并更新已有记忆
+```
+
+单次调用可用 `--no-dedup`（CLI）或 `"dedup": false`（协议）关闭。
+决策层可插拔：当前为规则版，LLM 版（真正的 DELETE/矛盾消解）预留演进。
+
 ## 数据位置
 
 ```

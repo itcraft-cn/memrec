@@ -110,6 +110,52 @@ project-a/           project-b/
 | Preference | `preference` | User preferences (recommend `--global`) |
 | Conversation | `conversation` | Conversation records (default) |
 
+## LLM Integration (OpenAI-compatible)
+
+Optional OpenAI-compatible LLM integration powers **Dream consolidation summaries**.
+When disabled (`[llm].enabled = false`), Dream is treated as disabled.
+
+```toml
+# ~/.memrec/config.toml
+[llm]
+enabled = false            # Enable to unlock Dream summaries
+provider = "deepseek"       # deepseek / openai / custom (any OpenAI-compatible)
+url = "https://api.deepseek.com/v1"
+api_key = ""                # Your API key
+model = "deepseek-chat"     # e.g. deepseek-reasoner, gpt-4o-mini
+think_level = "medium"      # off / minimal / low / medium / high / xhigh
+timeout_secs = 120
+max_tokens = 4096
+temperature = 0.3
+```
+
+`think_level` maps per provider:
+
+| think_level | DeepSeek (`thinking` param) | OpenAI (`reasoning_effort`) |
+|-------------|-----------------------------|-----------------------------|
+| `off`       | not sent                    | not sent                    |
+| `minimal`/`low`/`medium`/`high` | `{type: enabled, effort: high}` | `minimal`/`low`/`medium`/`high` |
+| `xhigh`     | `{type: enabled, effort: max}` | `high`                       |
+
+## Write Deduplication (ADD/UPDATE/NOOP)
+
+On every `add`, MemRec searches similar memories (cosine similarity) and decides:
+
+- `score >= duplicate_threshold` → **skip** (NOOP), memory not written
+- `update_threshold <= score < duplicate_threshold` → **update** existing memory (merge tags, new content)
+- otherwise → **add** as new memory
+
+```toml
+[dedup]
+enabled = true
+top_k = 5
+duplicate_threshold = 0.92   # above this = duplicate, skip
+update_threshold = 0.85      # above this = update existing
+```
+
+Disable per-call with `--no-dedup` (CLI) or `"dedup": false` (protocol).
+The decision layer is pluggable: rule-based today, LLM-based (true DELETE/conflict resolution) is reserved for evolution.
+
 ## Data Location
 
 ```

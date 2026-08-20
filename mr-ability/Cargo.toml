@@ -35,6 +35,7 @@ toml.workspace = true
 tantivy.workspace = true
 rusqlite.workspace = true
 regex.workspace = true
+reqwest.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

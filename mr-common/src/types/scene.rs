@@ -271,8 +271,7 @@ mod tests {
 
     #[test]
     fn test_scene_serde() {
-        let scene = Scene::new("Test".to_string())
-            .with_tags(vec!["rust".to_string()]);
+        let scene = Scene::new("Test".to_string()).with_tags(vec!["rust".to_string()]);
 
         let json = serde_json::to_string(&scene).unwrap();
         let parsed: Scene = serde_json::from_str(&json).unwrap();

@@ -207,25 +207,21 @@ impl SceneStorage for SceneStore {
         } else {
             let cf_scenes = self.rocksdb.cf_scenes()?;
             let iter = self.rocksdb.iter_cf(cf_scenes);
-            Ok(Self::collect_scenes_from_iter(iter, limit, true, project_id))
+            Ok(Self::collect_scenes_from_iter(
+                iter, limit, true, project_id,
+            ))
         }
     }
 
     async fn add_memory_to_scene(&self, scene_id: &Uuid, memory_id: &Uuid) -> Result<()> {
-        let mut scene = self
-            .get_scene(scene_id)
-            .await?
-            .context("Scene not found")?;
+        let mut scene = self.get_scene(scene_id).await?.context("Scene not found")?;
 
         scene.add_memory(*memory_id);
         self.save_scene(&scene).await
     }
 
     async fn remove_memory_from_scene(&self, scene_id: &Uuid, memory_id: &Uuid) -> Result<()> {
-        let mut scene = self
-            .get_scene(scene_id)
-            .await?
-            .context("Scene not found")?;
+        let mut scene = self.get_scene(scene_id).await?.context("Scene not found")?;
 
         scene.remove_memory(memory_id);
 
@@ -263,10 +259,7 @@ impl SceneStorage for SceneStore {
     }
 
     async fn update_scene_heat(&self, scene_id: &Uuid, heat: f32) -> Result<()> {
-        let mut scene = self
-            .get_scene(scene_id)
-            .await?
-            .context("Scene not found")?;
+        let mut scene = self.get_scene(scene_id).await?.context("Scene not found")?;
 
         let old_heat_key = Self::heat_key(scene.heat, scene_id);
         let cf_by_heat = self.rocksdb.cf_by_heat()?;

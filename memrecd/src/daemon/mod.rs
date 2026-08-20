@@ -20,9 +20,11 @@ use tracing::{info, warn};
 use crate::config::DaemonConfig;
 use crate::server::{Router, UnixSocketServer};
 use mr_ability::archive::ArchiveManager;
+use mr_ability::dedup::{DedupDecider, RuleDedupDecider};
 use mr_ability::dream::DreamProcessor;
 use mr_ability::embedding::{EmbeddingGenerator, GeneratorFactory};
 use mr_ability::idle::{DreamRequest, SystemIdleMonitor};
+use mr_ability::llm::{LlmClient, OpenAiCompatibleClient};
 use mr_ability::search::{MmrConfig, ScorerConfig};
 use mr_ability::storage::{
     HybridStore, MemoryStorage, MemoryStore, RocksDBStore, RocksDBVectorStore, TantivyStore,
@@ -115,15 +117,38 @@ impl Daemon {
         self.rebuild_missing_embeddings(&storage, &vector_store, &embedder)
             .await?;
 
-        let dream_processor = Arc::new(
-            DreamProcessor::new(
-                self.config.dream.clone(),
-                &self.config.server.data_dir,
-                storage.clone(),
-            )
-            .with_vector_store(vector_store.clone())
-            .with_embedder(embedder.clone()),
-        );
+        // LLM 装配：未启用时强制 Dream 视为不启用
+        let llm_client: Option<Arc<dyn LlmClient>> = if self.config.llm.enabled {
+            let client = Arc::new(OpenAiCompatibleClient::new(self.config.llm.clone()));
+            info!(
+                "LLM enabled: provider={}, model={}, think_level={}",
+                self.config.llm.provider, self.config.llm.model, self.config.llm.think_level
+            );
+            Some(client)
+        } else {
+            warn!(
+                "LLM not configured ([llm].enabled=false); Dream integration will be treated as disabled"
+            );
+            None
+        };
+
+        // 依赖 LLM 的能力（Dream 摘要）需 LLM 就绪；否则按用户要求视为 Dream 不启用
+        let mut dream_cfg = self.config.dream.clone();
+        if llm_client.is_none() {
+            dream_cfg.enabled = false;
+        }
+        let mut dream_builder =
+            DreamProcessor::new(dream_cfg, &self.config.server.data_dir, storage.clone())
+                .with_vector_store(vector_store.clone())
+                .with_embedder(embedder.clone());
+        if let Some(llm) = &llm_client {
+            dream_builder = dream_builder.with_llm(llm.clone());
+        }
+        let dream_processor = Arc::new(dream_builder);
+
+        // 去重决策器：规则版（LLM 版预留演进）
+        let dedup_decider: Option<Arc<dyn DedupDecider>> =
+            Some(Arc::new(RuleDedupDecider::from_config(&self.config.dedup)));
 
         let (dream_tx, dream_rx) = mpsc::channel::<DreamRequest>(10);
 
@@ -143,6 +168,8 @@ impl Daemon {
             dream_processor.clone(),
             archive_manager,
             scene_store,
+            self.config.dedup.clone(),
+            dedup_decider,
         ));
 
         let server = UnixSocketServer::bind(&self.config.server.socket_path, router).await?;

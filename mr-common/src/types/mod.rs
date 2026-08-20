@@ -11,8 +11,10 @@
 //! - [`scene`]：场景聚合层，组织同主题的记忆卡片（L2 层）
 
 mod config;
+mod dedup;
 mod edge;
 mod facet;
+mod llm;
 mod memory;
 mod model;
 mod project;
@@ -25,8 +27,10 @@ pub use config::{
     DreamConfig, IdleMonitorConfig, ImportanceConfig, LogConfig, MemoryConfig, QueueConfig,
     SearchConfig, ServerConfig, SourceWeights,
 };
+pub use dedup::{DedupConfig, SimilarMemory};
 pub use edge::{EdgeType, MemoryEdge};
 pub use facet::MemoryFacet;
+pub use llm::{LlmConfig, ThinkLevel};
 pub use memory::{Memory, MemoryScope, MemorySource, MemoryType};
 pub use model::{ModelConfig, ModelFile, ModelFileType, ModelType, PoolingStrategy};
 pub use project::{Project, ProjectConfig};

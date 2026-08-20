@@ -140,7 +140,11 @@ mod tests {
         ));
         let archive_manager = ArchiveManager::new(data_dir.clone(), true);
 
-        let rocksdb_for_scene = Arc::new(RocksDBStore::open(&data_dir).unwrap());
+        // scene 存储使用独立临时目录，避免与 storage 的 RocksDB 锁冲突
+        let scene_dir = tempdir().unwrap();
+        let scene_path = scene_dir.path().to_path_buf();
+        std::mem::forget(scene_dir);
+        let rocksdb_for_scene = Arc::new(RocksDBStore::open(&scene_path).unwrap());
         let scene_store = Arc::new(SceneStore::new(rocksdb_for_scene));
 
         let router = Arc::new(Router::new(
@@ -151,6 +155,8 @@ mod tests {
             dream_processor,
             archive_manager,
             scene_store,
+            mr_common::DedupConfig::default(),
+            None,
         ));
 
         let _server = UnixSocketServer::bind(&socket_path, router).await.unwrap();

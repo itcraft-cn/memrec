@@ -16,6 +16,8 @@ use super::lock::LockContent;
 pub enum DreamGateResult {
     Allowed,
     Disabled,
+    /// Dream 需要 LLM 但未接入（`requires_llm` 且无 LLM 客户端）
+    LlmNotConfigured,
     TooSoon {
         hours_since_last: f64,
         min_hours: f64,

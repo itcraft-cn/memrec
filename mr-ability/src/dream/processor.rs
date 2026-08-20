@@ -19,6 +19,7 @@ use uuid::Uuid;
 use mr_common::types::{DreamConfig, Memory, MemoryScope, MemorySource, MemoryType};
 
 use crate::embedding::EmbeddingGenerator;
+use crate::llm::{LlmClient, LlmMessage};
 use crate::storage::{MemoryStorage, VectorStorage};
 
 use super::gate::{DreamGate, DreamGateResult};
@@ -55,6 +56,7 @@ pub struct DreamProcessor {
     storage: Arc<dyn MemoryStorage>,
     vector_store: Option<Arc<dyn VectorStorage>>,
     embedder: Option<Arc<dyn EmbeddingGenerator>>,
+    llm: Option<Arc<dyn LlmClient>>,
     session_count: Arc<RwLock<u32>>,
 }
 
@@ -70,6 +72,7 @@ impl DreamProcessor {
             storage,
             vector_store: None,
             embedder: None,
+            llm: None,
             session_count: Arc::new(RwLock::new(0)),
         }
     }
@@ -81,6 +84,14 @@ impl DreamProcessor {
 
     pub fn with_embedder(mut self, embedder: Arc<dyn EmbeddingGenerator>) -> Self {
         self.embedder = Some(embedder);
+        self
+    }
+
+    /// 注入 LLM 客户端，用于 Dream 整合摘要。
+    ///
+    /// 未注入且 `config.requires_llm` 时，Dream 执行将被 Gate 拦截。
+    pub fn with_llm(mut self, llm: Arc<dyn LlmClient>) -> Self {
+        self.llm = Some(llm);
         self
     }
 
@@ -106,6 +117,11 @@ impl DreamProcessor {
                 DreamGateResult::Disabled => {
                     return Err(DreamError::GateFailed("Dream is disabled".to_string()));
                 }
+                DreamGateResult::LlmNotConfigured => {
+                    return Err(DreamError::GateFailed(
+                        "Dream requires LLM, but [llm] is not configured".to_string(),
+                    ));
+                }
                 DreamGateResult::TooSoon {
                     hours_since_last,
                     min_hours,
@@ -122,6 +138,13 @@ impl DreamProcessor {
                     )));
                 }
             }
+        }
+
+        // LLM 依赖检查：requires_llm 且未注入 LLM 客户端时视为未启用
+        if self.config.requires_llm && self.llm.is_none() {
+            return Err(DreamError::GateFailed(
+                "Dream requires LLM, but no LLM client injected".to_string(),
+            ));
         }
 
         let session_count = *self.session_count.read().await;
@@ -282,33 +305,54 @@ impl DreamProcessor {
             .map(|m| format!("- [{}] {}", m.memory_type, m.content))
             .collect();
 
-        let prompt = format!(
-            "请对以下历史记忆进行提炼整合：\n\
-             1. 提取关键信息\n\
-             2. 建立关联\n\
-             3. 去除冗余\n\
-             4. 生成简洁摘要\n\n\
-             历史记忆：\n{}\n\n\
-             输出要求：一段简洁的摘要文字（不超过500字）",
-            content_lines.join("\n")
-        );
+        let system_prompt = "你是记忆库整合助手。请对给定的历史记忆进行提炼整合：\
+            1. 提取关键信息\
+            2. 建立关联\
+            3. 去除冗余\
+            4. 生成简洁摘要\
+            输出要求：一段简洁的摘要文字（不超过500字）。";
 
-        info!("Dream LLM prompt length: {} chars", prompt.len());
+        let user_prompt = format!("请整合以下历史记忆：\n\n{}", content_lines.join("\n"));
 
-        Ok(format!(
-            "[Dream 整合摘要] 整合了 {} 条记忆，涵盖 {} 到 {} 期间的内容。",
-            memories.len(),
-            memories
-                .iter()
-                .map(|m| m.created_at)
-                .min()
-                .unwrap_or_else(Utc::now),
-            memories
-                .iter()
-                .map(|m| m.created_at)
-                .max()
-                .unwrap_or_else(Utc::now),
-        ))
+        let messages = vec![
+            LlmMessage::system(system_prompt),
+            LlmMessage::user(user_prompt),
+        ];
+
+        match &self.llm {
+            Some(llm) => {
+                info!(
+                    target: "dream",
+                    "Dream LLM summarization: {} memories, prompt {} chars",
+                    memories.len(),
+                    messages.iter().map(|m| m.content.len()).sum::<usize>()
+                );
+                llm.chat(&messages)
+                    .await
+                    .map_err(|e| DreamError::Llm(e.to_string()))
+            }
+            None => {
+                // 未接入 LLM 且 requires_llm = false：退化为模板摘要（兼容旧行为）
+                warn!(
+                    target: "dream",
+                    "Dream LLM not configured, using template summary"
+                );
+                Ok(format!(
+                    "[Dream 整合摘要] 整合了 {} 条记忆，涵盖 {} 到 {} 期间的内容。",
+                    memories.len(),
+                    memories
+                        .iter()
+                        .map(|m| m.created_at)
+                        .min()
+                        .unwrap_or_else(Utc::now),
+                    memories
+                        .iter()
+                        .map(|m| m.created_at)
+                        .max()
+                        .unwrap_or_else(Utc::now),
+                ))
+            }
+        }
     }
 }
 
@@ -329,6 +373,7 @@ mod tests {
             min_hours_between: 0.0,
             min_memories: 2,
             max_age_hours: 1,
+            requires_llm: false,
             ..Default::default()
         };
 
@@ -400,5 +445,66 @@ mod tests {
         let debug_str = format!("{:?}", result);
         assert!(debug_str.contains("integrated_count"));
         assert!(debug_str.contains("5"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_requires_llm_without_llm_fails() {
+        let dir = tempdir().unwrap();
+        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
+
+        let config = DreamConfig {
+            enabled: true,
+            requires_llm: true,
+            ..Default::default()
+        };
+
+        let processor = DreamProcessor::new(config, dir.path(), storage);
+
+        let result = processor.execute(true).await;
+        assert!(matches!(result, Err(DreamError::GateFailed(_))));
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("LLM"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_with_llm_uses_llm_summary() {
+        use crate::llm::MockLlmClient;
+        use std::sync::Arc as StdArc;
+
+        let dir = tempdir().unwrap();
+        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
+
+        let llm = MockLlmClient::new("LLM 整合摘要内容");
+
+        let config = DreamConfig {
+            enabled: true,
+            requires_llm: true,
+            min_hours_between: 0.0,
+            min_memories: 1,
+            max_age_hours: 100,
+            phase_cross_project: false,
+            phase_personal_summary: false,
+            phase_cleanup: false,
+            ..Default::default()
+        };
+
+        let processor =
+            DreamProcessor::new(config, dir.path(), storage.clone()).with_llm(StdArc::new(llm));
+
+        for i in 0..3 {
+            let mut memory = Memory::new(format!("memory {}", i), MemoryType::Knowledge);
+            // 记忆年龄须大于 max_age_hours（100h），才会被 list_older_than 选中
+            memory.created_at = Utc::now() - chrono::Duration::hours(200);
+            storage.save(&memory).await.unwrap();
+        }
+
+        let result = processor.execute(true).await;
+        assert!(result.is_ok());
+        let dream_result = result.unwrap();
+        assert_eq!(dream_result.integrated_count, 3);
+        assert_eq!(dream_result.summary, "LLM 整合摘要内容");
+        assert!(dream_result.created_memory_id.is_some());
     }
 }

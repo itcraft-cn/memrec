@@ -174,6 +174,9 @@ pub struct AddParams {
     pub source: Option<String>,
     #[serde(default)]
     pub scope: Option<String>,
+    /// 是否执行写入去重检测；None 时使用服务端配置
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dedup: Option<bool>,
 }
 
 /// 获取单条记忆的参数。
@@ -526,6 +529,7 @@ mod tests {
                 working_dir: None,
                 source: None,
                 scope: None,
+                dedup: None,
             })),
             1,
         );

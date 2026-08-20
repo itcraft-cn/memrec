@@ -3,7 +3,7 @@
 //! 生成 `~/.memrec/config.toml` 配置文件，包含模型参数和服务器路径。
 
 use anyhow::Result;
-use mr_common::{ModelConfig as CommonModelConfig, ModelType};
+use mr_common::{LlmConfig, ModelConfig as CommonModelConfig, ModelType};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -13,6 +13,12 @@ pub struct InstallConfig {
     pub version: String,
     pub model: CommonModelConfig,
     pub server: ServerConfig,
+    /// LLM 接入配置（默认关闭，开启后 Dream 摘要可用）
+    #[serde(default)]
+    pub llm: LlmConfig,
+    /// 写入去重配置
+    #[serde(default)]
+    pub dedup: mr_common::DedupConfig,
 }
 
 /// 服务器路径配置
@@ -36,6 +42,8 @@ impl InstallConfig {
                 vectors_dir: "~/.memrec/vectors".to_string(),
                 log_file: "~/.memrec/memrecd.log".to_string(),
             },
+            llm: LlmConfig::default(),
+            dedup: mr_common::DedupConfig::default(),
         }
     }
 }

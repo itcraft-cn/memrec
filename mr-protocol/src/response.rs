@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::error::JsonRpcError;
-use mr_common::{Memory, MemoryType, Project, Scene, TieredSearchResult};
+use mr_common::{Memory, MemoryType, Project, Scene, SimilarMemory, TieredSearchResult};
 
 /// JSON-RPC 2.0 标准响应对象。
 ///
@@ -82,9 +82,33 @@ pub enum ResponseResult {
 }
 
 /// 单条记忆操作结果，用于 Add/Get/Update 等操作。
+///
+/// `action` 描述写入决策：`added`（正常新增）/ `skipped`（重复跳过）/ `updated`（合并更新）；
+/// `duplicates` 携带命中的相似记忆候选（去重检测开启时）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryResult {
     pub memory: Memory,
+    /// 写入动作：`added` / `skipped` / `updated`
+    #[serde(default = "default_add_action")]
+    pub action: String,
+    /// 相似记忆候选（相似度降序）
+    #[serde(default)]
+    pub duplicates: Vec<SimilarMemory>,
+}
+
+fn default_add_action() -> String {
+    "added".to_string()
+}
+
+impl MemoryResult {
+    /// 构造默认动作（`added`）的结果。
+    pub fn new(memory: Memory) -> Self {
+        Self {
+            memory,
+            action: default_add_action(),
+            duplicates: Vec::new(),
+        }
+    }
 }
 
 /// 记忆列表结果，用于 List 操作。
@@ -228,7 +252,7 @@ mod tests {
     #[test]
     fn test_success_response() {
         let memory = Memory::new("test".to_string(), MemoryType::Knowledge);
-        let resp = JsonRpcResponse::success(ResponseResult::Memory(MemoryResult { memory }), 1);
+        let resp = JsonRpcResponse::success(ResponseResult::Memory(MemoryResult::new(memory)), 1);
 
         assert_eq!(resp.jsonrpc, "2.0");
         assert!(resp.result.is_some());
@@ -251,7 +275,7 @@ mod tests {
     #[test]
     fn test_response_serde() {
         let memory = Memory::new("test".to_string(), MemoryType::Knowledge);
-        let resp = JsonRpcResponse::success(ResponseResult::Memory(MemoryResult { memory }), 1);
+        let resp = JsonRpcResponse::success(ResponseResult::Memory(MemoryResult::new(memory)), 1);
 
         let json = serde_json::to_string(&resp).unwrap();
         let parsed: JsonRpcResponse = serde_json::from_str(&json).unwrap();

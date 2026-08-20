@@ -18,6 +18,7 @@
 
 use anyhow::Result;
 use mr_ability::archive::ArchiveManager;
+use mr_ability::dedup::{DedupAction, DedupDecider, DedupDecision};
 use mr_ability::dream::DreamProcessor;
 use mr_ability::embedding::EmbeddingGenerator;
 use mr_ability::project::{detect_project_id, find_project_root};
@@ -26,7 +27,9 @@ use mr_ability::storage::{
     VectorStorage,
 };
 use mr_ability::tiered::TierAssigner;
-use mr_common::{Memory, MemoryType, RepresentationTier, TierThresholds};
+use mr_common::{
+    DedupConfig, Memory, MemoryType, RepresentationTier, SimilarMemory, TierThresholds,
+};
 use mr_protocol::{
     DreamResult, GetProjectInfoParams, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
     MemoryListResult, MemoryResult, ProjectInfoResult, RequestAction, RequestParams,
@@ -50,9 +53,14 @@ pub struct Router {
     dream_processor: Arc<DreamProcessor>,
     archive_manager: ArchiveManager,
     scene_store: Arc<dyn SceneStorage>,
+    /// 写入去重配置
+    dedup_config: DedupConfig,
+    /// 去重决策器（规则版；LLM 版预留）
+    dedup_decider: Option<Arc<dyn DedupDecider>>,
 }
 
 impl Router {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         storage: Arc<dyn MemoryStorage>,
         vector_store: Arc<dyn VectorStorage>,
@@ -61,6 +69,8 @@ impl Router {
         dream_processor: Arc<DreamProcessor>,
         archive_manager: ArchiveManager,
         scene_store: Arc<dyn SceneStorage>,
+        dedup_config: DedupConfig,
+        dedup_decider: Option<Arc<dyn DedupDecider>>,
     ) -> Self {
         Self {
             storage,
@@ -70,6 +80,8 @@ impl Router {
             dream_processor,
             archive_manager,
             scene_store,
+            dedup_config,
+            dedup_decider,
         }
     }
 
@@ -98,10 +110,14 @@ impl Router {
             storage.clone(),
         ));
         let archive_manager = ArchiveManager::new(data_dir.clone(), true);
-        
-        let rocksdb = mr_ability::storage::RocksDBStore::open(&data_dir).unwrap();
+
+        // scene 存储使用独立临时目录，避免与调用方 storage 的 RocksDB 锁冲突
+        let scene_dir = tempfile::tempdir().unwrap();
+        let scene_path = scene_dir.path().to_path_buf();
+        std::mem::forget(scene_dir);
+        let rocksdb = mr_ability::storage::RocksDBStore::open(&scene_path).unwrap();
         let scene_store = Arc::new(SceneStore::new(std::sync::Arc::new(rocksdb)));
-        
+
         Self {
             storage,
             vector_store,
@@ -110,6 +126,8 @@ impl Router {
             dream_processor,
             archive_manager,
             scene_store,
+            dedup_config: DedupConfig::default(),
+            dedup_decider: None,
         }
     }
 
@@ -143,13 +161,16 @@ impl Router {
                 self.handle_scene_delete(request.params, request.id).await
             }
             RequestAction::SceneAddMemory => {
-                self.handle_scene_add_memory(request.params, request.id).await
+                self.handle_scene_add_memory(request.params, request.id)
+                    .await
             }
             RequestAction::SceneRemoveMemory => {
-                self.handle_scene_remove_memory(request.params, request.id).await
+                self.handle_scene_remove_memory(request.params, request.id)
+                    .await
             }
             RequestAction::SceneUpdateHeat => {
-                self.handle_scene_update_heat(request.params, request.id).await
+                self.handle_scene_update_heat(request.params, request.id)
+                    .await
             }
 
             _ => JsonRpcResponse::error(
@@ -166,6 +187,10 @@ impl Router {
     /// 处理 Add 请求：保存记忆并生成嵌入向量。
     ///
     /// 全局记忆使用 nil UUID 作为项目 ID；项目记忆自动检测项目 ID。
+    /// 开启去重检测时，先检索相似记忆并按规则决策：
+    /// - 重复（相似度 >= duplicate_threshold）→ `skipped`，不写入
+    /// - 可更新（>= update_threshold）→ `updated`，合并更新已有记忆
+    /// - 否则正常写入 → `added`
     async fn handle_add(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
         match params {
             Some(RequestParams::Add(p)) => {
@@ -176,7 +201,8 @@ impl Router {
                         .or_else(|| detect_project_id(p.working_dir.as_deref()).ok())
                 };
 
-                let mut memory = Memory::new(p.content.clone(), p.memory_type).with_tags(p.tags);
+                let mut memory =
+                    Memory::new(p.content.clone(), p.memory_type).with_tags(p.tags.clone());
 
                 if let Some(pid) = project_id {
                     memory = memory.with_project(pid);
@@ -193,22 +219,96 @@ impl Router {
                     }
                 }
 
+                // 去重检测：调用方可通过 dedup=false 显式关闭，默认遵循配置
+                let dedup_enabled = p.dedup.unwrap_or(self.dedup_config.enabled);
+                if dedup_enabled {
+                    if let Some(decision) = self.check_dedup(&p.content).await {
+                        match decision.action {
+                            DedupAction::Skip => {
+                                tracing::info!(
+                                    "Add skipped: duplicate of {:?} (score={:.3})",
+                                    decision.candidates.first().map(|c| c.memory_id),
+                                    decision.candidates.first().map(|c| c.score).unwrap_or(0.0)
+                                );
+                                return JsonRpcResponse::success(
+                                    ResponseResult::Memory(MemoryResult {
+                                        memory,
+                                        action: "skipped".to_string(),
+                                        duplicates: decision.candidates,
+                                    }),
+                                    id,
+                                );
+                            }
+                            DedupAction::Update(target_id) => {
+                                if let Ok(Some(old)) = self.storage.get(&target_id).await {
+                                    let mut updated = old.clone();
+                                    updated.content = p.content.clone();
+                                    for t in &p.tags {
+                                        if !updated.tags.contains(t) {
+                                            updated.tags.push(t.clone());
+                                        }
+                                    }
+                                    updated.last_accessed = chrono::Utc::now();
+                                    updated.access_count += 1;
+
+                                    match self.storage.update(&updated).await {
+                                        Ok(_) => {
+                                            // 重建向量索引：先删旧向量再写新向量
+                                            let _ = self.hybrid_store.remove(&target_id).await;
+                                            if let Ok(embed) = self.embedder.embed(&updated.content)
+                                            {
+                                                let payload = self.build_payload(&updated);
+                                                let _ = self
+                                                    .hybrid_store
+                                                    .add(
+                                                        &target_id,
+                                                        &embed,
+                                                        &updated.content,
+                                                        payload,
+                                                    )
+                                                    .await;
+                                            }
+                                            self.archive_manager.archive(&updated).await;
+
+                                            tracing::info!(
+                                                "Add updated existing memory {:?}",
+                                                target_id
+                                            );
+                                            return JsonRpcResponse::success(
+                                                ResponseResult::Memory(MemoryResult {
+                                                    memory: updated,
+                                                    action: "updated".to_string(),
+                                                    duplicates: decision.candidates,
+                                                }),
+                                                id,
+                                            );
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                "Add dedup update failed ({}), falling back to add",
+                                                e
+                                            );
+                                        }
+                                    }
+                                } else {
+                                    tracing::warn!(
+                                        "Add dedup target {:?} not found, falling back to add",
+                                        target_id
+                                    );
+                                }
+                            }
+                            DedupAction::Add => {}
+                        }
+                    }
+                }
+
                 match self.storage.save(&memory).await {
                     Ok(_) => {
                         self.archive_manager.archive(&memory).await;
 
                         match self.embedder.embed(&p.content) {
                             Ok(embed) => {
-                                let payload = VectorPayload {
-                                    project_id: memory.project_id,
-                                    memory_type: memory.memory_type.to_string(),
-                                    tags: memory.tags.clone(),
-                                    content_preview: p.content.chars().take(200).collect(),
-                                    importance: memory.importance,
-                                    chunk_group_id: memory.chunk_group_id,
-                                    chunk_index: memory.chunk_index,
-                                    chunk_total: memory.chunk_total,
-                                };
+                                let payload = self.build_payload(&memory);
                                 self.hybrid_store
                                     .add(&memory.id, &embed, &p.content, payload)
                                     .await
@@ -220,7 +320,11 @@ impl Router {
                         }
 
                         JsonRpcResponse::success(
-                            ResponseResult::Memory(MemoryResult { memory }),
+                            ResponseResult::Memory(MemoryResult {
+                                memory,
+                                action: "added".to_string(),
+                                duplicates: Vec::new(),
+                            }),
                             id,
                         )
                     }
@@ -245,6 +349,62 @@ impl Router {
         }
     }
 
+    /// 构造向量索引载荷。
+    fn build_payload(&self, memory: &Memory) -> VectorPayload {
+        VectorPayload {
+            project_id: memory.project_id,
+            memory_type: memory.memory_type.to_string(),
+            tags: memory.tags.clone(),
+            content_preview: memory.content.chars().take(200).collect(),
+            importance: memory.importance,
+            chunk_group_id: memory.chunk_group_id,
+            chunk_index: memory.chunk_index,
+            chunk_total: memory.chunk_total,
+        }
+    }
+
+    /// 写入去重检测：检索相似记忆并做出决策。
+    ///
+    /// 使用向量检索（余弦相似度）查找相似候选，过滤低于 `update_threshold` 的命中，
+    /// 交由决策器（规则版/LLM 版）判断动作。
+    /// 注意：此处直接用向量分数而非混合检索——混合检索的融合归一化分数
+    /// 会稀释原始相似度，不适合阈值判断。
+    async fn check_dedup(&self, content: &str) -> Option<DedupDecision> {
+        let decider = self.dedup_decider.as_ref()?;
+        if !self.dedup_config.enabled {
+            return None;
+        }
+
+        let embed = self.embedder.embed(content).ok()?;
+        let filter = SearchFilter {
+            project_id: None,
+            include_global: true,
+            memory_type: None,
+            min_score: 0.0,
+        };
+        let hits = self
+            .vector_store
+            .search(&embed, filter, self.dedup_config.top_k.max(1))
+            .await
+            .ok()?;
+
+        let candidates: Vec<SimilarMemory> = hits
+            .into_iter()
+            .filter(|h| h.score >= self.dedup_config.update_threshold)
+            .map(|h| SimilarMemory {
+                memory_id: h.memory_id,
+                content: h.payload.content_preview,
+                score: h.score,
+            })
+            .collect();
+
+        if candidates.is_empty() {
+            return None;
+        }
+
+        Some(decider.decide(content, &candidates).await)
+    }
+
     /// 处理 Get 请求：获取单条记忆。
     ///
     /// 若 `merge=true` 且记忆为分块记忆，合并所有分块返回完整内容。
@@ -258,7 +418,7 @@ impl Router {
                         Ok(Some(memory)) => {
                             self.storage.update(&memory).await.ok();
                             JsonRpcResponse::success(
-                                ResponseResult::Memory(MemoryResult { memory }),
+                                ResponseResult::Memory(MemoryResult::new(memory)),
                                 id,
                             )
                         }
@@ -299,7 +459,7 @@ impl Router {
                 if !memory.is_chunked() {
                     self.storage.update(&memory).await.ok();
                     return JsonRpcResponse::success(
-                        ResponseResult::Memory(MemoryResult { memory }),
+                        ResponseResult::Memory(MemoryResult::new(memory)),
                         rpc_id,
                     );
                 }
@@ -330,9 +490,7 @@ impl Router {
                         merged_memory.id = group_id;
                         merged_memory.project_id = first_chunk.project_id;
                         JsonRpcResponse::success(
-                            ResponseResult::Memory(MemoryResult {
-                                memory: merged_memory,
-                            }),
+                            ResponseResult::Memory(MemoryResult::new(merged_memory)),
                             rpc_id,
                         )
                     }
@@ -889,7 +1047,9 @@ impl Router {
                 scene.tags = p.tags;
 
                 match self.scene_store.save_scene(&scene).await {
-                    Ok(_) => JsonRpcResponse::success(ResponseResult::Scene(SceneResult { scene }), id),
+                    Ok(_) => {
+                        JsonRpcResponse::success(ResponseResult::Scene(SceneResult { scene }), id)
+                    }
                     Err(e) => JsonRpcResponse::error(
                         JsonRpcError {
                             code: -32000,
@@ -914,27 +1074,27 @@ impl Router {
     /// 处理 SceneGet 请求：获取场景。
     async fn handle_scene_get(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
         match params {
-            Some(RequestParams::SceneGet(p)) => {
-                match self.scene_store.get_scene(&p.id).await {
-                    Ok(Some(scene)) => JsonRpcResponse::success(ResponseResult::Scene(SceneResult { scene }), id),
-                    Ok(None) => JsonRpcResponse::error(
-                        JsonRpcError {
-                            code: -32001,
-                            message: "Scene not found".to_string(),
-                            data: None,
-                        },
-                        id,
-                    ),
-                    Err(e) => JsonRpcResponse::error(
-                        JsonRpcError {
-                            code: -32000,
-                            message: format!("Failed to get scene: {}", e),
-                            data: None,
-                        },
-                        id,
-                    ),
+            Some(RequestParams::SceneGet(p)) => match self.scene_store.get_scene(&p.id).await {
+                Ok(Some(scene)) => {
+                    JsonRpcResponse::success(ResponseResult::Scene(SceneResult { scene }), id)
                 }
-            }
+                Ok(None) => JsonRpcResponse::error(
+                    JsonRpcError {
+                        code: -32001,
+                        message: "Scene not found".to_string(),
+                        data: None,
+                    },
+                    id,
+                ),
+                Err(e) => JsonRpcResponse::error(
+                    JsonRpcError {
+                        code: -32000,
+                        message: format!("Failed to get scene: {}", e),
+                        data: None,
+                    },
+                    id,
+                ),
+            },
             _ => JsonRpcResponse::error(
                 JsonRpcError {
                     code: -32602,
@@ -950,7 +1110,11 @@ impl Router {
     async fn handle_scene_list(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
         match params {
             Some(RequestParams::SceneList(p)) => {
-                match self.scene_store.list_scenes(p.limit, p.sort_by_heat, p.project_id).await {
+                match self
+                    .scene_store
+                    .list_scenes(p.limit, p.sort_by_heat, p.project_id)
+                    .await
+                {
                     Ok(scenes) => {
                         let total = scenes.len();
                         JsonRpcResponse::success(
@@ -1018,10 +1182,18 @@ impl Router {
     }
 
     /// 处理 SceneAddMemory 请求：添加记忆到场景。
-    async fn handle_scene_add_memory(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+    async fn handle_scene_add_memory(
+        &self,
+        params: Option<RequestParams>,
+        id: u64,
+    ) -> JsonRpcResponse {
         match params {
             Some(RequestParams::SceneAddMemory(p)) => {
-                match self.scene_store.add_memory_to_scene(&p.scene_id, &p.memory_id).await {
+                match self
+                    .scene_store
+                    .add_memory_to_scene(&p.scene_id, &p.memory_id)
+                    .await
+                {
                     Ok(_) => JsonRpcResponse::success(
                         ResponseResult::Success(SuccessResult {
                             message: "Memory added to scene".to_string(),
@@ -1050,10 +1222,18 @@ impl Router {
     }
 
     /// 处理 SceneRemoveMemory 请求：从场景移除记忆。
-    async fn handle_scene_remove_memory(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+    async fn handle_scene_remove_memory(
+        &self,
+        params: Option<RequestParams>,
+        id: u64,
+    ) -> JsonRpcResponse {
         match params {
             Some(RequestParams::SceneRemoveMemory(p)) => {
-                match self.scene_store.remove_memory_from_scene(&p.scene_id, &p.memory_id).await {
+                match self
+                    .scene_store
+                    .remove_memory_from_scene(&p.scene_id, &p.memory_id)
+                    .await
+                {
                     Ok(_) => JsonRpcResponse::success(
                         ResponseResult::Success(SuccessResult {
                             message: "Memory removed from scene".to_string(),
@@ -1082,10 +1262,18 @@ impl Router {
     }
 
     /// 处理 SceneUpdateHeat 请求：更新场景热度。
-    async fn handle_scene_update_heat(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+    async fn handle_scene_update_heat(
+        &self,
+        params: Option<RequestParams>,
+        id: u64,
+    ) -> JsonRpcResponse {
         match params {
             Some(RequestParams::SceneUpdateHeat(p)) => {
-                match self.scene_store.update_scene_heat(&p.scene_id, p.heat).await {
+                match self
+                    .scene_store
+                    .update_scene_heat(&p.scene_id, p.heat)
+                    .await
+                {
                     Ok(_) => JsonRpcResponse::success(
                         ResponseResult::Success(SuccessResult {
                             message: "Scene heat updated".to_string(),
@@ -1117,16 +1305,204 @@ impl Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mr_ability::dedup::RuleDedupDecider;
     use mr_ability::embedding::MockEmbedder;
     use mr_ability::search::{MmrConfig, ScorerConfig};
     use mr_ability::storage::rocksdb::RocksDBStore;
     use mr_ability::storage::{HybridStore, MemoryStore, SceneStore, TantivyStore, VectorStore};
     use mr_common::DreamConfig;
     use mr_protocol::{
-        default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda, GetProjectInfoParams,
-        SearchMemoryParams,
+        default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda, AddParams,
+        GetProjectInfoParams, SearchMemoryParams,
     };
     use tempfile::tempdir;
+
+    /// 可预测相似度的测试嵌入器。
+    ///
+    /// 每个字节映射到独立维度，相同内容得到相同向量（相似度 1.0），
+    /// 共享前缀越长相似度越高，便于控制去重测试场景。
+    struct TestEmbedder;
+
+    impl mr_ability::embedding::EmbeddingGenerator for TestEmbedder {
+        fn dimension(&self) -> usize {
+            384
+        }
+
+        fn embed(&self, text: &str) -> anyhow::Result<Vec<f32>> {
+            let mut v = vec![0.0f32; 384];
+            for (i, b) in text.bytes().take(384).enumerate() {
+                v[i] = b as f32 / 255.0;
+            }
+            Ok(v)
+        }
+
+        fn embed_batch(&self, texts: &[String]) -> anyhow::Result<Vec<Vec<f32>>> {
+            Ok(texts.iter().map(|t| self.embed(t).unwrap()).collect())
+        }
+    }
+
+    /// 构造带去重配置的路由器（注入 TestEmbedder + 规则决策器）。
+    fn router_with_dedup(dup_threshold: f32, update_threshold: f32) -> Router {
+        let dir = tempdir().unwrap();
+        let data_dir = dir.path().to_path_buf();
+        // 保持临时目录存活（Router 生命周期内 RocksDB 需要访问数据文件）
+        std::mem::forget(dir);
+        // 共享 RocksDB 实例（MemoryStore 与 SceneStore 复用，避免锁冲突）
+        let rocksdb = Arc::new(RocksDBStore::open(&data_dir).unwrap());
+        let storage = Arc::new(MemoryStore::new(rocksdb.clone()));
+        let embedder = Arc::new(TestEmbedder);
+        let vector_store = Arc::new(VectorStore::new(embedder.dimension()));
+        let fts_store = Arc::new(TantivyStore::new_test());
+        let hybrid_store = Arc::new(HybridStore::new(
+            vector_store.clone(),
+            fts_store,
+            MmrConfig::default(),
+            ScorerConfig::default(),
+        ));
+
+        let dream_config = DreamConfig::default();
+        let dream_processor = Arc::new(DreamProcessor::new(
+            dream_config,
+            &data_dir,
+            storage.clone(),
+        ));
+        let archive_manager = ArchiveManager::new(data_dir.clone(), true);
+        let scene_store = Arc::new(SceneStore::new(rocksdb));
+
+        let dedup_config = DedupConfig {
+            enabled: true,
+            top_k: 5,
+            duplicate_threshold: dup_threshold,
+            update_threshold,
+        };
+        let decider: Option<Arc<dyn DedupDecider>> =
+            Some(Arc::new(RuleDedupDecider::from_config(&dedup_config)));
+
+        Router::new(
+            storage,
+            vector_store,
+            hybrid_store,
+            embedder,
+            dream_processor,
+            archive_manager,
+            scene_store,
+            dedup_config,
+            decider,
+        )
+    }
+
+    fn add_request(content: &str, id: u64) -> JsonRpcRequest {
+        JsonRpcRequest::new(
+            RequestAction::Add,
+            Some(RequestParams::Add(AddParams {
+                content: content.to_string(),
+                memory_type: MemoryType::Knowledge,
+                tags: vec![],
+                project_id: None,
+                is_global: true,
+                working_dir: None,
+                source: None,
+                scope: None,
+                dedup: None,
+            })),
+            id,
+        )
+    }
+
+    fn add_request_dedup_off(content: &str, id: u64) -> JsonRpcRequest {
+        let mut req = add_request(content, id);
+        if let Some(RequestParams::Add(p)) = &mut req.params {
+            p.dedup = Some(false);
+        }
+        req
+    }
+
+    fn extract_action(response: &JsonRpcResponse) -> String {
+        match &response.result {
+            Some(ResponseResult::Memory(m)) => m.action.clone(),
+            _ => String::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_add_duplicate_skipped() {
+        let router = router_with_dedup(0.95, 0.80);
+        let content = "jwt auth uses RS256 signing";
+
+        let first = router.route(add_request(content, 1)).await;
+        assert_eq!(extract_action(&first), "added");
+
+        let second = router.route(add_request(content, 2)).await;
+        assert_eq!(extract_action(&second), "skipped");
+
+        // 记忆库只有一条
+        let count = router.storage.count().await.unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_add_update_merges_existing() {
+        let router = router_with_dedup(0.95, 0.80);
+        let base = "jwt auth uses RS256 signing";
+        let evolved = "jwt auth uses RS256 signing rotation";
+
+        let first = router.route(add_request(base, 1)).await;
+        let first_id = match &first.result {
+            Some(ResponseResult::Memory(m)) => m.memory.id,
+            _ => panic!("expected memory result"),
+        };
+
+        let second = router.route(add_request(evolved, 2)).await;
+        assert_eq!(extract_action(&second), "updated");
+        let updated = match &second.result {
+            Some(ResponseResult::Memory(m)) => m.memory.clone(),
+            _ => panic!("expected memory result"),
+        };
+        // 更新保留了原 ID，内容为新内容
+        assert_eq!(updated.id, first_id);
+        assert!(updated.content.contains("rotation"));
+        let duplicates = match &second.result {
+            Some(ResponseResult::Memory(m)) => m.duplicates.clone(),
+            _ => panic!("expected memory result"),
+        };
+        assert!(!duplicates.is_empty());
+
+        // 记忆库仍只有一条
+        let count = router.storage.count().await.unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_add_unrelated_adds() {
+        let router = router_with_dedup(0.95, 0.80);
+
+        let first = router.route(add_request("jwt auth uses RS256", 1)).await;
+        assert_eq!(extract_action(&first), "added");
+
+        let second = router
+            .route(add_request("rust ownership and borrowing", 2))
+            .await;
+        assert_eq!(extract_action(&second), "added");
+
+        let count = router.storage.count().await.unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_add_dedup_explicitly_disabled() {
+        let router = router_with_dedup(0.95, 0.80);
+        let content = "jwt auth uses RS256 signing";
+
+        let first = router.route(add_request(content, 1)).await;
+        assert_eq!(extract_action(&first), "added");
+
+        // dedup=false 显式关闭，重复内容也写入
+        let second = router.route(add_request_dedup_off(content, 2)).await;
+        assert_eq!(extract_action(&second), "added");
+
+        let count = router.storage.count().await.unwrap();
+        assert_eq!(count, 2);
+    }
 
     #[tokio::test]
     async fn test_router_search_memory() {
@@ -1163,6 +1539,8 @@ mod tests {
             dream_processor,
             archive_manager,
             scene_store,
+            DedupConfig::default(),
+            None,
         );
 
         let request = JsonRpcRequest::new(

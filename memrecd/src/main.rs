@@ -30,7 +30,11 @@ fn main() -> Result<()> {
 
     let home = dirs::home_dir().expect("Failed to get home directory");
     let log_path = if config.log.memrecd_log.starts_with('~') {
-        let rest = config.log.memrecd_log.strip_prefix('~').unwrap_or(&config.log.memrecd_log);
+        let rest = config
+            .log
+            .memrecd_log
+            .strip_prefix('~')
+            .unwrap_or(&config.log.memrecd_log);
         home.join(rest.strip_prefix('/').unwrap_or(rest))
     } else {
         std::path::PathBuf::from(&config.log.memrecd_log)

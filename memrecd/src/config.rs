@@ -9,7 +9,10 @@
 //! - [`DaemonServerConfig`]：服务端路径配置（Socket、数据目录、向量目录、日志文件）
 
 use anyhow::Result;
-use mr_common::{DreamConfig, IdleMonitorConfig, LogConfig, ModelConfig, ModelType, QueueConfig};
+use mr_common::{
+    DedupConfig, DreamConfig, IdleMonitorConfig, LlmConfig, LogConfig, ModelConfig, ModelType,
+    QueueConfig,
+};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -20,6 +23,10 @@ pub struct DaemonConfig {
     pub server: DaemonServerConfig,
     #[serde(default)]
     pub dream: DreamConfig,
+    #[serde(default)]
+    pub llm: LlmConfig,
+    #[serde(default)]
+    pub dedup: DedupConfig,
     #[serde(default)]
     pub archive: ArchiveConfig,
     #[serde(default)]
@@ -71,6 +78,8 @@ impl Default for DaemonConfig {
                 vectors_dir: base_dir.join("vectors"),
             },
             dream: DreamConfig::default(),
+            llm: LlmConfig::default(),
+            dedup: DedupConfig::default(),
             archive: ArchiveConfig::default(),
             idle_monitor: IdleMonitorConfig::default(),
             queue: QueueConfig::default(),
@@ -140,5 +149,85 @@ fn expand_tilde(path: &Path, home: &Path) -> PathBuf {
         home.join(rest)
     } else {
         path.to_path_buf()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_daemon_config_defaults_include_llm_and_dedup() {
+        let config = DaemonConfig::default();
+        // LLM 默认关闭，Dream 需 LLM 时视为不启用
+        assert!(!config.llm.enabled);
+        assert_eq!(config.llm.provider, "deepseek");
+        assert_eq!(config.llm.think_level(), mr_common::ThinkLevel::Medium);
+        assert!(config.dedup.enabled);
+        assert_eq!(config.dedup.top_k, 5);
+        assert_eq!(config.dedup.duplicate_threshold, 0.92);
+    }
+
+    #[test]
+    fn test_daemon_config_parses_llm_section() {
+        let toml_str = r#"
+            [server]
+            socket_path = "~/.memrec/memrecd.sock"
+            data_dir = "~/.memrec/data"
+            vectors_dir = "~/.memrec/vectors"
+
+            [model]
+            model_type = "bge-m3"
+            source = "huggingface"
+            dimension = 1024
+            files = []
+
+            [llm]
+            enabled = true
+            provider = "deepseek"
+            url = "https://api.deepseek.com/v1"
+            api_key = "sk-test"
+            model = "deepseek-reasoner"
+            think_level = "xhigh"
+
+            [dedup]
+            enabled = true
+            top_k = 10
+            duplicate_threshold = 0.95
+            update_threshold = 0.88
+
+            [dream]
+            enabled = true
+        "#;
+        let config: DaemonConfig = toml::from_str(toml_str).unwrap();
+        assert!(config.llm.enabled);
+        assert_eq!(config.llm.api_key, "sk-test");
+        assert_eq!(config.llm.model, "deepseek-reasoner");
+        assert_eq!(config.llm.think_level(), mr_common::ThinkLevel::Xhigh);
+        assert_eq!(config.dedup.top_k, 10);
+        assert_eq!(config.dedup.duplicate_threshold, 0.95);
+        assert_eq!(config.dedup.update_threshold, 0.88);
+        assert!(config.dream.enabled);
+        assert!(config.dream.requires_llm);
+    }
+
+    #[test]
+    fn test_daemon_config_llm_off_by_default() {
+        let toml_str = r#"
+            [server]
+            socket_path = "~/.memrec/memrecd.sock"
+            data_dir = "~/.memrec/data"
+            vectors_dir = "~/.memrec/vectors"
+
+            [model]
+            model_type = "minilm-l6-v2"
+            source = "huggingface"
+            dimension = 384
+            files = []
+        "#;
+        let config: DaemonConfig = toml::from_str(toml_str).unwrap();
+        assert!(!config.llm.enabled);
+        assert!(config.dedup.enabled);
+        assert_eq!(config.llm.max_tokens, 4096);
     }
 }
