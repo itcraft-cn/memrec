@@ -27,7 +27,8 @@ use uuid::Uuid;
 
 use client::Client;
 use commands::{
-    add, delete, dream, get, list, scene, search_execute, stats, version, AddOptions, SearchArgs,
+    add, delete, dream, get, list, restore, scene, search_execute, stats, version, AddOptions,
+    ListOptions, SearchArgs,
 };
 
 /// 检测当前工作目录，优先使用 Git 仓库根目录。
@@ -96,8 +97,21 @@ enum Commands {
         project_only: bool,
         #[arg(long)]
         global_only: bool,
+        /// 按标签过滤（可多个，全部命中）
+        #[arg(long)]
+        tag: Vec<String>,
+        /// 按记忆类型过滤（decision/knowledge/context/preference/conversation）
+        #[arg(long)]
+        type_filter: Option<String>,
+        /// 包含已删除（软删除）的原始记录
+        #[arg(long)]
+        deleted: bool,
     },
     Delete {
+        id: String,
+    },
+    /// 恢复软删除记忆（重新加入检索索引）
+    Restore {
         id: String,
     },
     Dream {
@@ -199,11 +213,29 @@ async fn main() -> Result<()> {
             limit,
             project_only,
             global_only,
+            tag,
+            type_filter,
+            deleted,
         } => {
-            list(&client, limit, project_only, global_only, human).await?;
+            list(
+                &client,
+                ListOptions {
+                    limit,
+                    project_only,
+                    global_only,
+                    tags: tag,
+                    memory_type: type_filter,
+                    include_deleted: deleted,
+                },
+                human,
+            )
+            .await?;
         }
         Commands::Delete { id } => {
             delete(&client, id, human).await?;
+        }
+        Commands::Restore { id } => {
+            restore(&client, id, human).await?;
         }
         Commands::Dream { force } => {
             dream(&client, force, human).await?;

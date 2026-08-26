@@ -6,5 +6,5 @@ mod memory;
 pub mod scene;
 mod search;
 
-pub use memory::{add, delete, dream, get, list, stats, version, AddOptions};
+pub use memory::{add, delete, dream, get, list, restore, stats, version, AddOptions, ListOptions};
 pub use search::{search_execute, SearchArgs};

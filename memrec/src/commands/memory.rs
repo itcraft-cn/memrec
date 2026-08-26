@@ -12,7 +12,7 @@ use anyhow::Result;
 use mr_common::MemoryType;
 use mr_protocol::{
     AddParams, DeleteParams, DreamParams, GetParams, JsonRpcRequest, ListParams, RequestAction,
-    RequestParams, ResponseResult,
+    RequestParams, ResponseResult, RestoreParams,
 };
 
 /// 单块最大字节数，留余量给 JSON 序列化开销
@@ -263,22 +263,36 @@ pub async fn get(client: &Client, id: String, merge: bool, human: bool) -> Resul
 }
 
 /// 列出记忆命令，支持项目/全局过滤。
-pub async fn list(
-    client: &Client,
-    limit: usize,
-    project_only: bool,
-    global_only: bool,
-    human: bool,
-) -> Result<()> {
+/// `list` 命令参数集合
+pub struct ListOptions {
+    pub limit: usize,
+    pub project_only: bool,
+    pub global_only: bool,
+    /// 按标签过滤（可多个，全部命中）
+    pub tags: Vec<String>,
+    /// 按记忆类型过滤
+    pub memory_type: Option<String>,
+    /// 包含已删除（软删除）的原始记录
+    pub include_deleted: bool,
+}
+
+/// 列出记忆命令。
+///
+/// 支持标签/类型过滤，`include_deleted` 时从 RocksDB 检索软删除的原始记录。
+pub async fn list(client: &Client, opts: ListOptions, human: bool) -> Result<()> {
     let request = JsonRpcRequest::new(
         RequestAction::List,
         Some(RequestParams::List(ListParams {
-            tags: Vec::new(),
-            memory_type: None,
-            limit,
-            project_only,
-            global_only,
+            tags: opts.tags,
+            memory_type: opts
+                .memory_type
+                .map(|t| parse_memory_type(&t))
+                .transpose()?,
+            limit: opts.limit,
+            project_only: opts.project_only,
+            global_only: opts.global_only,
             project_id: None,
+            include_deleted: opts.include_deleted,
         })),
         1,
     );
@@ -333,6 +347,43 @@ pub async fn delete(client: &Client, id: String, human: bool) -> Result<()> {
             match result {
                 ResponseResult::Success(s) => {
                     println!("{}", s.message);
+                }
+                _ => println!("Unexpected response type"),
+            }
+        } else if let Some(err) = response.error {
+            println!("Error: {}", err.message);
+        }
+    } else {
+        println!("{}", serde_json::to_string_pretty(&response)?);
+    }
+
+    Ok(())
+}
+
+/// 恢复软删除记忆命令。
+///
+/// 将 `is_deleted=true` 的原始记录恢复为活跃状态，并重新加入混合检索索引。
+pub async fn restore(client: &Client, id: String, human: bool) -> Result<()> {
+    let uuid = uuid::Uuid::parse_str(&id).map_err(|e| anyhow::anyhow!("Invalid UUID: {}", e))?;
+
+    let request = JsonRpcRequest::new(
+        RequestAction::Restore,
+        Some(RequestParams::Restore(RestoreParams { id: uuid })),
+        1,
+    );
+
+    let response = client.send(&request).await?;
+
+    if human {
+        if let Some(result) = response.result {
+            match result {
+                ResponseResult::Memory(m) => {
+                    println!("Restored memory {}:", m.memory.id);
+                    println!(
+                        "  {}",
+                        m.memory.content.chars().take(100).collect::<String>()
+                    );
+                    println!("  Tags: {:?}", m.memory.tags);
                 }
                 _ => println!("Unexpected response type"),
             }

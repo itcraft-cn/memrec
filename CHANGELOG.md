@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Raw record retrieval & restore**: inspect and recover soft-deleted memories from RocksDB
+  - `memrec list --deleted`: list soft-deleted raw records (RocksDB `cf_deleted` column family)
+  - `memrec list --tag <t> --type <t>`: tag/type filtering (protocol `ListParams.tags`/`memory_type` now actually enforced)
+  - `memrec restore <id>`: restore a soft-deleted memory and re-add it to the hybrid search index
+
 ### Fixed
 
 - **Dream garbage memory elimination** (v0.7.0 leftover: duplicate `personal-summary`/`cross-project` summaries polluted the memory base, 94% of 100 memories were machine-generated):

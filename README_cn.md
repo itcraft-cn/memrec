@@ -84,7 +84,10 @@ memrec search "中文搜索" --human           # 中文搜索支持
 
 # 其他
 memrec list --limit 20
+memrec list --tag rust --type decision   # 按标签/类型过滤
+memrec list --deleted                    # 从 RocksDB 检索软删除的原始记录
 memrec get <id>
+memrec restore <id>                      # 恢复软删除记忆（重新入检索索引）
 memrec stats
 memrec version
 

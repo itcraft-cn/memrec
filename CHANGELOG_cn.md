@@ -7,6 +7,13 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **原始记录检索与恢复**：从 RocksDB 检索并恢复软删除记忆
+  - `memrec list --deleted`：列出软删除的原始记录（RocksDB `cf_deleted` 列族）
+  - `memrec list --tag <t> --type <t>`：标签/类型过滤（协议 `ListParams.tags`/`memory_type` 此前未生效，现已实现）
+  - `memrec restore <id>`：恢复软删除记忆并重新加入混合检索索引
+
 ### 修复
 
 - **Dream 垃圾记忆根治**（v0.7.0 遗留问题：`personal-summary`/`cross-project` 重复摘要污染记忆库，100 条中 94% 为机器生成）：

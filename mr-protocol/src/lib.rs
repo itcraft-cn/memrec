@@ -10,9 +10,9 @@ pub use error::{JsonRpcError, MemRecError};
 pub use request::{
     default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda, AddParams, DeleteParams,
     DreamParams, GetParams, GetProjectInfoParams, JsonRpcRequest, ListParams, RequestAction,
-    RequestParams, SceneAddMemoryParams, SceneCreateParams, SceneDeleteParams, SceneGetParams,
-    SceneListParams, SceneRemoveMemoryParams, SceneUpdateHeatParams, SearchMemoryParams,
-    TieredSearchParams,
+    RequestParams, RestoreParams, SceneAddMemoryParams, SceneCreateParams, SceneDeleteParams,
+    SceneGetParams, SceneListParams, SceneRemoveMemoryParams, SceneUpdateHeatParams,
+    SearchMemoryParams, TieredSearchParams,
 };
 pub use response::{
     DreamResult, JsonRpcResponse, MemoryListResult, MemoryResult, ProjectInfoResult,

@@ -29,6 +29,7 @@ pub enum RequestAction {
     Get,
     Update,
     Delete,
+    Restore,
     Search,
     List,
     Tag,
@@ -65,6 +66,7 @@ impl std::fmt::Display for RequestAction {
             RequestAction::Get => write!(f, "get"),
             RequestAction::Update => write!(f, "update"),
             RequestAction::Delete => write!(f, "delete"),
+            RequestAction::Restore => write!(f, "restore"),
             RequestAction::Search => write!(f, "search"),
             RequestAction::List => write!(f, "list"),
             RequestAction::Tag => write!(f, "tag"),
@@ -126,6 +128,7 @@ pub enum RequestParams {
     Get(GetParams),
     Update(UpdateParams),
     Delete(DeleteParams),
+    Restore(RestoreParams),
     Search(SearchParams),
     List(ListParams),
     Tag(TagParams),
@@ -406,6 +409,17 @@ pub struct ListParams {
     pub global_only: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_id: Option<Uuid>,
+    /// 是否包含已删除（软删除）的原始记录；默认 false（向后兼容）
+    #[serde(default)]
+    pub include_deleted: bool,
+}
+
+/// 恢复软删除记忆的参数。
+///
+/// 将 `is_deleted=true` 的记忆恢复为活跃状态，并重新加入混合检索索引。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RestoreParams {
+    pub id: Uuid,
 }
 
 /// 列出记忆的默认数量限制。

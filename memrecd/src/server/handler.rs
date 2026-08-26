@@ -138,6 +138,7 @@ impl Router {
             RequestAction::Get => self.handle_get(request.params, request.id).await,
             RequestAction::List => self.handle_list(request.params, request.id).await,
             RequestAction::Delete => self.handle_delete(request.params, request.id).await,
+            RequestAction::Restore => self.handle_restore(request.params, request.id).await,
             RequestAction::Stats => self.handle_stats(request.id).await,
 
             RequestAction::SearchMemory => {
@@ -525,18 +526,44 @@ impl Router {
 
     /// 处理 List 请求：列出记忆，支持项目/全局过滤。
     async fn handle_list(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
-        let (limit, project_only, global_only, project_id) = match params {
-            Some(RequestParams::List(p)) => (p.limit, p.project_only, p.global_only, p.project_id),
-            _ => (20, false, false, None),
-        };
+        let (limit, project_only, global_only, project_id, tags, memory_type, include_deleted) =
+            match params {
+                Some(RequestParams::List(p)) => (
+                    p.limit,
+                    p.project_only,
+                    p.global_only,
+                    p.project_id,
+                    p.tags,
+                    p.memory_type,
+                    p.include_deleted,
+                ),
+                _ => (20, false, false, None, Vec::new(), None, false),
+            };
 
-        let memories = self.storage.list(limit * 5).await.unwrap_or_default();
+        let memories = if include_deleted {
+            // 从 RocksDB cf_deleted 列族检索原始记录（含软删除）
+            self.storage.list_deleted().await.unwrap_or_default()
+        } else {
+            self.storage.list(limit * 5).await.unwrap_or_default()
+        };
 
         let filtered: Vec<Memory> = memories
             .into_iter()
             .filter(|m| {
-                if m.is_deleted {
+                if !include_deleted && m.is_deleted {
                     return false;
+                }
+
+                // 标签过滤（需全部命中）
+                if !tags.is_empty() && !tags.iter().all(|t| m.tags.contains(t)) {
+                    return false;
+                }
+
+                // 类型过滤
+                if let Some(mt) = memory_type {
+                    if m.memory_type != mt {
+                        return false;
+                    }
                 }
 
                 if project_only {
@@ -604,6 +631,86 @@ impl Router {
                 JsonRpcError {
                     code: -32602,
                     message: "Invalid params for Delete".to_string(),
+                    data: None,
+                },
+                id,
+            ),
+        }
+    }
+
+    /// 恢复软删除记忆：置为活跃并重新加入混合检索索引。
+    ///
+    /// 仅能恢复软删除记录（`is_deleted=true`）；已硬删除的记录无法恢复。
+    async fn handle_restore(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+        let target_id = match params {
+            Some(RequestParams::Restore(p)) => p.id,
+            _ => {
+                return JsonRpcResponse::error(
+                    JsonRpcError {
+                        code: -32602,
+                        message: "Invalid params for Restore".to_string(),
+                        data: None,
+                    },
+                    id,
+                )
+            }
+        };
+
+        match self.storage.get(&target_id).await {
+            Ok(Some(mut memory)) => {
+                if !memory.is_deleted {
+                    return JsonRpcResponse::error(
+                        JsonRpcError {
+                            code: -32001,
+                            message: "Memory is not deleted, nothing to restore".to_string(),
+                            data: None,
+                        },
+                        id,
+                    );
+                }
+
+                memory.is_deleted = false;
+                memory.deleted_at = None;
+                memory.last_accessed = chrono::Utc::now();
+
+                if let Err(e) = self.storage.update(&memory).await {
+                    return JsonRpcResponse::error(
+                        JsonRpcError {
+                            code: -32000,
+                            message: e.to_string(),
+                            data: None,
+                        },
+                        id,
+                    );
+                }
+
+                // 重新加入混合检索索引（向量 + 全文）
+                if let Ok(embed) = self.embedder.embed(&memory.content) {
+                    let payload = self.build_payload(&memory);
+                    if let Err(e) = self
+                        .hybrid_store
+                        .add(&target_id, &embed, &memory.content, payload)
+                        .await
+                    {
+                        tracing::warn!("Restore: failed to re-index {:?}: {}", target_id, e);
+                    }
+                }
+
+                tracing::info!("Restored memory {:?}", target_id);
+                JsonRpcResponse::success(ResponseResult::Memory(MemoryResult::new(memory)), id)
+            }
+            Ok(None) => JsonRpcResponse::error(
+                JsonRpcError {
+                    code: -32001,
+                    message: "Memory not found".to_string(),
+                    data: None,
+                },
+                id,
+            ),
+            Err(e) => JsonRpcResponse::error(
+                JsonRpcError {
+                    code: -32000,
+                    message: e.to_string(),
                     data: None,
                 },
                 id,
@@ -1321,7 +1428,7 @@ mod tests {
     use mr_common::DreamConfig;
     use mr_protocol::{
         default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda, AddParams,
-        GetProjectInfoParams, SearchMemoryParams,
+        GetProjectInfoParams, ListParams, RestoreParams, SearchMemoryParams,
     };
     use tempfile::tempdir;
 
@@ -1571,6 +1678,217 @@ mod tests {
             after.iter().all(|h| h.memory_id != mem_id),
             "delete 后索引应移除该记忆"
         );
+    }
+
+    #[tokio::test]
+    async fn test_list_filters_tags_and_type() {
+        let router = router_with_dedup(0.95, 0.80);
+
+        router
+            .route(add_request("rust trait object pattern", 1))
+            .await;
+        let add2 = router.route(add_request("java stream pipeline", 2)).await;
+        // 给第二条打上 java 标签
+        let mem_id2 = match &add2.result {
+            Some(ResponseResult::Memory(m)) => m.memory.id,
+            _ => panic!("expected memory result"),
+        };
+        if let Ok(Some(mut m)) = router.storage.get(&mem_id2).await {
+            m.tags = vec!["java".to_string(), "lang".to_string()];
+            m.memory_type = mr_common::MemoryType::Knowledge;
+            router.storage.update(&m).await.unwrap();
+        }
+
+        // 按标签过滤
+        let resp = router
+            .route(JsonRpcRequest::new(
+                RequestAction::List,
+                Some(RequestParams::List(ListParams {
+                    tags: vec!["java".to_string()],
+                    memory_type: None,
+                    limit: 20,
+                    project_only: false,
+                    global_only: false,
+                    project_id: None,
+                    include_deleted: false,
+                })),
+                3,
+            ))
+            .await;
+        let list = match resp.result {
+            Some(ResponseResult::MemoryList(l)) => l,
+            _ => panic!("expected memory list"),
+        };
+        assert_eq!(list.memories.len(), 1);
+        assert_eq!(list.memories[0].id, mem_id2);
+
+        // 按类型过滤（第二条为 knowledge）
+        let resp = router
+            .route(JsonRpcRequest::new(
+                RequestAction::List,
+                Some(RequestParams::List(ListParams {
+                    tags: Vec::new(),
+                    memory_type: Some(mr_common::MemoryType::Knowledge),
+                    limit: 20,
+                    project_only: false,
+                    global_only: false,
+                    project_id: None,
+                    include_deleted: false,
+                })),
+                4,
+            ))
+            .await;
+        let list = match resp.result {
+            Some(ResponseResult::MemoryList(l)) => l,
+            _ => panic!("expected memory list"),
+        };
+        assert_eq!(list.memories.len(), 1);
+        assert_eq!(list.memories[0].id, mem_id2);
+    }
+
+    #[tokio::test]
+    async fn test_list_include_deleted() {
+        let router = router_with_dedup(0.95, 0.80);
+
+        let add = router
+            .route(add_request("to be deleted raw record", 1))
+            .await;
+        let mem_id = match &add.result {
+            Some(ResponseResult::Memory(m)) => m.memory.id,
+            _ => panic!("expected memory result"),
+        };
+
+        // 软删除
+        router
+            .route(JsonRpcRequest::new(
+                RequestAction::Delete,
+                Some(RequestParams::Delete(mr_protocol::DeleteParams {
+                    id: mem_id,
+                    force: false,
+                })),
+                2,
+            ))
+            .await;
+
+        // 默认列表不含已删除
+        let resp = router
+            .route(JsonRpcRequest::new(
+                RequestAction::List,
+                Some(RequestParams::List(ListParams {
+                    tags: Vec::new(),
+                    memory_type: None,
+                    limit: 20,
+                    project_only: false,
+                    global_only: false,
+                    project_id: None,
+                    include_deleted: false,
+                })),
+                3,
+            ))
+            .await;
+        let list = match resp.result {
+            Some(ResponseResult::MemoryList(l)) => l,
+            _ => panic!("expected memory list"),
+        };
+        assert!(list.memories.iter().all(|m| m.id != mem_id));
+
+        // include_deleted 应包含软删除的原始记录
+        let resp = router
+            .route(JsonRpcRequest::new(
+                RequestAction::List,
+                Some(RequestParams::List(ListParams {
+                    tags: Vec::new(),
+                    memory_type: None,
+                    limit: 20,
+                    project_only: false,
+                    global_only: false,
+                    project_id: None,
+                    include_deleted: true,
+                })),
+                4,
+            ))
+            .await;
+        let list = match resp.result {
+            Some(ResponseResult::MemoryList(l)) => l,
+            _ => panic!("expected memory list"),
+        };
+        assert!(
+            list.memories.iter().any(|m| m.id == mem_id && m.is_deleted),
+            "include_deleted 应返回软删除记录"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_restore_recovers_and_reindexes() {
+        let router = router_with_dedup(0.95, 0.80);
+        let content = "restore me unique token xyz987";
+
+        let add = router.route(add_request(content, 1)).await;
+        let mem_id = match &add.result {
+            Some(ResponseResult::Memory(m)) => m.memory.id,
+            _ => panic!("expected memory result"),
+        };
+
+        // 软删除（索引同步移除）
+        router
+            .route(JsonRpcRequest::new(
+                RequestAction::Delete,
+                Some(RequestParams::Delete(mr_protocol::DeleteParams {
+                    id: mem_id,
+                    force: false,
+                })),
+                2,
+            ))
+            .await;
+
+        // 恢复
+        let resp = router
+            .route(JsonRpcRequest::new(
+                RequestAction::Restore,
+                Some(RequestParams::Restore(mr_protocol::RestoreParams {
+                    id: mem_id,
+                })),
+                3,
+            ))
+            .await;
+        let restored = match resp.result {
+            Some(ResponseResult::Memory(m)) => m.memory,
+            _ => panic!("expected memory result"),
+        };
+        assert!(!restored.is_deleted, "恢复后 is_deleted 应为 false");
+        assert!(restored.deleted_at.is_none());
+
+        // 恢复后重新入索引，可再次检索命中
+        let hits = router
+            .vector_store
+            .search(
+                &router.embedder.embed(content).unwrap(),
+                SearchFilter {
+                    project_id: None,
+                    include_global: true,
+                    memory_type: None,
+                    min_score: 0.5,
+                },
+                5,
+            )
+            .await
+            .unwrap();
+        assert!(
+            hits.iter().any(|h| h.memory_id == mem_id),
+            "restore 后应重新入检索索引"
+        );
+
+        // 重复恢复应报错
+        let resp2 = router
+            .route(JsonRpcRequest::new(
+                RequestAction::Restore,
+                Some(RequestParams::Restore(mr_protocol::RestoreParams {
+                    id: mem_id,
+                })),
+                4,
+            ))
+            .await;
+        assert!(resp2.error.is_some(), "非删除状态重复恢复应报错");
     }
 
     #[tokio::test]
