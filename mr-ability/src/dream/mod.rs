@@ -23,7 +23,7 @@ mod phases;
 mod processor;
 
 pub use gate::{DreamGate, DreamGateResult};
-pub use lock::{DreamLock, LockContent};
+pub use lock::{DreamLock, DreamState, LockContent};
 pub use phases::{
     CrossProjectExtractor, MemoryCleaner, PersonalSummarizer, PhaseResult, VectorRegenerator,
 };

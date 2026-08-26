@@ -6,6 +6,13 @@
 //!
 //! - 路径：`~/.memrec/dream.lock`
 //! - 内容：JSON 格式的 PID、时间戳、会话计数
+//! - 仅用于并发控制：获取时写入，释放时删除
+//!
+//! ## 状态文件
+//!
+//! - 路径：`~/.memrec/dream.state`
+//! - 内容：JSON 格式的上次执行时间戳、会话计数
+//! - 用于 DreamGate 时间门槛检查；与锁分离，释放锁后时间信息不丢失
 //!
 //! ## 僵锁检测
 //!
@@ -20,8 +27,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use mr_common::types::DreamConfig;
-
 #[derive(Debug, Error)]
 pub enum DreamLockError {
     #[error("Lock file exists and process {pid} is still alive")]
@@ -33,6 +38,8 @@ pub enum DreamLockError {
 }
 
 /// 锁文件内容。
+///
+/// 仅用于并发控制，时间门槛检查请使用 [`DreamState`]。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LockContent {
     /// 持有锁的进程 PID
@@ -43,15 +50,29 @@ pub struct LockContent {
     pub session_count: u32,
 }
 
+/// Dream 执行状态（持久化到 `dream.state`）。
+///
+/// 记录上次执行完成的时间戳与会话计数，供 DreamGate 时间门槛检查。
+/// 与并发锁（`dream.lock`）分离：锁文件只管并发，释放后不丢失时间信息。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DreamState {
+    /// 上次执行完成的时间戳（Unix timestamp, 秒）
+    pub last_run_at: i64,
+    /// 上次执行时的会话计数
+    pub session_count: u32,
+}
+
 /// DreamLock 并发控制。
 pub struct DreamLock {
     lock_path: PathBuf,
+    state_path: PathBuf,
 }
 
 impl DreamLock {
     pub fn new(data_dir: &Path) -> Self {
         Self {
             lock_path: data_dir.join("dream.lock"),
+            state_path: data_dir.join("dream.state"),
         }
     }
 
@@ -136,19 +157,32 @@ impl DreamLock {
         }
     }
 
-    /// 检查是否可以执行 Dream（考虑时间间隔）。
-    pub fn can_execute(&self, config: &DreamConfig) -> bool {
-        match self.get_lock_content() {
-            None => true,
-            Some(lock) => {
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs() as i64;
-                let hours_since_last = (now - lock.timestamp) as f64 / 3600.0;
-                hours_since_last >= config.min_hours_between
-            }
+    /// 读取上次执行状态（不存在返回 `None`）。
+    pub fn read_state(&self) -> Option<DreamState> {
+        if !self.state_path.exists() {
+            return None;
         }
+
+        let mut file = fs::File::open(&self.state_path).ok()?;
+        let mut content = String::new();
+        file.read_to_string(&mut content).ok()?;
+        serde_json::from_str(&content).ok()
+    }
+
+    /// 写入执行状态（记录上次执行完成时间戳）。
+    pub fn write_state(&self, session_count: u32) -> Result<(), DreamLockError> {
+        let state = DreamState {
+            last_run_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64,
+            session_count,
+        };
+
+        let json = serde_json::to_string(&state)?;
+        let mut file = fs::File::create(&self.state_path)?;
+        file.write_all(json.as_bytes())?;
+        Ok(())
     }
 }
 
@@ -169,6 +203,19 @@ mod tests {
         assert_eq!(content.pid, parsed.pid);
         assert_eq!(content.timestamp, parsed.timestamp);
         assert_eq!(content.session_count, parsed.session_count);
+    }
+
+    #[test]
+    fn test_state_serde_roundtrip() {
+        let state = DreamState {
+            last_run_at: 1700000000,
+            session_count: 5,
+        };
+        let json = serde_json::to_string(&state).unwrap();
+        let parsed: DreamState = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(state.last_run_at, parsed.last_run_at);
+        assert_eq!(state.session_count, parsed.session_count);
     }
 
     #[test]
@@ -204,26 +251,21 @@ mod tests {
     }
 
     #[test]
-    fn test_lock_can_execute_no_lock() {
+    fn test_state_persists_after_release() {
         let dir = tempfile::tempdir().unwrap();
         let lock = DreamLock::new(dir.path());
 
-        let config = DreamConfig::default();
-        assert!(lock.can_execute(&config));
-    }
+        assert!(lock.read_state().is_none());
 
-    #[test]
-    fn test_lock_can_execute_with_recent_lock() {
-        let dir = tempfile::tempdir().unwrap();
-        let lock = DreamLock::new(dir.path());
+        lock.try_acquire(7).unwrap();
+        lock.write_state(7).unwrap();
+        lock.release().unwrap();
 
-        lock.try_acquire(5).unwrap();
-
-        let config = DreamConfig {
-            min_hours_between: 24.0,
-            ..Default::default()
-        };
-
-        assert!(!lock.can_execute(&config));
+        // 锁释放后，状态文件仍保留，时间门槛检查不失效
+        let state = lock.read_state();
+        assert!(state.is_some());
+        let state = state.unwrap();
+        assert_eq!(state.session_count, 7);
+        assert!(state.last_run_at > 0);
     }
 }

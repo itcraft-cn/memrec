@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Dream garbage memory elimination** (v0.7.0 leftover: duplicate `personal-summary`/`cross-project` summaries polluted the memory base, 94% of 100 memories were machine-generated):
+  - Phase 1/2 summaries switched to upsert: keep only the latest one per tag, update only on content change, roll back extra stale entries
+  - DreamGate time gate now reads persisted `dream.state`, decoupled from the concurrency lock (previously the timestamp was lost on lock release, so the 24h gate never applied and Dream ran at high frequency)
+  - Dream statistical summaries use `source=System` and importance 0.3 (previously defaulted to `User`/0.8, polluting search weights)
+  - `process_inner` filters old memories first and skips all phases when below `min_memories` (previously phases 1/2 ran before the LLM-integration check, so garbage was written even when integration was skipped)
+  - Cleanup adds summary rollback as a safety net (keep the latest one per tag)
+  - Legacy cleanup: removed 1330 duplicate summaries (active 1407 → 77)
+- Fixed internal dependency version mismatch after the 0.8.0-dev bump (`mr-common` deps declared 0.7.0-dev → 0.8.0-dev)
+
+---
+
 ## [0.7.0] - 2026-08-21
 
 ### Added

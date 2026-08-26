@@ -1,6 +1,9 @@
 //! # Phase 2: 个人总体记忆提炼
 //!
 //! 聚合全局记忆，生成个人偏好和知识总结。
+//!
+//! 注意：本阶段只维护一条 `personal-summary` 摘要记忆（upsert），
+//! 内容无变化时不写入，避免重复垃圾记忆污染记忆库。
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -9,9 +12,8 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::storage::MemoryStorage;
-use mr_common::types::{Memory, MemoryScope, MemoryType};
 
-use super::PhaseResult;
+use super::{upsert_summary, PhaseResult};
 
 #[allow(dead_code)]
 pub struct PersonalSummarizer {
@@ -63,7 +65,7 @@ impl PersonalSummarizer {
             .map(|(tag, _)| tag.clone())
             .collect();
 
-        let summary_content = format!(
+        let summary_memory = format!(
             "Personal knowledge profile:\n\
              - Memory types: {}\n\
              - Top interests: {}",
@@ -75,25 +77,20 @@ impl PersonalSummarizer {
             top_tags.join(", ")
         );
 
-        let summary_memory = Memory::new(summary_content, MemoryType::Knowledge)
-            .with_tags(vec!["personal-summary".to_string()])
-            .with_scope(MemoryScope::Global);
-
-        let created = match self.storage.add(&summary_memory).await {
-            Ok(_) => {
-                info!(target: "dream", "Dream Phase 2: created personal summary memory");
-                1
-            }
-            Err(e) => {
-                tracing::warn!("Failed to create personal summary: {}", e);
-                0
-            }
-        };
+        // 系统摘要记忆：importance 调低（0.3）避免挤占真实记忆检索权重，source=System
+        let (created, deleted) =
+            match upsert_summary(&self.storage, "personal-summary", summary_memory, 0.3).await {
+                Ok(result) => result,
+                Err(e) => {
+                    tracing::warn!("Failed to upsert personal summary: {}", e);
+                    (0, 0)
+                }
+            };
 
         info!(
             target: "dream",
-            "Dream Phase 2 completed: processed {} memories, created {}",
-            processed, created
+            "Dream Phase 2 completed: processed {} memories, created {}, removed {}",
+            processed, created, deleted
         );
 
         PhaseResult::ok("PersonalSummary", processed, created)
@@ -104,7 +101,7 @@ impl PersonalSummarizer {
 mod tests {
     use super::*;
     use crate::storage::{MemoryStore, RocksDBStore};
-    use mr_common::MemoryType;
+    use mr_common::types::{Memory, MemoryScope, MemoryType};
     use tempfile::tempdir;
 
     #[tokio::test]

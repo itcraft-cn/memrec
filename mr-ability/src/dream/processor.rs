@@ -107,9 +107,10 @@ impl DreamProcessor {
     pub async fn execute(&self, force: bool) -> Result<DreamResult, DreamError> {
         if !force {
             let session_count = self.session_count.read().await;
-            let last_lock = self.lock.get_lock_content();
-
-            let gate_result = DreamGate::check(&self.config, last_lock.as_ref(), *session_count);
+            // 时间门槛基于持久化的 dream.state（上次执行完成时间），
+            // 与并发锁分离：release 锁后时间信息不丢失，24h 门槛不会失效。
+            let last_state = self.lock.read_state();
+            let gate_result = DreamGate::check(&self.config, last_state.as_ref(), *session_count);
             drop(session_count);
 
             match gate_result {
@@ -156,12 +157,49 @@ impl DreamProcessor {
 
         let result = self.process_inner().await;
 
+        // 记录上次执行完成时间戳（无论成败），供 Gate 时间门槛检查。
+        // 写失败仅告警，不影响主流程。
+        if let Err(e) = self.lock.write_state(session_count) {
+            tracing::warn!("Failed to write dream state: {}", e);
+        }
+
         self.lock.release()?;
 
         result
     }
 
     async fn process_inner(&self) -> Result<DreamResult, DreamError> {
+        // 先筛选符合条件的旧记忆；数量不足时直接返回，
+        // 不执行任何阶段（避免无意义的统计摘要写入，防止垃圾记忆堆积）。
+        let cutoff = Utc::now() - chrono::Duration::hours(self.config.max_age_hours as i64);
+        let cutoff_str = cutoff.to_rfc3339();
+
+        let memories = self
+            .storage
+            .list_older_than(&cutoff_str, 1000)
+            .await
+            .map_err(|e| DreamError::Storage(e.to_string()))?;
+
+        if memories.len() < self.config.min_memories {
+            warn!(
+                "Not enough memories for Dream integration: {} < {}",
+                memories.len(),
+                self.config.min_memories
+            );
+            return Ok(DreamResult {
+                integrated_count: 0,
+                created_memory_id: None,
+                summary: "Not enough old memories for Dream integration".to_string(),
+                phase_results: Vec::new(),
+            });
+        }
+
+        info!(
+            "Dream processing {} memories older than {}",
+            memories.len(),
+            cutoff_str
+        );
+
         let mut phase_results = Vec::new();
 
         if self.config.phase_cross_project {
@@ -210,36 +248,7 @@ impl DreamProcessor {
             }
         }
 
-        let cutoff = Utc::now() - chrono::Duration::hours(self.config.max_age_hours as i64);
-        let cutoff_str = cutoff.to_rfc3339();
-
-        let memories = self
-            .storage
-            .list_older_than(&cutoff_str, 1000)
-            .await
-            .map_err(|e| DreamError::Storage(e.to_string()))?;
-
-        if memories.len() < self.config.min_memories {
-            warn!(
-                "Not enough memories for Dream integration: {} < {}",
-                memories.len(),
-                self.config.min_memories
-            );
-            return Ok(DreamResult {
-                integrated_count: 0,
-                created_memory_id: None,
-                summary: "Phases completed, but not enough old memories for integration"
-                    .to_string(),
-                phase_results,
-            });
-        }
-
-        info!(
-            "Dream processing {} memories older than {}",
-            memories.len(),
-            cutoff_str
-        );
-
+        // 旧记忆已在阶段前筛选，这里直接进行 LLM 整合
         let summary = self.summarize_memories(&memories).await?;
 
         let memory_type = match self.config.integration_type.as_str() {

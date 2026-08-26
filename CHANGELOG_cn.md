@@ -5,6 +5,21 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 修复
+
+- **Dream 垃圾记忆根治**（v0.7.0 遗留问题：`personal-summary`/`cross-project` 重复摘要污染记忆库，100 条中 94% 为机器生成）：
+  - Phase 1/2 摘要改 upsert：每标签仅保留最新一条，内容变化才更新，多余旧条目自动回滚删除
+  - DreamGate 时间门槛改用持久化 `dream.state`，与并发锁分离（此前 release 锁后时间信息丢失，24h 门槛失效导致高频执行）
+  - Dream 统计摘要 `source=System`、importance 降至 0.3（此前默认 `User`/0.8，污染检索权重）
+  - `process_inner` 先筛选旧记忆，数量不足（< `min_memories`）时跳过全部阶段（此前 phase 1/2 在 LLM 整合判断之前执行，整合被跳过时垃圾已写入）
+  - Cleanup 增加摘要滚动清理兜底（每标签保留最新一条）
+  - 存量清理：删除 1330 条重复摘要（active 1407 → 77）
+- 修复 0.8.0-dev 版本 bump 时内部依赖版本未同步（`mr-common` 依赖声明 0.7.0-dev → 0.8.0-dev）
+
+---
+
 ## [0.7.0] - 2026-08-21
 
 ### 新增

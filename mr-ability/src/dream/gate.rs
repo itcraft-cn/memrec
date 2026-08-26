@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use mr_common::types::DreamConfig;
 
-use super::lock::LockContent;
+use super::lock::DreamState;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DreamGateResult {
@@ -32,21 +32,24 @@ pub struct DreamGate;
 
 impl DreamGate {
     /// 检查是否允许执行 Dream。
+    ///
+    /// 时间门槛基于持久化的 [`DreamState`]（上次执行完成时间），
+    /// 与并发锁（`dream.lock`）分离，释放锁后时间信息不丢失。
     pub fn check(
         config: &DreamConfig,
-        last_lock: Option<&LockContent>,
+        last_state: Option<&DreamState>,
         current_sessions: u32,
     ) -> DreamGateResult {
         if !config.enabled {
             return DreamGateResult::Disabled;
         }
 
-        if let Some(lock) = last_lock {
+        if let Some(state) = last_state {
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_secs() as i64;
-            let hours_since_last = (now - lock.timestamp) as f64 / 3600.0;
+            let hours_since_last = (now - state.last_run_at) as f64 / 3600.0;
 
             if hours_since_last < config.min_hours_between {
                 return DreamGateResult::TooSoon {
@@ -55,11 +58,11 @@ impl DreamGate {
                 };
             }
 
-            let session_diff = current_sessions.saturating_sub(lock.session_count);
+            let session_diff = current_sessions.saturating_sub(state.session_count);
             if session_diff < 1 {
                 return DreamGateResult::NotEnoughSessions {
                     current: current_sessions,
-                    min: lock.session_count + 1,
+                    min: state.session_count + 1,
                 };
             }
         }
@@ -80,14 +83,13 @@ mod tests {
         }
     }
 
-    fn make_lock(hours_ago: f64, session_count: u32) -> LockContent {
+    fn make_state(hours_ago: f64, session_count: u32) -> DreamState {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64;
-        LockContent {
-            pid: 12345,
-            timestamp: now - (hours_ago * 3600.0) as i64,
+        DreamState {
+            last_run_at: now - (hours_ago * 3600.0) as i64,
             session_count,
         }
     }
@@ -101,7 +103,7 @@ mod tests {
     }
 
     #[test]
-    fn test_gate_allowed_no_lock() {
+    fn test_gate_allowed_no_state() {
         let config = make_config(true, 24.0);
         let result = DreamGate::check(&config, None, 10);
 
@@ -111,8 +113,8 @@ mod tests {
     #[test]
     fn test_gate_too_soon() {
         let config = make_config(true, 24.0);
-        let lock = make_lock(1.0, 5);
-        let result = DreamGate::check(&config, Some(&lock), 10);
+        let state = make_state(1.0, 5);
+        let result = DreamGate::check(&config, Some(&state), 10);
 
         assert!(matches!(result, DreamGateResult::TooSoon { .. }));
     }
@@ -120,9 +122,24 @@ mod tests {
     #[test]
     fn test_gate_allowed_after_time() {
         let config = make_config(true, 24.0);
-        let lock = make_lock(30.0, 5);
-        let result = DreamGate::check(&config, Some(&lock), 10);
+        let state = make_state(30.0, 5);
+        let result = DreamGate::check(&config, Some(&state), 10);
 
         assert_eq!(result, DreamGateResult::Allowed);
+    }
+
+    #[test]
+    fn test_gate_not_enough_sessions() {
+        let config = make_config(true, 0.0);
+        let state = make_state(30.0, 10);
+        // 距上次执行已有新会话
+        let result = DreamGate::check(&config, Some(&state), 10);
+        assert_eq!(
+            result,
+            DreamGateResult::NotEnoughSessions {
+                current: 10,
+                min: 11
+            }
+        );
     }
 }

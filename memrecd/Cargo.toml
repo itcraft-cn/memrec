@@ -21,9 +21,9 @@ name = "memrecd"
 path = "src/lib.rs"
 
 [dependencies]
-mr-common = { path = "../mr-common", version = "0.7.0-dev" } # managed by updgitver
-mr-ability = { path = "../mr-ability", version = "0.7.0-dev" } # managed by updgitver
-mr-protocol = { path = "../mr-protocol", version = "0.7.0-dev" } # managed by updgitver
+mr-common = { path = "../mr-common", version = "0.8.0-dev" } # managed by updgitver
+mr-ability = { path = "../mr-ability", version = "0.8.0-dev" } # managed by updgitver
+mr-protocol = { path = "../mr-protocol", version = "0.8.0-dev" } # managed by updgitver
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
