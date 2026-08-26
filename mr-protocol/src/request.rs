@@ -412,6 +412,9 @@ pub struct ListParams {
     /// 是否包含已删除（软删除）的原始记录；默认 false（向后兼容）
     #[serde(default)]
     pub include_deleted: bool,
+    /// 跳过前 N 条（与 limit 配合实现分页）；默认 0
+    #[serde(default)]
+    pub skip: usize,
 }
 
 /// 恢复软删除记忆的参数。

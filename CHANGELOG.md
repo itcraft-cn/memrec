@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Pagination**: `ListParams.skip` / `memrec list --skip <n>` — page through memories beyond the latest N; `total` now returns the full count of matching records (accurate next-page detection)
 - **Raw record retrieval & restore**: inspect and recover soft-deleted memories from RocksDB
   - `memrec list --deleted`: list soft-deleted raw records (RocksDB `cf_deleted` column family)
   - `memrec list --tag <t> --type <t>`: tag/type filtering (protocol `ListParams.tags`/`memory_type` now actually enforced)

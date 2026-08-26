@@ -9,6 +9,7 @@
 
 ### 新增
 
+- **分页**：`ListParams.skip` / `memrec list --skip <n>` — 可翻页查看 limit 之外更早的记忆；`total` 现在返回符合条件的完整数量（准确判断是否还有下一页）
 - **原始记录检索与恢复**：从 RocksDB 检索并恢复软删除记忆
   - `memrec list --deleted`：列出软删除的原始记录（RocksDB `cf_deleted` 列族）
   - `memrec list --tag <t> --type <t>`：标签/类型过滤（协议 `ListParams.tags`/`memory_type` 此前未生效，现已实现）

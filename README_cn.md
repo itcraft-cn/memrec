@@ -84,6 +84,7 @@ memrec search "中文搜索" --human           # 中文搜索支持
 
 # 其他
 memrec list --limit 20
+memrec list --limit 10 --skip 20        # 分页：跳过前 20 条
 memrec list --tag rust --type decision   # 按标签/类型过滤
 memrec list --deleted                    # 从 RocksDB 检索软删除的原始记录
 memrec get <id>

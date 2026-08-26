@@ -266,6 +266,8 @@ pub async fn get(client: &Client, id: String, merge: bool, human: bool) -> Resul
 /// `list` 命令参数集合
 pub struct ListOptions {
     pub limit: usize,
+    /// 跳过前 N 条（与 limit 配合实现分页）
+    pub skip: usize,
     pub project_only: bool,
     pub global_only: bool,
     /// 按标签过滤（可多个，全部命中）
@@ -278,7 +280,7 @@ pub struct ListOptions {
 
 /// 列出记忆命令。
 ///
-/// 支持标签/类型过滤，`include_deleted` 时从 RocksDB 检索软删除的原始记录。
+/// 支持标签/类型过滤与 `skip` 分页，`include_deleted` 时从 RocksDB 检索软删除的原始记录。
 pub async fn list(client: &Client, opts: ListOptions, human: bool) -> Result<()> {
     let request = JsonRpcRequest::new(
         RequestAction::List,
@@ -293,6 +295,7 @@ pub async fn list(client: &Client, opts: ListOptions, human: bool) -> Result<()>
             global_only: opts.global_only,
             project_id: None,
             include_deleted: opts.include_deleted,
+            skip: opts.skip,
         })),
         1,
     );

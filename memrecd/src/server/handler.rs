@@ -526,25 +526,35 @@ impl Router {
 
     /// 处理 List 请求：列出记忆，支持项目/全局过滤。
     async fn handle_list(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
-        let (limit, project_only, global_only, project_id, tags, memory_type, include_deleted) =
-            match params {
-                Some(RequestParams::List(p)) => (
-                    p.limit,
-                    p.project_only,
-                    p.global_only,
-                    p.project_id,
-                    p.tags,
-                    p.memory_type,
-                    p.include_deleted,
-                ),
-                _ => (20, false, false, None, Vec::new(), None, false),
-            };
+        let (
+            limit,
+            project_only,
+            global_only,
+            project_id,
+            tags,
+            memory_type,
+            include_deleted,
+            skip,
+        ) = match params {
+            Some(RequestParams::List(p)) => (
+                p.limit,
+                p.project_only,
+                p.global_only,
+                p.project_id,
+                p.tags,
+                p.memory_type,
+                p.include_deleted,
+                p.skip,
+            ),
+            _ => (20, false, false, None, Vec::new(), None, false, 0),
+        };
 
+        // 全量读取后过滤，保证 total 为符合条件的总数（分页需要准确的总数判断是否有下一页）
         let memories = if include_deleted {
             // 从 RocksDB cf_deleted 列族检索原始记录（含软删除）
             self.storage.list_deleted().await.unwrap_or_default()
         } else {
-            self.storage.list(limit * 5).await.unwrap_or_default()
+            self.storage.list(usize::MAX).await.unwrap_or_default()
         };
 
         let filtered: Vec<Memory> = memories
@@ -578,13 +588,15 @@ impl Router {
                     true
                 }
             })
-            .take(limit)
             .collect();
 
+        // 分页：skip 跳过前 N 条，take 取 limit 条
         let total = filtered.len();
+        let page: Vec<Memory> = filtered.into_iter().skip(skip).take(limit).collect();
+
         JsonRpcResponse::success(
             ResponseResult::MemoryList(MemoryListResult {
-                memories: filtered,
+                memories: page,
                 total,
             }),
             id,
@@ -1711,6 +1723,7 @@ mod tests {
                     global_only: false,
                     project_id: None,
                     include_deleted: false,
+                    skip: 0,
                 })),
                 3,
             ))
@@ -1734,6 +1747,7 @@ mod tests {
                     global_only: false,
                     project_id: None,
                     include_deleted: false,
+                    skip: 0,
                 })),
                 4,
             ))
@@ -1782,6 +1796,7 @@ mod tests {
                     global_only: false,
                     project_id: None,
                     include_deleted: false,
+                    skip: 0,
                 })),
                 3,
             ))
@@ -1804,6 +1819,7 @@ mod tests {
                     global_only: false,
                     project_id: None,
                     include_deleted: true,
+                    skip: 0,
                 })),
                 4,
             ))
@@ -1889,6 +1905,128 @@ mod tests {
             ))
             .await;
         assert!(resp2.error.is_some(), "非删除状态重复恢复应报错");
+    }
+
+    #[tokio::test]
+    async fn test_list_pagination_skip() {
+        let router = router_with_dedup(0.95, 0.80);
+
+        // 添加 5 条记忆
+        let mut ids = Vec::new();
+        for i in 0..5 {
+            let add = router
+                .route(add_request_dedup_off(
+                    &format!("pagination item {}", i),
+                    i as u64 + 1,
+                ))
+                .await;
+            match add.result {
+                Some(ResponseResult::Memory(m)) => ids.push(m.memory.id),
+                _ => panic!("expected memory result"),
+            }
+        }
+
+        // 第一页：limit=2, skip=0 → 前 2 条
+        let resp = router
+            .route(JsonRpcRequest::new(
+                RequestAction::List,
+                Some(RequestParams::List(ListParams {
+                    tags: Vec::new(),
+                    memory_type: None,
+                    limit: 2,
+                    project_only: false,
+                    global_only: false,
+                    project_id: None,
+                    include_deleted: false,
+                    skip: 0,
+                })),
+                99,
+            ))
+            .await;
+        let list = match resp.result {
+            Some(ResponseResult::MemoryList(l)) => l,
+            _ => panic!("expected memory list"),
+        };
+        assert_eq!(list.memories.len(), 2);
+        // total 为符合条件的总数（5 条），用于判断是否还有下一页
+        assert_eq!(list.total, 5);
+
+        // 第二页：skip=2 → 第 3、4 条，与第一页不重叠
+        let resp = router
+            .route(JsonRpcRequest::new(
+                RequestAction::List,
+                Some(RequestParams::List(ListParams {
+                    tags: Vec::new(),
+                    memory_type: None,
+                    limit: 2,
+                    project_only: false,
+                    global_only: false,
+                    project_id: None,
+                    include_deleted: false,
+                    skip: 2,
+                })),
+                100,
+            ))
+            .await;
+        let list2 = match resp.result {
+            Some(ResponseResult::MemoryList(l)) => l,
+            _ => panic!("expected memory list"),
+        };
+        assert_eq!(list2.memories.len(), 2);
+        let page1: Vec<_> = list.memories.iter().map(|m| m.id).collect();
+        let page2: Vec<_> = list2.memories.iter().map(|m| m.id).collect();
+        assert!(
+            page1.iter().all(|id| !page2.contains(id)),
+            "第二页不应与第一页重叠"
+        );
+
+        // 第三页：skip=4 → 最后 1 条
+        let resp = router
+            .route(JsonRpcRequest::new(
+                RequestAction::List,
+                Some(RequestParams::List(ListParams {
+                    tags: Vec::new(),
+                    memory_type: None,
+                    limit: 2,
+                    project_only: false,
+                    global_only: false,
+                    project_id: None,
+                    include_deleted: false,
+                    skip: 4,
+                })),
+                101,
+            ))
+            .await;
+        let list3 = match resp.result {
+            Some(ResponseResult::MemoryList(l)) => l,
+            _ => panic!("expected memory list"),
+        };
+        assert_eq!(list3.memories.len(), 1);
+        assert_eq!(list3.total, 5);
+
+        // 超出范围：skip 超过总数 → 空页，total 仍准确
+        let resp = router
+            .route(JsonRpcRequest::new(
+                RequestAction::List,
+                Some(RequestParams::List(ListParams {
+                    tags: Vec::new(),
+                    memory_type: None,
+                    limit: 2,
+                    project_only: false,
+                    global_only: false,
+                    project_id: None,
+                    include_deleted: false,
+                    skip: 100,
+                })),
+                102,
+            ))
+            .await;
+        let list4 = match resp.result {
+            Some(ResponseResult::MemoryList(l)) => l,
+            _ => panic!("expected memory list"),
+        };
+        assert!(list4.memories.is_empty());
+        assert_eq!(list4.total, 5);
     }
 
     #[tokio::test]

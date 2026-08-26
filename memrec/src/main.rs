@@ -93,6 +93,9 @@ enum Commands {
     List {
         #[arg(short, long, default_value = "20")]
         limit: usize,
+        /// 跳过前 N 条（与 limit 配合分页）
+        #[arg(long, default_value_t = 0)]
+        skip: usize,
         #[arg(long)]
         project_only: bool,
         #[arg(long)]
@@ -211,6 +214,7 @@ async fn main() -> Result<()> {
         }
         Commands::List {
             limit,
+            skip,
             project_only,
             global_only,
             tag,
@@ -221,6 +225,7 @@ async fn main() -> Result<()> {
                 &client,
                 ListOptions {
                     limit,
+                    skip,
                     project_only,
                     global_only,
                     tags: tag,
