@@ -22,6 +22,9 @@ Local memory persistence system for AI CLI tools, providing cross-session memory
 - **High Performance** — Rust, <1ms latency, ~118MB (MiniLM) / ~1.5GB (BGE-M3) memory (including model)
 - **Auto-splitting** — Long content (>7.5KB) automatically split into chunks
 - **Systemd Integration** — Manage daemon with `systemctl --user`
+- **Pagination** — `memrec list --skip <n>` for large result sets
+- **Soft Delete Recovery** — `memrec list --deleted` + `memrec restore <id>`
+- **Tag/Type Filtering** — Filter memories by tags and types on list
 
 ## Quick Start
 
