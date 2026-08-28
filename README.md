@@ -241,6 +241,10 @@ rotation_days = 7          # keep 7 days of logs
 ├── memrecd.sock          # Unix Socket
 ├── data/                 # RocksDB memory metadata
 ├── vectors/              # RocksDB vector storage
+├── fts/                  # Tantivy full-text search index
+├── logs/                 # Log files
+│   ├── memrecd.log       # Daemon log (no ANSI colors)
+│   └── dream.log         # Dream consolidation job log
 └── models/               # ONNX Embedding model
     ├── Qdrant--all-MiniLM-L6-v2-onnx/   # MiniLM-L6-v2 (default)
     │   ├── model.onnx

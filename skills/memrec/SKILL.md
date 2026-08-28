@@ -230,12 +230,24 @@ memrec stats
 
 ```
 ~/.memrec/
-├── memrecd.sock        # Unix Socket
-├── data/               # RocksDB记忆元数据
-├── vectors/            # RocksDB向量存储
-├── fts/                # Tantivy全文检索索引
-├── models/             # ONNX embedding模型
-└── memrecd.log         # 服务日志
+├── config.toml           # 配置文件
+├── memrecd.sock          # Unix Socket
+├── data/                 # RocksDB记忆元数据
+├── vectors/              # RocksDB向量存储
+├── fts/                  # Tantivy全文检索索引
+├── logs/                 # 日志目录
+│   ├── memrecd.log       # 守护进程日志（无 ANSI 颜色）
+│   └── dream.log         # Dream 整合作业日志
+└── models/               # ONNX embedding 模型
+    ├── Qdrant--all-MiniLM-L6-v2-onnx/   # MiniLM-L6-v2 (默认)
+    │   ├── model.onnx
+    │   ├── tokenizer.json
+    │   └── ...
+    └── BAAI--bge-m3/                     # BGE-M3 (多语言)
+        ├── model.onnx
+        ├── model.onnx_data
+        ├── tokenizer.json
+        └── ...
 ```
 
 ---
