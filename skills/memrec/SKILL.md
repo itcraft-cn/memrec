@@ -238,28 +238,4 @@ memrec stats
 7. **项目隔离自动** - 无需手动指定，自动检测git root
 8. **.mr_pid勿提交** - 添加到.gitignore，避免project_id冲突
 
-## 数据位置
-
-```
-~/.memrec/
-├── config.toml           # 配置文件
-├── memrecd.sock          # Unix Socket
-├── data/                 # RocksDB记忆元数据
-├── vectors/              # RocksDB向量存储
-├── fts/                  # Tantivy全文检索索引
-├── logs/                 # 日志目录
-│   ├── memrecd.log       # 守护进程日志（无 ANSI 颜色）
-│   └── dream.log         # Dream 整合作业日志
-└── models/               # ONNX embedding 模型
-    ├── Qdrant--all-MiniLM-L6-v2-onnx/   # MiniLM-L6-v2 (默认)
-    │   ├── model.onnx
-    │   ├── tokenizer.json
-    │   └── ...
-    └── BAAI--bge-m3/                     # BGE-M3 (多语言)
-        ├── model.onnx
-        ├── model.onnx_data
-        ├── tokenizer.json
-        └── ...
-```
-
 ---
