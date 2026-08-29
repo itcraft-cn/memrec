@@ -19,6 +19,14 @@
 
 ### 修复
 
+- **Dream 整合健壮性与质量改进**（P1-P7）：
+  - **P1 输入上限**：新增 `integration_max_memories`（默认 100），单次 LLM 整合按重要性排序截取，防止千条记忆拼接导致 token 超窗
+  - **P2 失败不刷新门槛**：仅执行成功才写 `dream.state`，LLM 故障恢复后可立即重试，不再浪费 24h 重试窗口
+  - **P3 选择有优先级**：整合对象改为全量扫描 + 按重要性升序选取（优先整合低价值记忆），不再按 UUID 序近似随机；同时绕过 `list_older_than` 内部 1 万条扫描上限
+  - **P4 高价值保留**：新增 `integration_preserve_importance`（默认 0.85）与 `integration_preserve_tags`（默认 `critical`），importance 达标、命中保留标签或 Preference 类型的记忆不参与整合与删除
+  - **P5 幂等**：整合记忆 `metadata.source_ids` 记录源记忆 id，下次执行排除已整合源记忆，崩溃残留（写后未删）自动补删
+  - **P6 阶段顺序**：LLM 整合成功后才执行 Phase 1-4，失败时阶段副作用不生效
+  - **P7 新记忆门槛**：Gate 改为统计"上次执行后用户新增记忆数"（`created_at > last_run_at` 且非 System 来源），不再用记忆总数净增量（删/加抵消误拦截、Dream 产物恒满足问题）；cleanup 参数（`cleanup_inactive_days`/`cleanup_importance_threshold`）配置化
 - **Dream 摘要输出质量**：LLM System Prompt 改为强约束模板（`## 主题` / `## 要点` / `## 结论` 固定结构），硬性禁止开场白、结尾寒暄与空泛套话，信息必须来自输入记忆、语言与输入一致、限长 500 字；新增 `clean_summary` 后处理剥离 Markdown 代码块包裹与常见套话前缀（如"以下是…""总结如下""好的，"），压缩冗余空行
 - **Dream 垃圾记忆根治**（v0.7.0 遗留问题：`personal-summary`/`cross-project` 重复摘要污染记忆库，100 条中 94% 为机器生成）：
   - Phase 1/2 摘要改 upsert：每标签仅保留最新一条，内容变化才更新，多余旧条目自动回滚删除

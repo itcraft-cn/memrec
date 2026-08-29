@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Dream integration robustness & quality** (P1-P7):
+  - **P1 input cap**: new `integration_max_memories` (default 100); single LLM integration truncates by importance, preventing token window overflow from concatenating thousands of memories
+  - **P2 no state write on failure**: `dream.state` is written only on success, so retries are immediate after LLM outage instead of wasting the 24h window
+  - **P3 prioritized selection**: candidates are now full-scanned and sorted by importance ascending (low-value first) instead of approximate-random UUID order; also bypasses the internal 10k scan cap of `list_older_than`
+  - **P4 preserve high value**: new `integration_preserve_importance` (default 0.85) and `integration_preserve_tags` (default `critical`); memories at/above the threshold, matching a preserve tag, or of Preference type are excluded from integration and deletion
+  - **P5 idempotency**: integration memory records source memory ids in `metadata.source_ids`; next run excludes already-integrated sources and cleans up crash leftovers (written but not deleted)
+  - **P6 phase ordering**: Phase 1-4 run only after a successful LLM integration; no phase side effects on failure
+  - **P7 new-memory gate**: gate now counts user-added memories since last run (`created_at > last_run_at`, non-System source) instead of net total delta (which misfired on delete/add offsets and counted Dream's own products); cleanup params (`cleanup_inactive_days`/`cleanup_importance_threshold`) configurable
 - **Dream summary output quality**: LLM System Prompt switched to a strongly-constrained template (`## Topic` / `## Key Points` / `## Conclusion` fixed structure), hard-banning openings, closing pleasantries and vague filler; content must come from input memories, language matches the input, max 500 chars; new `clean_summary` post-processing strips Markdown code fences and common small-talk prefixes (e.g. "以下是…" "总结如下" "好的，"), compresses redundant blank lines
 - **Dream garbage memory elimination** (v0.7.0 leftover: duplicate `personal-summary`/`cross-project` summaries polluted the memory base, 94% of 100 memories were machine-generated):
   - Phase 1/2 summaries switched to upsert: keep only the latest one per tag, update only on content change, roll back extra stale entries

@@ -258,6 +258,26 @@ pub struct DreamConfig {
     #[serde(default = "default_phase_vector_regen")]
     pub phase_vector_regen: bool,
 
+    /// 单次整合的最大记忆条数（防止 LLM 输入超窗）
+    #[serde(default = "default_integration_max_memories")]
+    pub integration_max_memories: usize,
+
+    /// 高价值记忆保留阈值：importance 不低于此值的记忆不参与整合与删除
+    #[serde(default = "default_integration_preserve_importance")]
+    pub integration_preserve_importance: f32,
+
+    /// 高价值记忆保留标签：命中任一标签的记忆不参与整合与删除
+    #[serde(default = "default_integration_preserve_tags")]
+    pub integration_preserve_tags: Vec<String>,
+
+    /// Phase 3 清理：不活跃天数门槛
+    #[serde(default = "default_cleanup_inactive_days")]
+    pub cleanup_inactive_days: u64,
+
+    /// Phase 3 清理：重要性下限，低于此值的旧记忆被删除
+    #[serde(default = "default_cleanup_importance_threshold")]
+    pub cleanup_importance_threshold: f32,
+
     /// 批处理大小
     #[serde(default = "default_batch_size")]
     pub batch_size: usize,
@@ -304,6 +324,21 @@ fn default_phase_cleanup() -> bool {
 fn default_phase_vector_regen() -> bool {
     false
 }
+fn default_integration_max_memories() -> usize {
+    100
+}
+fn default_integration_preserve_importance() -> f32 {
+    0.85
+}
+fn default_integration_preserve_tags() -> Vec<String> {
+    vec!["critical".to_string()]
+}
+fn default_cleanup_inactive_days() -> u64 {
+    90
+}
+fn default_cleanup_importance_threshold() -> f32 {
+    0.1
+}
 fn default_batch_size() -> usize {
     100
 }
@@ -326,6 +361,11 @@ impl Default for DreamConfig {
             phase_personal_summary: true,
             phase_cleanup: true,
             phase_vector_regen: false,
+            integration_max_memories: 100,
+            integration_preserve_importance: 0.85,
+            integration_preserve_tags: vec!["critical".to_string()],
+            cleanup_inactive_days: 90,
+            cleanup_importance_threshold: 0.1,
             batch_size: 100,
             batch_interval_ms: 1000,
         }
@@ -571,6 +611,37 @@ mod tests {
         assert_eq!(config.min_hours_between, 24.0);
         assert_eq!(config.integration_type, "knowledge");
         assert_eq!(config.integration_tags, vec!["dream-integrated"]);
+    }
+
+    #[test]
+    fn test_dream_config_integration_defaults() {
+        let config = DreamConfig::default();
+
+        assert_eq!(config.integration_max_memories, 100);
+        assert_eq!(config.integration_preserve_importance, 0.85);
+        assert_eq!(
+            config.integration_preserve_tags,
+            vec!["critical".to_string()]
+        );
+        assert_eq!(config.cleanup_inactive_days, 90);
+        assert_eq!(config.cleanup_importance_threshold, 0.1);
+    }
+
+    #[test]
+    fn test_dream_config_integration_serde() {
+        let json = r#"{"enabled": true, "integration_max_memories": 50, "integration_preserve_importance": 0.9, "cleanup_inactive_days": 30}"#;
+        let parsed: DreamConfig = serde_json::from_str(json).unwrap();
+
+        assert!(parsed.enabled);
+        assert_eq!(parsed.integration_max_memories, 50);
+        assert_eq!(parsed.integration_preserve_importance, 0.9);
+        assert_eq!(parsed.cleanup_inactive_days, 30);
+        // 未指定的新字段走默认值
+        assert_eq!(
+            parsed.integration_preserve_tags,
+            vec!["critical".to_string()]
+        );
+        assert_eq!(parsed.cleanup_importance_threshold, 0.1);
     }
 
     #[test]

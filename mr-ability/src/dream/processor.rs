@@ -8,9 +8,10 @@
 //! 2. 调用 LLM 整合生成摘要
 //! 3. 写入新记忆，删除旧记忆
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use thiserror::Error;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -137,6 +138,27 @@ fn clean_summary(raw: &str) -> String {
     compact.trim_end().to_string()
 }
 
+/// 统计距 `since_unix`（Unix 秒）之后的用户新增记忆数。
+///
+/// 作为 Gate 新记忆门槛依据：排除 System 来源（Dream 自身产物：
+/// 整合记忆/统计摘要），只统计用户侧新增（User/Inferred/External），
+/// 避免 Dream 产物被计入导致门槛恒满足。
+async fn count_new_user_memories(
+    storage: &Arc<dyn MemoryStorage>,
+    since_unix: i64,
+) -> Result<usize, DreamError> {
+    let since =
+        DateTime::<Utc>::from_timestamp(since_unix, 0).unwrap_or(DateTime::<Utc>::UNIX_EPOCH);
+    let all = storage
+        .list(usize::MAX)
+        .await
+        .map_err(|e| DreamError::Storage(e.to_string()))?;
+    Ok(all
+        .into_iter()
+        .filter(|m| !m.is_deleted && m.created_at > since && m.source != MemorySource::System)
+        .count())
+}
+
 #[derive(Debug, Clone)]
 pub struct DreamResult {
     pub integrated_count: usize,
@@ -189,7 +211,7 @@ impl DreamProcessor {
     }
 
     pub async fn execute(&self, force: bool) -> Result<DreamResult, DreamError> {
-        // 当前记忆总数：Gate 新记忆门槛与锁/状态记录均基于该值
+        // 当前记忆总数：锁记录与状态写入均基于该值
         let memory_count = self
             .storage
             .count()
@@ -200,7 +222,19 @@ impl DreamProcessor {
             // 时间门槛基于持久化的 dream.state（上次执行完成时间），
             // 与并发锁分离：release 锁后时间信息不丢失，24h 门槛不会失效。
             let last_state = self.lock.read_state();
-            let gate_result = DreamGate::check(&self.config, last_state.as_ref(), memory_count);
+
+            // P7: 新记忆门槛改为统计"距上次执行后的用户新增记忆数"
+            //（created_at > last_run_at 且非 System 来源），
+            // 不再用记忆总数相减（净增量会被用户删/加抵消而误拦截，
+            // 且 Dream 自身产物会被计入导致门槛恒满足）。
+            let new_user_memories = match &last_state {
+                Some(state) => count_new_user_memories(&self.storage, state.last_run_at).await?,
+                // 首次执行（无 state）：不设新记忆门槛
+                None => memory_count,
+            };
+
+            let gate_result =
+                DreamGate::check(&self.config, last_state.as_ref(), new_user_memories);
 
             match gate_result {
                 DreamGateResult::Allowed => {}
@@ -248,17 +282,18 @@ impl DreamProcessor {
 
         let result = self.process_inner().await;
 
-        // 记录上次执行后的记忆总数，供 Gate 新记忆门槛检查。
-        // 使用执行后计数：Dream 会软删/硬删旧记忆，若记录执行前计数，
-        // 下次门槛会错误要求补齐被 Dream 清理的缺口。
-        let post_count = self
-            .storage
-            .count()
-            .await
-            .map_err(|e| DreamError::Storage(e.to_string()))?;
-        // 写失败仅告警，不影响主流程。
-        if let Err(e) = self.lock.write_state(post_count as u32) {
-            tracing::warn!("Failed to write dream state: {}", e);
+        // P2: 仅成功执行才写 state，失败（如 LLM 故障）不刷新 last_run_at，
+        // 保证故障恢复后可立即重试，不浪费 24h 重试窗口。
+        // 整合数不足/无候选属于"成功执行但无事可做"，同样记录（避免空转）。
+        if result.is_ok() {
+            let post_count = self
+                .storage
+                .count()
+                .await
+                .map_err(|e| DreamError::Storage(e.to_string()))?;
+            if let Err(e) = self.lock.write_state(post_count as u32) {
+                tracing::warn!("Failed to write dream state: {}", e);
+            }
         }
 
         self.lock.release()?;
@@ -272,16 +307,62 @@ impl DreamProcessor {
         let cutoff = Utc::now() - chrono::Duration::hours(self.config.max_age_hours as i64);
         let cutoff_str = cutoff.to_rfc3339();
 
-        let memories = self
+        // 全量取回后内存筛选：list_older_than 内部 list(10000) 有扫描上限
+        // （活跃记忆超 1 万时 7 天前记忆可能漏选），且按 UUID 序无优先级。
+        // 这里改为全量扫描 + 按重要性排序选取（P1/P3）。
+        let all = self
             .storage
-            .list_older_than(&cutoff_str, 1000)
+            .list(usize::MAX)
             .await
             .map_err(|e| DreamError::Storage(e.to_string()))?;
 
-        if memories.len() < self.config.min_memories {
+        // P4: 排除高价值记忆（importance ≥ 阈值、命中保留标签、Preference 类型），
+        // 长期价值记忆不参与整合与删除。
+        let mut candidates: Vec<Memory> = all
+            .into_iter()
+            .filter(|m| !m.is_deleted && m.created_at < cutoff)
+            .filter(|m| {
+                m.importance < self.config.integration_preserve_importance
+                    && !m
+                        .tags
+                        .iter()
+                        .any(|t| self.config.integration_preserve_tags.contains(t))
+                    && m.memory_type != MemoryType::Preference
+            })
+            .collect();
+
+        // P5: 排除已被整合的源记忆；上次崩溃残留的已整合源记忆
+        // （写整合记忆后、删旧记忆前中断）补删，保证幂等不重复整合。
+        let seen = self.collect_integrated_source_ids().await?;
+        if !seen.is_empty() {
+            let mut leftover: Vec<Uuid> = Vec::new();
+            candidates.retain(|m| {
+                if seen.contains(&m.id) {
+                    leftover.push(m.id);
+                    false
+                } else {
+                    true
+                }
+            });
+            for id in leftover {
+                if let Err(e) = self.storage.delete(&id).await {
+                    tracing::warn!("Failed to delete leftover integrated memory {}: {}", id, e);
+                }
+            }
+        }
+
+        // P1/P3: 按重要性升序（优先整合低价值记忆），截取单次整合上限
+        candidates.sort_by(|a, b| {
+            a.importance
+                .partial_cmp(&b.importance)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        candidates.truncate(self.config.integration_max_memories);
+
+        if candidates.len() < self.config.min_memories {
             warn!(
                 "Not enough memories for Dream integration: {} < {}",
-                memories.len(),
+                candidates.len(),
                 self.config.min_memories
             );
             return Ok(DreamResult {
@@ -294,60 +375,21 @@ impl DreamProcessor {
 
         info!(
             "Dream processing {} memories older than {}",
-            memories.len(),
+            candidates.len(),
             cutoff_str
         );
 
-        let mut phase_results = Vec::new();
+        // P6: 先 LLM 整合（失败则直接返回，phases 不执行，
+        // 避免 LLM 故障时阶段副作用已生效但整合未完成的状态不一致）。
+        let summary = self.summarize_memories(&candidates).await?;
 
-        if self.config.phase_cross_project {
-            let extractor = CrossProjectExtractor::new(
-                self.storage.clone(),
-                self.config.batch_size,
-                self.config.batch_interval_ms,
-            );
-            let result = extractor.execute().await;
-            phase_results.push(result);
-        }
-
-        if self.config.phase_personal_summary {
-            let summarizer = PersonalSummarizer::new(
-                self.storage.clone(),
-                self.config.batch_size,
-                self.config.batch_interval_ms,
-            );
-            let result = summarizer.execute().await;
-            phase_results.push(result);
-        }
-
-        if self.config.phase_cleanup {
-            let cleaner = MemoryCleaner::new(
-                self.storage.clone(),
-                self.config.batch_size,
-                self.config.batch_interval_ms,
-                90,
-                0.1,
-            );
-            let result = cleaner.execute().await;
-            phase_results.push(result);
-        }
-
-        if self.config.phase_vector_regen {
-            if let (Some(vector_store), Some(embedder)) = (&self.vector_store, &self.embedder) {
-                let regenerator = VectorRegenerator::new(
-                    self.storage.clone(),
-                    vector_store.clone(),
-                    embedder.clone(),
-                    self.config.batch_size,
-                    self.config.batch_interval_ms,
-                );
-                let result = regenerator.execute().await;
-                phase_results.push(result);
-            }
-        }
-
-        // 旧记忆已在阶段前筛选，这里直接进行 LLM 整合
-        let summary = self.summarize_memories(&memories).await?;
+        // P5: 整合记忆 metadata 记录源记忆 id，供下次执行幂等去重与追溯。
+        let source_ids: Vec<String> = candidates.iter().map(|m| m.id.to_string()).collect();
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert(
+            "source_ids".to_string(),
+            serde_json::to_string(&source_ids).unwrap_or_default(),
+        );
 
         let memory_type = match self.config.integration_type.as_str() {
             "decision" => MemoryType::Decision,
@@ -371,7 +413,7 @@ impl DreamProcessor {
             scope: MemoryScope::Global,
             summary: None,
             embedding: None,
-            metadata: std::collections::HashMap::new(),
+            metadata,
             is_deleted: false,
             deleted_at: None,
             chunk_group_id: None,
@@ -385,25 +427,101 @@ impl DreamProcessor {
             .map_err(|e| DreamError::Storage(e.to_string()))?;
         let created_id = integrated_memory.id;
 
-        for memory in &memories {
+        // 仅软删本次整合的候选记忆（高价值记忆已在筛选中保留）
+        for memory in &candidates {
             self.storage
                 .delete(&memory.id)
                 .await
                 .map_err(|e| DreamError::Storage(e.to_string()))?;
         }
 
+        // 整合成功后执行阶段 1-4（LLM 失败时全部跳过）
+        let mut phase_results = Vec::new();
+
+        if self.config.phase_cross_project {
+            let extractor = CrossProjectExtractor::new(
+                self.storage.clone(),
+                self.config.batch_size,
+                self.config.batch_interval_ms,
+            );
+            let result = extractor.execute().await;
+            phase_results.push(result);
+        }
+
+        if self.config.phase_personal_summary {
+            let summarizer = PersonalSummarizer::new(
+                self.storage.clone(),
+                self.config.batch_size,
+                self.config.batch_interval_ms,
+            );
+            let result = summarizer.execute().await;
+            phase_results.push(result);
+        }
+
+        if self.config.phase_cleanup {
+            // P9: cleanup 参数配置化（inactive_days / importance_threshold）
+            let cleaner = MemoryCleaner::new(
+                self.storage.clone(),
+                self.config.batch_size,
+                self.config.batch_interval_ms,
+                self.config.cleanup_inactive_days,
+                self.config.cleanup_importance_threshold,
+            );
+            let result = cleaner.execute().await;
+            phase_results.push(result);
+        }
+
+        if self.config.phase_vector_regen {
+            if let (Some(vector_store), Some(embedder)) = (&self.vector_store, &self.embedder) {
+                let regenerator = VectorRegenerator::new(
+                    self.storage.clone(),
+                    vector_store.clone(),
+                    embedder.clone(),
+                    self.config.batch_size,
+                    self.config.batch_interval_ms,
+                );
+                let result = regenerator.execute().await;
+                phase_results.push(result);
+            }
+        }
+
         info!(
             "Dream completed: {} memories integrated into {}",
-            memories.len(),
+            candidates.len(),
             created_id
         );
 
         Ok(DreamResult {
-            integrated_count: memories.len(),
+            integrated_count: candidates.len(),
             created_memory_id: Some(created_id),
             summary,
             phase_results,
         })
+    }
+
+    /// 收集所有已写入整合记忆（`dream-integrated` 标签）记录的源记忆 id。
+    ///
+    /// 幂等机制：整合记忆写入时把源记忆 id 列表存入 `metadata.source_ids`，
+    /// 下次执行据此排除已整合的源记忆，崩溃残留（写后未删）也可识别补删。
+    async fn collect_integrated_source_ids(&self) -> Result<HashSet<Uuid>, DreamError> {
+        let mut seen = HashSet::new();
+        let summaries = self
+            .storage
+            .list_by_tag("dream-integrated", 1000)
+            .await
+            .map_err(|e| DreamError::Storage(e.to_string()))?;
+        for m in summaries {
+            if let Some(raw) = m.metadata.get("source_ids") {
+                if let Ok(ids) = serde_json::from_str::<Vec<String>>(raw) {
+                    for s in ids {
+                        if let Ok(id) = Uuid::parse_str(&s) {
+                            seen.insert(id);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(seen)
     }
 
     async fn summarize_memories(&self, memories: &[Memory]) -> Result<String, DreamError> {
@@ -639,7 +757,7 @@ mod tests {
 
         for i in 0..3 {
             let mut memory = Memory::new(format!("memory {}", i), MemoryType::Knowledge);
-            // 记忆年龄须大于 max_age_hours（100h），才会被 list_older_than 选中
+            // 记忆年龄须大于 max_age_hours（100h），才会被选中
             memory.created_at = Utc::now() - chrono::Duration::hours(200);
             storage.save(&memory).await.unwrap();
         }
@@ -650,5 +768,194 @@ mod tests {
         assert_eq!(dream_result.integrated_count, 3);
         assert_eq!(dream_result.summary, "LLM 整合摘要内容");
         assert!(dream_result.created_memory_id.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_execute_failure_does_not_write_state() {
+        // P2/P6: LLM 失败时 execute 返回 Err；不写 state（不消耗 24h 重试窗口），
+        // 且 phases 不执行（无 cross-project 摘要写入）。
+        use crate::llm::MockLlmClient;
+        use std::sync::Arc as StdArc;
+
+        let dir = tempdir().unwrap();
+        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
+
+        // unconfigured Mock：chat 返回 Err
+        let llm = MockLlmClient::unconfigured();
+
+        let config = DreamConfig {
+            enabled: true,
+            requires_llm: true,
+            min_memories: 1,
+            max_age_hours: 100,
+            ..Default::default()
+        };
+
+        let processor =
+            DreamProcessor::new(config, dir.path(), storage.clone()).with_llm(StdArc::new(llm));
+
+        for i in 0..3 {
+            let mut memory = Memory::new(format!("memory {}", i), MemoryType::Knowledge);
+            memory.created_at = Utc::now() - chrono::Duration::hours(200);
+            memory.importance = 0.5;
+            storage.save(&memory).await.unwrap();
+        }
+
+        let result = processor.execute(true).await;
+        assert!(result.is_err());
+
+        // P2: 失败不写 state → 下次仍可立即重试
+        let lock = crate::dream::DreamLock::new(dir.path());
+        assert!(lock.read_state().is_none());
+
+        // P6: phases 未执行，无 cross-project 摘要
+        let summaries = storage.list_by_tag("cross-project", 10).await.unwrap();
+        assert!(summaries.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_integration_preserves_high_value_memories() {
+        // P4: critical 标签 / 高 importance / preference 类型不参与整合与删除
+        let dir = tempdir().unwrap();
+        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
+
+        let config = DreamConfig {
+            enabled: true,
+            requires_llm: false,
+            min_memories: 1,
+            max_age_hours: 100,
+            phase_cross_project: false,
+            phase_personal_summary: false,
+            phase_cleanup: false,
+            ..Default::default()
+        };
+        let processor = DreamProcessor::new(config, dir.path(), storage.clone());
+
+        // 普通旧记忆：应被整合
+        let mut normal = Memory::new("normal old memory".to_string(), MemoryType::Knowledge);
+        normal.created_at = Utc::now() - chrono::Duration::hours(200);
+        normal.importance = 0.5;
+        storage.save(&normal).await.unwrap();
+
+        // critical 标签记忆：应保留
+        let mut critical = Memory::new("critical decision".to_string(), MemoryType::Decision);
+        critical.created_at = Utc::now() - chrono::Duration::hours(200);
+        critical.importance = 0.5;
+        critical.tags = vec!["critical".to_string()];
+        storage.save(&critical).await.unwrap();
+
+        // 高 importance 记忆：应保留
+        let mut high = Memory::new("high importance".to_string(), MemoryType::Knowledge);
+        high.created_at = Utc::now() - chrono::Duration::hours(200);
+        high.importance = 0.9;
+        storage.save(&high).await.unwrap();
+
+        // preference 类型：应保留
+        let mut pref = Memory::new("user preference".to_string(), MemoryType::Preference);
+        pref.created_at = Utc::now() - chrono::Duration::hours(200);
+        pref.importance = 0.5;
+        storage.save(&pref).await.unwrap();
+
+        let result = processor.execute(true).await;
+        assert!(result.is_ok());
+        let dream_result = result.unwrap();
+        assert_eq!(dream_result.integrated_count, 1);
+
+        // 被保留的记忆仍在库中（未软删）
+        let all = storage.list(100).await.unwrap();
+        let alive: Vec<_> = all.into_iter().filter(|m| !m.is_deleted).collect();
+        assert!(alive.iter().any(|m| m.id == critical.id));
+        assert!(alive.iter().any(|m| m.id == high.id));
+        assert!(alive.iter().any(|m| m.id == pref.id));
+        assert!(!alive.iter().any(|m| m.id == normal.id));
+    }
+
+    #[tokio::test]
+    async fn test_integration_skips_already_integrated_sources() {
+        // P5: 已整合源记忆（metadata.source_ids 命中）被排除，且残留被补删
+        let dir = tempdir().unwrap();
+        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
+
+        let config = DreamConfig {
+            enabled: true,
+            requires_llm: false,
+            min_memories: 1,
+            max_age_hours: 100,
+            phase_cross_project: false,
+            phase_personal_summary: false,
+            phase_cleanup: false,
+            ..Default::default()
+        };
+        let processor = DreamProcessor::new(config, dir.path(), storage.clone());
+
+        // 模拟上次崩溃残留：源记忆未被删除，但已有整合记忆记录了它
+        let mut leftover = Memory::new("leftover source".to_string(), MemoryType::Knowledge);
+        leftover.created_at = Utc::now() - chrono::Duration::hours(200);
+        leftover.importance = 0.5;
+        storage.save(&leftover).await.unwrap();
+
+        let mut integrated = Memory::new("previous summary".to_string(), MemoryType::Knowledge);
+        integrated.tags = vec!["dream-integrated".to_string()];
+        integrated.created_at = Utc::now() - chrono::Duration::hours(50);
+        let mut md = std::collections::HashMap::new();
+        md.insert(
+            "source_ids".to_string(),
+            serde_json::to_string(&vec![leftover.id.to_string()]).unwrap(),
+        );
+        integrated.metadata = md;
+        storage.save(&integrated).await.unwrap();
+
+        // 再加一条真正的新旧记忆，保证候选数达到 min_memories
+        let mut fresh = Memory::new("fresh candidate".to_string(), MemoryType::Knowledge);
+        fresh.created_at = Utc::now() - chrono::Duration::hours(200);
+        fresh.importance = 0.5;
+        storage.save(&fresh).await.unwrap();
+
+        let result = processor.execute(true).await;
+        assert!(result.is_ok());
+        let dream_result = result.unwrap();
+        // 仅整合 fresh（leftover 已被排除并补删）
+        assert_eq!(dream_result.integrated_count, 1);
+
+        let all = storage.list(100).await.unwrap();
+        let alive: Vec<_> = all.into_iter().filter(|m| !m.is_deleted).collect();
+        assert!(!alive.iter().any(|m| m.id == leftover.id));
+        assert!(!alive.iter().any(|m| m.id == fresh.id));
+    }
+
+    #[tokio::test]
+    async fn test_integration_respects_max_memories() {
+        // P1: integration_max_memories 限制单次整合输入量
+        let dir = tempdir().unwrap();
+        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
+
+        let config = DreamConfig {
+            enabled: true,
+            requires_llm: false,
+            min_memories: 1,
+            max_age_hours: 100,
+            integration_max_memories: 2,
+            phase_cross_project: false,
+            phase_personal_summary: false,
+            phase_cleanup: false,
+            ..Default::default()
+        };
+        let processor = DreamProcessor::new(config, dir.path(), storage.clone());
+
+        for i in 0..5 {
+            let mut memory = Memory::new(format!("memory {}", i), MemoryType::Knowledge);
+            memory.created_at = Utc::now() - chrono::Duration::hours(200);
+            memory.importance = 0.5;
+            storage.save(&memory).await.unwrap();
+        }
+
+        let result = processor.execute(true).await;
+        assert!(result.is_ok());
+        let dream_result = result.unwrap();
+        assert_eq!(dream_result.integrated_count, 2);
     }
 }
