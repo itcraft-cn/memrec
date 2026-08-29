@@ -9,6 +9,7 @@
 
 ### 新增
 
+- **检索范围三态参数**：`list` / `search` 的 `--project-only` / `--global-only` 改为互斥的 `-p/--project`（仅当前项目）、`-g/--global`（仅公共记忆）、`-a/--all`（跨所有项目）；均未指定时按项目根目录 `.mr_pid` 是否存在自动推断（存在→`-p`，不存在→`-g`）；`list -p` 现在通过解析 `.mr_pid` 的项目 UUID 精确限定当前项目（此前列出所有项目记忆）
 - **[llm] api_key 支持环境变量引用**：`api_key = "$MEMREC_LLM_KEY"`（或 `${MEMREC_LLM_KEY}`）在守护进程加载 config.toml 时自动展开为环境变量值，避免明文密钥落盘；环境变量未设置时保持原值
 - **分页**：`ListParams.skip` / `memrec list --skip <n>` — 可翻页查看 limit 之外更早的记忆；`total` 现在返回符合条件的完整数量（准确判断是否还有下一页）
 - **原始记录检索与恢复**：从 RocksDB 检索并恢复软删除记忆
@@ -18,6 +19,7 @@
 
 ### 修复
 
+- **Dream 摘要输出质量**：LLM System Prompt 改为强约束模板（`## 主题` / `## 要点` / `## 结论` 固定结构），硬性禁止开场白、结尾寒暄与空泛套话，信息必须来自输入记忆、语言与输入一致、限长 500 字；新增 `clean_summary` 后处理剥离 Markdown 代码块包裹与常见套话前缀（如"以下是…""总结如下""好的，"），压缩冗余空行
 - **Dream 垃圾记忆根治**（v0.7.0 遗留问题：`personal-summary`/`cross-project` 重复摘要污染记忆库，100 条中 94% 为机器生成）：
   - Phase 1/2 摘要改 upsert：每标签仅保留最新一条，内容变化才更新，多余旧条目自动回滚删除
   - DreamGate 时间门槛改用持久化 `dream.state`，与并发锁分离（此前 release 锁后时间信息丢失，24h 门槛失效导致高频执行）

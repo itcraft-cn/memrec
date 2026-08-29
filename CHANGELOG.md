@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Three-state scope options**: `list` / `search` replace `--project-only` / `--global-only` with mutually exclusive `-p/--project` (current project only), `-g/--global` (global memories only), `-a/--all` (across all projects); when none is given, the scope is inferred from the presence of the `.mr_pid` marker in the project root (present→`-p`, absent→`-g`); `list -p` now resolves the project UUID from `.mr_pid` to scope precisely to the current project (previously listed memories of all projects)
 - **[llm] api_key supports env var reference**: `api_key = "$MEMREC_LLM_KEY"` (or `${MEMREC_LLM_KEY}`) is expanded to the environment variable value when the daemon loads config.toml, avoiding plaintext keys on disk; keeps the original value if the variable is unset
 - **Pagination**: `ListParams.skip` / `memrec list --skip <n>` — page through memories beyond the latest N; `total` now returns the full count of matching records (accurate next-page detection)
 - **Raw record retrieval & restore**: inspect and recover soft-deleted memories from RocksDB
@@ -18,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Dream summary output quality**: LLM System Prompt switched to a strongly-constrained template (`## Topic` / `## Key Points` / `## Conclusion` fixed structure), hard-banning openings, closing pleasantries and vague filler; content must come from input memories, language matches the input, max 500 chars; new `clean_summary` post-processing strips Markdown code fences and common small-talk prefixes (e.g. "以下是…" "总结如下" "好的，"), compresses redundant blank lines
 - **Dream garbage memory elimination** (v0.7.0 leftover: duplicate `personal-summary`/`cross-project` summaries polluted the memory base, 94% of 100 memories were machine-generated):
   - Phase 1/2 summaries switched to upsert: keep only the latest one per tag, update only on content change, roll back extra stale entries
   - DreamGate time gate now reads persisted `dream.state`, decoupled from the concurrency lock (previously the timestamp was lost on lock release, so the 24h gate never applied and Dream ran at high frequency)

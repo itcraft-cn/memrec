@@ -41,6 +41,102 @@ pub enum DreamError {
     Llm(String),
 }
 
+/// Dream 整合摘要的 LLM System Prompt（模板约束）。
+///
+/// 要求 LLM 严格按固定 Markdown 模板输出，并通过硬性约束压制套话：
+/// 禁止开场白/结尾寒暄、禁止空泛概括、信息必须来自输入记忆、语言与输入一致、限长。
+/// 产出为结构化内容（主题/要点/结论），便于后续检索与阅读。
+const SUMMARY_SYSTEM_PROMPT: &str = "你是一个记忆整合引擎，职责是从历史记忆中提炼事实并整合为结构化摘要。\
+输出必须严格遵循以下 Markdown 模板，不得增删章节、不得改变章节顺序：\n\
+## 主题\n\
+（用一句话概括这批记忆的核心主题）\n\
+## 要点\n\
+（逐条列出最有价值的独立事实，每条一行，以 \"- \" 开头，最多 10 条）\n\
+## 结论\n\
+（提炼跨记忆的关联、规律或后续行动建议，2-3 行）\n\
+硬性约束：\n\
+1. 直接输出模板内容，禁止任何开场白（如\"以下是\"\"好的\"\"总结如下\"），禁止结尾寒暄、禁止自我评价；\n\
+2. 所有内容必须来自给定记忆，不得编造、不得添加记忆中没有的信息；\n\
+3. 不要输出空泛的套话（如\"这些记忆涵盖了多个方面\"），每条要点都必须是具体事实；\n\
+4. 语言风格与输入记忆保持一致（中文记忆用中文输出，英文记忆用英文输出）；\n\
+5. 总长度不超过 500 字。";
+
+/// 清洗 LLM 摘要输出，剥离常见套话与格式噪音。
+///
+/// 处理项：Markdown 代码块包裹、常见开场白前缀（循环剥离兼容嵌套）、
+/// 连续空行压缩、首尾空白裁剪。不处理结尾客套（误伤风险高，交给 prompt 约束）。
+fn clean_summary(raw: &str) -> String {
+    let mut s = raw.trim().to_string();
+
+    // 剥离 Markdown 代码块包裹（```markdown ... ``` / ``` ... ```）
+    if s.starts_with("```") {
+        if let Some(end) = s.rfind("```") {
+            if end > 3 {
+                // 去掉代码块起始标记后的语言标记行（markdown/json 等）
+                let inner = &s[3..end];
+                let body = match inner.find('\n') {
+                    Some(nl) => &inner[nl + 1..],
+                    None => inner,
+                };
+                s = body.trim().to_string();
+            }
+        }
+    }
+
+    // 循环剥离常见套话前缀（兼容 \"好的，以下是……\" 等多层嵌套）
+    const PREFIXES: &[&str] = &[
+        "以下是",
+        "以下为",
+        "以下是我",
+        "以下是对",
+        "好的，",
+        "好的:",
+        "好的：",
+        "好的。",
+        "总结如下",
+        "摘要如下",
+        "整合结果",
+        "整合摘要",
+        "整合后的摘要",
+        "整合内容",
+        "基于以上",
+        "根据以上",
+        "经过整合",
+        "整合完成",
+        "已整合",
+        "这里",
+        "结果如下",
+        "内容如下",
+    ];
+    loop {
+        let before = s.clone();
+        for prefix in PREFIXES {
+            if let Some(rest) = s.strip_prefix(prefix) {
+                let rest = rest.trim_start_matches(&[':', '：', '-', '—', '\n'][..]);
+                s = rest.trim_start().to_string();
+                break;
+            }
+        }
+        if s == before {
+            break;
+        }
+    }
+
+    // 压缩连续空行为单个空行
+    let mut compact = String::with_capacity(s.len());
+    let mut prev_blank = false;
+    for line in s.lines() {
+        let blank = line.trim().is_empty();
+        if blank && prev_blank {
+            continue;
+        }
+        compact.push_str(line);
+        compact.push('\n');
+        prev_blank = blank;
+    }
+    compact.trim_end().to_string()
+}
+
 #[derive(Debug, Clone)]
 pub struct DreamResult {
     pub integrated_count: usize,
@@ -313,20 +409,20 @@ impl DreamProcessor {
     async fn summarize_memories(&self, memories: &[Memory]) -> Result<String, DreamError> {
         let content_lines: Vec<String> = memories
             .iter()
-            .map(|m| format!("- [{}] {}", m.memory_type, m.content))
+            .map(|m| {
+                format!(
+                    "- [{}] ({}): {}",
+                    m.memory_type,
+                    m.created_at.format("%Y-%m-%d"),
+                    m.content
+                )
+            })
             .collect();
 
-        let system_prompt = "你是记忆库整合助手。请对给定的历史记忆进行提炼整合：\
-            1. 提取关键信息\
-            2. 建立关联\
-            3. 去除冗余\
-            4. 生成简洁摘要\
-            输出要求：一段简洁的摘要文字（不超过500字）。";
-
-        let user_prompt = format!("请整合以下历史记忆：\n\n{}", content_lines.join("\n"));
+        let user_prompt = format!("以下是待整合的历史记忆：\n\n{}", content_lines.join("\n"));
 
         let messages = vec![
-            LlmMessage::system(system_prompt),
+            LlmMessage::system(SUMMARY_SYSTEM_PROMPT),
             LlmMessage::user(user_prompt),
         ];
 
@@ -338,9 +434,11 @@ impl DreamProcessor {
                     memories.len(),
                     messages.iter().map(|m| m.content.len()).sum::<usize>()
                 );
-                llm.chat(&messages)
+                let raw = llm
+                    .chat(&messages)
                     .await
-                    .map_err(|e| DreamError::Llm(e.to_string()))
+                    .map_err(|e| DreamError::Llm(e.to_string()))?;
+                Ok(clean_summary(&raw))
             }
             None => {
                 // 未接入 LLM 且 requires_llm = false：退化为模板摘要（兼容旧行为）
@@ -442,6 +540,41 @@ mod tests {
         assert!(dream_result.created_memory_id.is_some());
         assert!(!dream_result.summary.is_empty());
         assert!(!dream_result.phase_results.is_empty());
+    }
+
+    #[test]
+    fn test_clean_summary_strips_code_fence() {
+        let raw = "```markdown\n## 主题\nRust 异步性能优化\n```";
+        let cleaned = clean_summary(raw);
+        assert_eq!(cleaned, "## 主题\nRust 异步性能优化");
+    }
+
+    #[test]
+    fn test_clean_summary_strips_small_talk_prefix() {
+        let raw = "好的，以下是整合后的摘要：\n\n## 主题\n认证方案选型";
+        let cleaned = clean_summary(raw);
+        assert_eq!(cleaned, "## 主题\n认证方案选型");
+    }
+
+    #[test]
+    fn test_clean_summary_strips_nested_prefixes() {
+        let raw = "好的，以下为总结如下：项目采用 JWT 认证";
+        let cleaned = clean_summary(raw);
+        assert_eq!(cleaned, "项目采用 JWT 认证");
+    }
+
+    #[test]
+    fn test_clean_summary_keeps_content() {
+        let raw = "## 要点\n- JWT 无状态易扩展";
+        let cleaned = clean_summary(raw);
+        assert_eq!(cleaned, raw);
+    }
+
+    #[test]
+    fn test_clean_summary_compacts_blank_lines() {
+        let raw = "## 主题\n\n\n\n## 要点\n- a\n\n\n- b";
+        let cleaned = clean_summary(raw);
+        assert_eq!(cleaned, "## 主题\n\n## 要点\n- a\n\n- b");
     }
 
     #[test]
