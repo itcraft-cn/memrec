@@ -228,10 +228,13 @@ memrec search "中文搜索" --human
 
 | 选项 | 范围 | 用途 |
 |------|------|------|
-| 默认 | 当前项目 + 公共记忆 | 日常使用 |
-| `--project-only` | 仅当前项目 | 精确项目内搜索 |
-| `--global-only` | 仅公共记忆 | 查找用户偏好 |
-| `--all` | 所有项目 | 跨项目关联搜索 |
+| 默认 | 按 `.mr_pid` 推断 | 已注册项目→仅当前项目；未注册→仅公共记忆 |
+| `-p, --project` | 仅当前项目 | 精确项目内搜索 |
+| `-g, --global` | 仅公共记忆 | 查找用户偏好 |
+| `-a, --all` | 所有项目 | 跨项目关联搜索 |
+
+> 三个范围参数互斥。均未指定时，检测当前项目根目录是否存在 `.mr_pid` 标记文件：
+> 存在则默认 `-p`（仅当前项目），不存在则默认 `-g`（仅公共记忆）。
 
 #### 选项
 
@@ -239,9 +242,9 @@ memrec search "中文搜索" --human
 |------|------|--------|
 | `-k, --top-k` | 返回结果数 | 10 |
 | `--min-score` | 最低相似度阈值 | 0.5（BGE-M3）/ 0.75（MiniLM） |
-| `--project-only` | 仅当前项目 | - |
-| `--global-only` | 仅公共记忆 | - |
-| `--all` | 跨所有项目 | - |
+| `-p, --project` | 仅当前项目 | 按 `.mr_pid` 推断 |
+| `-g, --global` | 仅公共记忆 | 按 `.mr_pid` 推断 |
+| `-a, --all` | 跨所有项目 | - |
 | `--mtype` | 按类型过滤 | - |
 | `--human` | 人类可读输出 | - |
 | `--hybrid-alpha` | KNN与BM25权重（0=纯BM25，1=纯KNN） | 0.5 |
@@ -255,13 +258,13 @@ memrec search "中文搜索" --human
 memrec search "认证方案"
 
 # 项目内精确搜索
-memrec search "性能优化" --project-only
+memrec search "性能优化" -p
 
 # 公共记忆搜索
-memrec search "用户偏好" --global-only
+memrec search "用户偏好" -g
 
 # 跨项目搜索
-memrec search "xlsb" --all
+memrec search "xlsb" -a
 
 # 调整返回数量和阈值
 memrec search "架构" -k 20 --min-score 0.6
@@ -358,8 +361,9 @@ memrec get <memory-id> --merge
 ```bash
 memrec list                  # 默认列出20条
 memrec list --limit 50       # 列出50条
-memrec list --project-only   # 仅当前项目
-memrec list --global-only    # 仅公共记忆
+memrec list -p               # 仅当前项目（有 .mr_pid 时默认）
+memrec list -g               # 仅公共记忆（无 .mr_pid 时默认）
+memrec list -a               # 跨所有项目
 ```
 
 ### 删除记忆
@@ -424,10 +428,10 @@ memrec add "hydrakiller技术栈：Kotlin+Spring+ONNX" --mtype context
 
 # 搜索自动隔离
 cd /disk2/code/rust/memrec
-memrec search "架构" --project-only  # 仅返回 memrec 项目
+memrec search "架构" -p          # 仅返回 memrec 项目
 
 # 跨项目搜索
-memrec search "架构" --all            # 返回所有项目的架构相关记忆
+memrec search "架构" -a          # 返回所有项目的架构相关记忆
 ```
 
 ## 配置
@@ -591,7 +595,7 @@ memrec --mcp    # 以 stdio 模式启动 MCP 服务器
 
 ```bash
 # 1. 开始任务：检索相关历史
-memrec search "相关主题" --project-only
+memrec search "相关主题" -p
 
 # 2. 做出决策后：记录
 memrec add "选择XXX方案，理由：..." --mtype decision --tag critical
@@ -600,7 +604,7 @@ memrec add "选择XXX方案，理由：..." --mtype decision --tag critical
 memrec add "用户偏好YYY" --mtype preference --global
 
 # 4. 发现跨项目关联
-memrec search "相关主题" --all
+memrec search "相关主题" -a
 
 # 5. 结束任务
 memrec stats

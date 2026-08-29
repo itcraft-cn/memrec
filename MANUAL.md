@@ -229,10 +229,14 @@ memrec search "中文搜索" --human
 
 | Option | Scope | Purpose |
 |--------|-------|---------|
-| (default) | Current project + global | Daily use |
-| `--project-only` | Current project only | Precise project search |
-| `--global-only` | Global memories only | Find user preferences |
-| `--all` | All projects | Cross-project discovery |
+| (default) | Inferred from `.mr_pid` | Registered project→project only; otherwise→global only |
+| `-p, --project` | Current project only | Precise project search |
+| `-g, --global` | Global memories only | Find user preferences |
+| `-a, --all` | All projects | Cross-project discovery |
+
+> The three scope options are mutually exclusive. When none is given, the CLI checks
+> for a `.mr_pid` marker file in the project root: present → `-p` (project only),
+> absent → `-g` (global only).
 
 #### Options
 
@@ -240,9 +244,9 @@ memrec search "中文搜索" --human
 |--------|-------------|---------|
 | `-k, --top-k` | Number of results | 10 |
 | `--min-score` | Minimum similarity threshold | 0.5 (BGE-M3) / 0.75 (MiniLM) |
-| `--project-only` | Current project only | - |
-| `--global-only` | Global memories only | - |
-| `--all` | All projects | - |
+| `-p, --project` | Current project only | Inferred from `.mr_pid` |
+| `-g, --global` | Global memories only | Inferred from `.mr_pid` |
+| `-a, --all` | All projects | - |
 | `--mtype` | Filter by type | - |
 | `--human` | Human-readable output | - |
 | `--hybrid-alpha` | KNN vs BM25 weight (0=BM25 only, 1=KNN only) | 0.5 |
@@ -256,13 +260,13 @@ memrec search "中文搜索" --human
 memrec search "auth"
 
 # Project-only search
-memrec search "performance" --project-only
+memrec search "performance" -p
 
 # Global memories
-memrec search "preferences" --global-only
+memrec search "preferences" -g
 
 # Cross-project search
-memrec search "xlsb" --all
+memrec search "xlsb" -a
 
 # Adjust result count and threshold
 memrec search "architecture" -k 20 --min-score 0.6
@@ -359,8 +363,9 @@ memrec get <memory-id> --merge
 ```bash
 memrec list                  # Default: 20 items
 memrec list --limit 50       # List 50
-memrec list --project-only   # Current project only
-memrec list --global-only    # Global memories only
+memrec list -p               # Current project only (default when .mr_pid exists)
+memrec list -g               # Global memories only (default without .mr_pid)
+memrec list -a               # All projects
 ```
 
 ### Delete Memory
@@ -426,10 +431,10 @@ memrec add "hydrakiller tech stack: Kotlin+Spring+ONNX" --mtype context
 
 # Search auto-isolates
 cd /disk2/code/rust/memrec
-memrec search "architecture" --project-only  # Only memrec project results
+memrec search "architecture" -p          # Only memrec project results
 
 # Cross-project search
-memrec search "architecture" --all           # All projects' architecture memories
+memrec search "architecture" -a           # All projects' architecture memories
 ```
 
 ## Configuration
@@ -594,7 +599,7 @@ memrec --mcp    # Start MCP server in stdio mode
 
 ```bash
 # 1. Start task: retrieve relevant history
-memrec search "related topic" --project-only
+memrec search "related topic" -p
 
 # 2. After making a decision: record it
 memrec add "Choose X approach, reason: ..." --mtype decision --tag critical
@@ -603,7 +608,7 @@ memrec add "Choose X approach, reason: ..." --mtype decision --tag critical
 memrec add "User prefers Y" --mtype preference --global
 
 # 4. Discover cross-project connections
-memrec search "related topic" --all
+memrec search "related topic" -a
 
 # 5. End task
 memrec stats

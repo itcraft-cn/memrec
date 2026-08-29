@@ -30,26 +30,7 @@ use commands::{
     add, delete, dream, get, list, restore, scene, search_execute, stats, version, AddOptions,
     ListOptions, SearchArgs,
 };
-
-/// 检测当前工作目录，优先使用 Git 仓库根目录。
-fn detect_working_dir() -> Result<String> {
-    let current = std::env::current_dir()?;
-
-    if let Ok(output) = std::process::Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .current_dir(&current)
-        .output()
-    {
-        if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() {
-                return Ok(path);
-            }
-        }
-    }
-
-    Ok(current.to_string_lossy().to_string())
-}
+use commands::{detect_working_dir, read_project_uuid, resolve_scope, Scope};
 
 #[derive(Parser)]
 #[command(name = "memrec")]
@@ -96,10 +77,15 @@ enum Commands {
         /// 跳过前 N 条（与 limit 配合分页）
         #[arg(long, default_value_t = 0)]
         skip: usize,
-        #[arg(long)]
-        project_only: bool,
-        #[arg(long)]
-        global_only: bool,
+        /// 仅当前项目（未指定时按 .mr_pid 是否存在推断）
+        #[arg(short = 'p', long, group = "scope")]
+        project: bool,
+        /// 仅公共记忆（未指定时按 .mr_pid 是否存在推断）
+        #[arg(short = 'g', long, group = "scope")]
+        global: bool,
+        /// 跨所有项目
+        #[arg(short = 'a', long, group = "scope")]
+        all: bool,
         /// 按标签过滤（可多个，全部命中）
         #[arg(long)]
         tag: Vec<String>,
@@ -215,12 +201,24 @@ async fn main() -> Result<()> {
         Commands::List {
             limit,
             skip,
-            project_only,
-            global_only,
+            project,
+            global,
+            all,
             tag,
             type_filter,
             deleted,
         } => {
+            // 显式三态参数优先，未指定时按 .mr_pid 是否存在推断默认范围
+            let scope = resolve_scope(project, global, all);
+            let (project_only, global_only, project_id) = match scope {
+                Scope::Project => {
+                    // 解析 .mr_pid 中的项目 UUID，将 list 限定到当前项目
+                    let root = std::path::PathBuf::from(detect_working_dir()?);
+                    (true, false, read_project_uuid(&root))
+                }
+                Scope::Global => (false, true, None),
+                Scope::All => (false, false, None),
+            };
             list(
                 &client,
                 ListOptions {
@@ -228,6 +226,7 @@ async fn main() -> Result<()> {
                     skip,
                     project_only,
                     global_only,
+                    project_id,
                     tags: tag,
                     memory_type: type_filter,
                     include_deleted: deleted,
@@ -249,12 +248,14 @@ async fn main() -> Result<()> {
             stats(&client, human).await?;
         }
         Commands::Search(args) => {
-            let working_dir = if args.all || args.global_only {
-                None
-            } else {
+            // 显式三态参数优先，未指定时按 .mr_pid 是否存在推断默认范围
+            let scope = resolve_scope(args.project, args.global, args.all);
+            let working_dir = if scope == Scope::Project {
                 Some(detect_working_dir()?)
+            } else {
+                None
             };
-            search_execute(&client, args, working_dir, human).await?;
+            search_execute(&client, args, scope, working_dir, human).await?;
         }
         Commands::Version => {
             version(&client, human).await?;

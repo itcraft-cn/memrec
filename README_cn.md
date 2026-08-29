@@ -76,11 +76,11 @@ memrec add "RAII模式：资源获取即初始化" --mtype knowledge --tag best-
 memrec add "用户偏好详细输出" --mtype preference --tag output --global
 
 # 混合检索（KNN + BM25）
-memrec search "认证方案"                   # 当前项目 + 公共，min_score 默认值：0.5（BGE-M3）/ 0.75（MiniLM）
-memrec search "性能优化" --project-only    # 仅当前项目
-memrec search "用户偏好" --global-only     # 仅公共记忆
-memrec search "xlsb" --all                 # 跨所有项目
-memrec search "中文搜索" --human           # 中文搜索支持
+memrec search "认证方案"                   # 默认范围：有 .mr_pid → 仅当前项目；无 → 仅公共记忆
+memrec search "性能优化" -p              # 仅当前项目
+memrec search "用户偏好" -g              # 仅公共记忆
+memrec search "xlsb" -a                  # 跨所有项目
+memrec search "中文搜索" --human         # 中文搜索支持
 
 # 其他
 memrec list --limit 20

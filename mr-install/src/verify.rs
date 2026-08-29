@@ -51,7 +51,7 @@ pub fn run_verification() -> Result<()> {
 
     println!("  Testing search...");
     let search_output = std::process::Command::new(&memrec)
-        .args(["search", "verification test", "--project-only"])
+        .args(["search", "verification test", "-p"])
         .output()?;
 
     if search_output.status.success() {

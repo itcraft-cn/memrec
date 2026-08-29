@@ -114,7 +114,7 @@ memrec add "根据代码模式推断偏好函数式风格" --mtype knowledge --s
 ### 混合检索
 
 ```bash
-memrec search "关键词" [--project-only] [--global-only] [--all] [-k <num>]
+memrec search "关键词" [-p|-g|-a] [-k <num>]
 ```
 
 **搜索流程：**
@@ -125,13 +125,13 @@ memrec search "关键词" [--project-only] [--global-only] [--all] [-k <num>]
 
 **中文搜索：** 自动支持，使用 N-gram 分词器（2-4 字）
 
-**搜索范围：**
+**搜索范围（三态互斥，未指定时按 `.mr_pid` 是否存在推断）：**
 | 选项 | 范围 | 用途 |
 |------|------|------|
-| 默认 | 当前项目 + 公共记忆 | 日常使用 |
-| `--project-only` | 仅当前项目 | 精确项目内搜索 |
-| `--global-only` | 仅公共记忆 | 查找用户偏好 |
-| `--all` | 所有项目（跨项目） | 查找跨项目关联记忆 |
+| 默认 | 有 `.mr_pid` → 仅当前项目；无 → 仅公共记忆 | 自动推断 |
+| `-p, --project` | 仅当前项目 | 精确项目内搜索 |
+| `-g, --global` | 仅公共记忆 | 查找用户偏好 |
+| `-a, --all` | 所有项目（跨项目） | 查找跨项目关联记忆 |
 
 **高级选项：**
 | 选项 | 说明 | 默认值 |
@@ -144,9 +144,9 @@ memrec search "关键词" [--project-only] [--global-only] [--all] [-k <num>]
 **示例：**
 ```bash
 memrec search "认证方案"
-memrec search "Rust最佳实践" --project-only
-memrec search "用户偏好" --global-only -k 20
-memrec search "xlsb" --all                    # 跨项目搜索
+memrec search "Rust最佳实践" -p
+memrec search "用户偏好" -g -k 20
+memrec search "xlsb" -a                      # 跨项目搜索
 memrec search "架构" --human                  # 中文搜索
 memrec search "算法" --hybrid-alpha 0.8       # 更偏重向量检索
 memrec search "决策" --mmr-enabled false      # 禁用MMR
@@ -157,7 +157,7 @@ memrec search "知识" --mmr-lambda 0.5         # 更多样的结果
 
 ```bash
 memrec get <memory-id> [--merge]
-memrec list [--limit <num>] [--skip <num>] [--project-only] [--global-only] [--deleted]
+memrec list [--limit <num>] [--skip <num>] [-p|-g|-a] [--deleted]
 memrec list [--tag <tag>] [--type <type>]     # 按标签/类型过滤
 memrec stats
 memrec version
@@ -184,10 +184,11 @@ memrec dream [--force]                        # 手动触发Dream整合
 | 公共记忆（--global） | 跨项目共享知识和用户偏好 | `Uuid::nil()`（全0） |
 | 项目记忆 | 项目特定决策和上下文 | `.mr_pid`中的UUID |
 
-**检索范围：**
-- 默认：项目记忆 + 公共记忆
-- `--project-only`：仅当前项目记忆
-- `--global-only`：仅公共记忆
+**检索范围（三态互斥，未指定时按 `.mr_pid` 是否存在推断）：**
+- 默认：有 `.mr_pid` → 仅当前项目；无 → 仅公共记忆
+- `-p, --project`：仅当前项目记忆
+- `-g, --global`：仅公共记忆
+- `-a, --all`：跨所有项目
 
 **示例：**
 ```bash
@@ -201,10 +202,10 @@ memrec add "hydrakiller项目决策" --mtype decision
 
 # 搜索时自动隔离
 cd /disk2/code/rust/memrec
-memrec search "决策" --project-only  # 仅返回memrec项目
+memrec search "决策" -p  # 仅返回memrec项目
 
 cd /disk2/code/java/hydrakiller
-memrec search "决策" --project-only  # 仅返回hydrakiller项目
+memrec search "决策" -p  # 仅返回hydrakiller项目
 ```
 
 **注意：**

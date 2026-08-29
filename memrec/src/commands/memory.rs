@@ -268,8 +268,11 @@ pub struct ListOptions {
     pub limit: usize,
     /// 跳过前 N 条（与 limit 配合实现分页）
     pub skip: usize,
+    /// 仅列出指定项目（由 `-p` 解析 `.mr_pid` 得到）
     pub project_only: bool,
     pub global_only: bool,
+    /// 项目 UUID：`project_only` 时限定到具体项目，`None` 则回退到"全部非全局"
+    pub project_id: Option<uuid::Uuid>,
     /// 按标签过滤（可多个，全部命中）
     pub tags: Vec<String>,
     /// 按记忆类型过滤
@@ -293,7 +296,7 @@ pub async fn list(client: &Client, opts: ListOptions, human: bool) -> Result<()>
             limit: opts.limit,
             project_only: opts.project_only,
             global_only: opts.global_only,
-            project_id: None,
+            project_id: opts.project_id,
             include_deleted: opts.include_deleted,
             skip: opts.skip,
         })),

@@ -3,6 +3,7 @@
 //! 通过向量相似度搜索记忆，支持项目/全局/跨项目过滤。
 
 use crate::client::Client;
+use crate::commands::Scope;
 use clap::Args;
 use mr_common::MemoryType;
 use mr_protocol::{
@@ -18,9 +19,9 @@ use uuid::Uuid;
 /// | `query` | 搜索查询（必填） | — |
 /// | `top_k` | 返回数量 | 10 |
 /// | `min_score` | 最低相似度 | 0.5 |
-/// | `project_only` | 仅当前项目 | false |
-/// | `global_only` | 仅全局记忆 | false |
-/// | `all` | 跨项目搜索 | false |
+/// | `project` | 仅当前项目（`-p`） | 按 `.mr_pid` 判断 |
+/// | `global` | 仅全局记忆（`-g`） | 按 `.mr_pid` 判断 |
+/// | `all` | 跨项目搜索（`-a`） | false |
 /// | `mtype` | 记忆类型过滤 | None |
 #[derive(Args, Debug)]
 pub struct SearchArgs {
@@ -33,13 +34,16 @@ pub struct SearchArgs {
     #[arg(long, default_value = "0.5")]
     pub min_score: f32,
 
-    #[arg(long)]
-    pub project_only: bool,
+    /// 仅当前项目
+    #[arg(short = 'p', long, group = "scope")]
+    pub project: bool,
 
-    #[arg(long)]
-    pub global_only: bool,
+    /// 仅公共记忆
+    #[arg(short = 'g', long, group = "scope")]
+    pub global: bool,
 
-    #[arg(long)]
+    /// 跨所有项目
+    #[arg(short = 'a', long, group = "scope")]
     pub all: bool,
 
     #[arg(long)]
@@ -47,9 +51,13 @@ pub struct SearchArgs {
 }
 
 /// 执行语义搜索，发送请求到守护进程并输出结果。
+///
+/// `scope` 为解析后的检索范围（`-p/-g/-a` 或按 `.mr_pid` 推断的默认范围），
+/// `working_dir` 仅在项目范围时传入（供服务端定位项目 UUID）。
 pub async fn search_execute(
     client: &Client,
     args: SearchArgs,
+    scope: Scope,
     working_dir: Option<String>,
     human: bool,
 ) -> anyhow::Result<()> {
@@ -62,10 +70,10 @@ pub async fn search_execute(
         _ => None,
     });
 
-    let project_id = if args.global_only {
-        Some(Uuid::nil())
-    } else {
-        None
+    let (project_only, global_only, cross_project, project_id) = match scope {
+        Scope::Project => (true, false, false, None),
+        Scope::Global => (false, true, false, Some(Uuid::nil())),
+        Scope::All => (false, false, true, None),
     };
 
     let request = JsonRpcRequest::new(
@@ -73,10 +81,10 @@ pub async fn search_execute(
         Some(RequestParams::SearchMemory(SearchMemoryParams {
             query: args.query,
             project_id,
-            include_global: !args.project_only,
-            project_only: args.project_only,
-            global_only: args.global_only,
-            cross_project: args.all,
+            include_global: false,
+            project_only,
+            global_only,
+            cross_project,
             memory_type,
             top_k: args.top_k,
             min_score: args.min_score,

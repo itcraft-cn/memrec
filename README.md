@@ -79,11 +79,11 @@ memrec add "RAII: resource acquisition is initialization" --mtype knowledge --ta
 memrec add "User prefers verbose output" --mtype preference --tag output --global
 
 # Hybrid search (KNN + BM25)
-memrec search "auth"                        # min_score default: 0.5 (BGE-M3) / 0.75 (MiniLM)
-memrec search "performance" --project-only  # Current project only
-memrec search "preferences" --global-only   # Global memories only
-memrec search "xlsb" --all                  # Across all projects
-memrec search "中文搜索" --human             # Chinese text supported
+memrec search "auth"                        # default scope: project if .mr_pid exists, else global
+memrec search "performance" -p              # Current project only
+memrec search "preferences" -g              # Global memories only
+memrec search "xlsb" -a                     # Across all projects
+memrec search "中文搜索" --human            # Chinese text supported
 
 # Other commands
 memrec list --limit 20

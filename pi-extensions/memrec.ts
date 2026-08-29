@@ -104,11 +104,11 @@ export default function memrecExtension(pi: ExtensionAPI) {
 	function scopeArgs(scope: string): string[] {
 		switch (scope) {
 			case "project":
-				return ["--project-only"];
+				return ["-p"];
 			case "global":
-				return ["--global-only"];
+				return ["-g"];
 			case "all":
-				return ["--all"];
+				return ["-a"];
 			default:
 				return [];
 		}
