@@ -296,6 +296,21 @@ impl RocksDBStore {
     pub fn iter_cf(&self, cf: &rocksdb::ColumnFamily) -> rocksdb::DBRawIterator<'_> {
         self.db.raw_iterator_cf(cf)
     }
+
+    /// 统计列族内 key 数量。
+    ///
+    /// 仅迭代 key 并计数，不反序列化 value，比全量 list 更高效。
+    /// 用于 Dream Gate 的记忆总数检查等需要频繁调用的场景。
+    pub fn count_cf_keys(&self, cf: &rocksdb::ColumnFamily) -> Result<usize> {
+        let mut count = 0usize;
+        let mut iter = self.db.raw_iterator_cf(cf);
+        iter.seek_to_first();
+        while iter.valid() {
+            count += 1;
+            iter.next();
+        }
+        Ok(count)
+    }
 }
 
 #[cfg(test)]

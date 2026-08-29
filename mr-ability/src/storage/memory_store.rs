@@ -261,8 +261,13 @@ impl MemoryStorage for MemoryStore {
     }
 
     async fn count(&self) -> Result<usize> {
-        let memories = self.list(10000).await?;
-        Ok(memories.len())
+        // 未删除记忆数 = memories 列族 key 数 - deleted 列族 key 数（软删除索引）
+        // 仅迭代 key 计数，不反序列化，避免每次调用全量 list
+        let cf_memories = self.rocksdb.cf_memories()?;
+        let cf_deleted = self.rocksdb.cf_deleted()?;
+        let total = self.rocksdb.count_cf_keys(cf_memories)?;
+        let deleted = self.rocksdb.count_cf_keys(cf_deleted)?;
+        Ok(total.saturating_sub(deleted))
     }
 
     async fn count_deleted(&self) -> Result<usize> {

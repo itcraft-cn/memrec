@@ -46,20 +46,22 @@ pub struct LockContent {
     pub pid: u32,
     /// 获取锁的时间戳（Unix timestamp, 秒）
     pub timestamp: i64,
-    /// 会话计数（可选，用于 DreamGate 检查）
-    pub session_count: u32,
+    /// 记忆计数（可选，用于 DreamGate 检查）
+    #[serde(alias = "session_count")]
+    pub memory_count: u32,
 }
 
 /// Dream 执行状态（持久化到 `dream.state`）。
 ///
-/// 记录上次执行完成的时间戳与会话计数，供 DreamGate 时间门槛检查。
+/// 记录上次执行完成的时间戳与记忆计数，供 DreamGate 时间门槛检查。
 /// 与并发锁（`dream.lock`）分离：锁文件只管并发，释放后不丢失时间信息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DreamState {
     /// 上次执行完成的时间戳（Unix timestamp, 秒）
     pub last_run_at: i64,
-    /// 上次执行时的会话计数
-    pub session_count: u32,
+    /// 上次执行时的记忆总数
+    #[serde(alias = "session_count")]
+    pub memory_count: u32,
 }
 
 /// DreamLock 并发控制。
@@ -81,7 +83,7 @@ impl DreamLock {
     /// 返回 `Ok(true)` 表示成功获取锁。
     /// 返回 `Ok(false)` 表示锁已被其他进程持有。
     /// 返回 `Err` 表示发生错误。
-    pub fn try_acquire(&self, session_count: u32) -> Result<bool, DreamLockError> {
+    pub fn try_acquire(&self, memory_count: u32) -> Result<bool, DreamLockError> {
         if self.lock_path.exists() {
             let content = self.read_lock()?;
 
@@ -92,7 +94,7 @@ impl DreamLock {
             self.cleanup_stale_lock()?;
         }
 
-        self.write_lock(session_count)?;
+        self.write_lock(memory_count)?;
         Ok(true)
     }
 
@@ -114,14 +116,14 @@ impl DreamLock {
     }
 
     /// 写入锁文件。
-    fn write_lock(&self, session_count: u32) -> Result<(), DreamLockError> {
+    fn write_lock(&self, memory_count: u32) -> Result<(), DreamLockError> {
         let content = LockContent {
             pid: std::process::id(),
             timestamp: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_secs() as i64,
-            session_count,
+            memory_count,
         };
 
         let json = serde_json::to_string(&content)?;
@@ -170,13 +172,13 @@ impl DreamLock {
     }
 
     /// 写入执行状态（记录上次执行完成时间戳）。
-    pub fn write_state(&self, session_count: u32) -> Result<(), DreamLockError> {
+    pub fn write_state(&self, memory_count: u32) -> Result<(), DreamLockError> {
         let state = DreamState {
             last_run_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_secs() as i64,
-            session_count,
+            memory_count,
         };
 
         let json = serde_json::to_string(&state)?;
@@ -195,27 +197,27 @@ mod tests {
         let content = LockContent {
             pid: 12345,
             timestamp: 1700000000,
-            session_count: 5,
+            memory_count: 5,
         };
         let json = serde_json::to_string(&content).unwrap();
         let parsed: LockContent = serde_json::from_str(&json).unwrap();
 
         assert_eq!(content.pid, parsed.pid);
         assert_eq!(content.timestamp, parsed.timestamp);
-        assert_eq!(content.session_count, parsed.session_count);
+        assert_eq!(content.memory_count, parsed.memory_count);
     }
 
     #[test]
     fn test_state_serde_roundtrip() {
         let state = DreamState {
             last_run_at: 1700000000,
-            session_count: 5,
+            memory_count: 5,
         };
         let json = serde_json::to_string(&state).unwrap();
         let parsed: DreamState = serde_json::from_str(&json).unwrap();
 
         assert_eq!(state.last_run_at, parsed.last_run_at);
-        assert_eq!(state.session_count, parsed.session_count);
+        assert_eq!(state.memory_count, parsed.memory_count);
     }
 
     #[test]
@@ -230,7 +232,7 @@ mod tests {
         let content = lock.get_lock_content();
         assert!(content.is_some());
         let content = content.unwrap();
-        assert_eq!(content.session_count, 10);
+        assert_eq!(content.memory_count, 10);
         assert!(content.pid > 0);
 
         lock.release().unwrap();
@@ -265,7 +267,7 @@ mod tests {
         let state = lock.read_state();
         assert!(state.is_some());
         let state = state.unwrap();
-        assert_eq!(state.session_count, 7);
+        assert_eq!(state.memory_count, 7);
         assert!(state.last_run_at > 0);
     }
 }

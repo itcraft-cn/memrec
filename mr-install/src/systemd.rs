@@ -63,8 +63,10 @@ Environment="RUST_LOG=info"
 
 WorkingDirectory={home}
 
-StandardOutput=append:{home}/memrecd.log
-StandardError=append:{home}/memrecd.log
+# 日志由 memrecd 内部 tracing 写入 ~/.memrec/logs/（按天滚存），
+# stdout/stderr 交给 journald 采集，不再生成 ~/.memrec/memrecd.log
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=default.target

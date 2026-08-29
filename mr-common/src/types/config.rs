@@ -229,6 +229,11 @@ pub struct DreamConfig {
     #[serde(default = "default_min_hours_between")]
     pub min_hours_between: f64,
 
+    /// 两次整合之间需新增的最小记忆数（新记忆门槛）。
+    /// 距上次执行后新增记忆不足此值时，Dream 不执行，避免无新数据时空转。
+    #[serde(default = "default_min_new_memories")]
+    pub min_new_memories: usize,
+
     /// 整合后生成的记忆类型
     #[serde(default = "default_integration_type")]
     pub integration_type: String,
@@ -277,6 +282,10 @@ fn default_max_age_hours() -> u64 {
 fn default_min_hours_between() -> f64 {
     24.0
 }
+
+fn default_min_new_memories() -> usize {
+    1
+}
 fn default_integration_type() -> String {
     "knowledge".to_string()
 }
@@ -310,6 +319,7 @@ impl Default for DreamConfig {
             min_memories: 20,
             max_age_hours: 168,
             min_hours_between: 24.0,
+            min_new_memories: 1,
             integration_type: "knowledge".to_string(),
             integration_tags: vec!["dream-integrated".to_string()],
             phase_cross_project: true,
@@ -403,29 +413,21 @@ impl Default for QueueConfig {
 /// 控制日志文件位置、滚存和清理策略。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogConfig {
-    /// 是否启用日志滚存
+    /// 是否启用文件日志；为 false 时仅输出到 stdout
     #[serde(default = "default_log_enabled")]
     pub enabled: bool,
 
-    /// 日志级别
+    /// 日志级别（trace/debug/info/warn/error）
     #[serde(default = "default_log_level")]
     pub level: String,
 
-    /// 日志保留天数
+    /// 日志保留天数（按天滚存，保留最近 N 个文件）
     #[serde(default = "default_rotation_days")]
     pub rotation_days: u64,
-
-    /// 是否压缩旧日志
-    #[serde(default = "default_compress")]
-    pub compress: bool,
 
     /// memrecd 主日志文件路径
     #[serde(default = "default_memrecd_log_path")]
     pub memrecd_log: String,
-
-    /// dream 作业日志文件路径
-    #[serde(default = "default_dream_log_path")]
-    pub dream_log: String,
 }
 
 fn default_log_enabled() -> bool {
@@ -437,14 +439,8 @@ fn default_log_level() -> String {
 fn default_rotation_days() -> u64 {
     7
 }
-fn default_compress() -> bool {
-    false
-}
 fn default_memrecd_log_path() -> String {
     "~/.memrec/logs/memrecd.log".to_string()
-}
-fn default_dream_log_path() -> String {
-    "~/.memrec/logs/dream.log".to_string()
 }
 
 impl Default for LogConfig {
@@ -453,9 +449,7 @@ impl Default for LogConfig {
             enabled: true,
             level: "info".to_string(),
             rotation_days: 7,
-            compress: false,
             memrecd_log: "~/.memrec/logs/memrecd.log".to_string(),
-            dream_log: "~/.memrec/logs/dream.log".to_string(),
         }
     }
 }
@@ -681,9 +675,7 @@ mod tests {
         assert!(config.enabled);
         assert_eq!(config.level, "info");
         assert_eq!(config.rotation_days, 7);
-        assert!(!config.compress);
         assert!(config.memrecd_log.contains("memrecd.log"));
-        assert!(config.dream_log.contains("dream.log"));
     }
 
     #[test]

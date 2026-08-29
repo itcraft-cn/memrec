@@ -197,7 +197,7 @@ Dream 是后台记忆整合作业，类比睡眠中的记忆巩固——系统�
 3. **Cleanup** — 清理过期、低重要性记忆
 4. **VectorRegen** — 为缺失向量重新生成嵌入（资源消耗大，默认关闭）
 
-门槛条件：至少 `min_memories`（20）条记忆、最老记忆年龄 ≥ `max_age_hours`（168h）、距上次执行 ≥ `min_hours_between`（24h）。配置 `[llm]` 后，整合会生成 LLM 摘要记忆，标记 `dream-integrated`。
+门槛条件：至少 `min_memories`（20）条记忆、最老记忆年龄 ≥ `max_age_hours`（168h）、距上次执行 ≥ `min_hours_between`（24h）、且距上次执行后新增记忆 ≥ `min_new_memories`（1，新记忆门槛）。配置 `[llm]` 后，整合会生成 LLM 摘要记忆，标记 `dream-integrated`。
 
 ```toml
 [dream]
@@ -206,6 +206,7 @@ requires_llm = true        # 未配置 [llm] 时门槛检查失败
 min_memories = 20
 max_age_hours = 168
 min_hours_between = 24.0
+min_new_memories = 1       # 两次整合间需新增的最小记忆数（新记忆门槛）
 phase_vector_regen = false # 阶段4，资源消耗大，默认关闭
 
 [idle]
@@ -219,8 +220,10 @@ normal_queue_capacity = 1000
 dream_queue_capacity = 10
 
 [log]
-enabled = true
-rotation_days = 7          # 日志保留 7 天
+enabled = true             # 启用文件日志（false 时仅输出 stdout）
+level = "info"             # 日志级别：trace/debug/info/warn/error
+rotation_days = 7          # 按天滚存，保留最近 7 个日志文件
+memrecd_log = "~/.memrec/logs/memrecd.log"  # 日志文件完整路径
 ```
 
 ## 插件

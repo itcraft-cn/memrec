@@ -3,8 +3,11 @@
 //! Dream 触发需依次通过三个门控：
 //!
 //! 1. Gate 1: `config.enabled` → `DreamGateResult::Disabled`
-//! 2. Gate 2: `time_gate` (min_hours) → `DreamGateResult::TooSoon`
-//! 3. Gate 3: `session_gate` (min_sessions) → `DreamGateResult::NotEnoughSessions`
+//! 2. Gate 2: `time_gate` (min_hours_between) → `DreamGateResult::TooSoon`
+//! 3. Gate 3: `new_memories_gate` (min_new_memories) → `DreamGateResult::NotEnoughNewMemories`
+//!
+//! Gate 3 采用"新记忆写入"信号：距上次执行后新增记忆数不足
+//! `min_new_memories` 时拦截，避免在没有新数据产生的情况下 Dream 空转。
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -22,9 +25,9 @@ pub enum DreamGateResult {
         hours_since_last: f64,
         min_hours: f64,
     },
-    NotEnoughSessions {
-        current: u32,
-        min: u32,
+    NotEnoughNewMemories {
+        new_memories: usize,
+        min_new_memories: usize,
     },
 }
 
@@ -35,10 +38,12 @@ impl DreamGate {
     ///
     /// 时间门槛基于持久化的 [`DreamState`]（上次执行完成时间），
     /// 与并发锁（`dream.lock`）分离，释放锁后时间信息不丢失。
+    /// 新记忆门槛基于 `current_memories`（当前记忆总数）与
+    /// [`DreamState::memory_count`]（上次执行时的记忆总数）的增量。
     pub fn check(
         config: &DreamConfig,
         last_state: Option<&DreamState>,
-        current_sessions: u32,
+        current_memories: usize,
     ) -> DreamGateResult {
         if !config.enabled {
             return DreamGateResult::Disabled;
@@ -58,11 +63,12 @@ impl DreamGate {
                 };
             }
 
-            let session_diff = current_sessions.saturating_sub(state.session_count);
-            if session_diff < 1 {
-                return DreamGateResult::NotEnoughSessions {
-                    current: current_sessions,
-                    min: state.session_count + 1,
+            // 新记忆门槛：距上次执行后新增记忆数需达到 min_new_memories
+            let new_memories = current_memories.saturating_sub(state.memory_count as usize);
+            if new_memories < config.min_new_memories {
+                return DreamGateResult::NotEnoughNewMemories {
+                    new_memories,
+                    min_new_memories: config.min_new_memories,
                 };
             }
         }
@@ -83,14 +89,14 @@ mod tests {
         }
     }
 
-    fn make_state(hours_ago: f64, session_count: u32) -> DreamState {
+    fn make_state(hours_ago: f64, memory_count: u32) -> DreamState {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64;
         DreamState {
             last_run_at: now - (hours_ago * 3600.0) as i64,
-            session_count,
+            memory_count,
         }
     }
 
@@ -129,17 +135,49 @@ mod tests {
     }
 
     #[test]
-    fn test_gate_not_enough_sessions() {
+    fn test_gate_not_enough_new_memories() {
         let config = make_config(true, 0.0);
+        // 距上次执行已超过时间门槛，但新增记忆不足 min_new_memories（默认 1）
         let state = make_state(30.0, 10);
-        // 距上次执行已有新会话
         let result = DreamGate::check(&config, Some(&state), 10);
         assert_eq!(
             result,
-            DreamGateResult::NotEnoughSessions {
-                current: 10,
-                min: 11
+            DreamGateResult::NotEnoughNewMemories {
+                new_memories: 0,
+                min_new_memories: 1
             }
         );
+    }
+
+    #[test]
+    fn test_gate_allowed_with_new_memories() {
+        let config = make_config(true, 0.0);
+        // 距上次执行新增 2 条记忆，达到默认 min_new_memories = 1
+        let state = make_state(30.0, 10);
+        let result = DreamGate::check(&config, Some(&state), 12);
+
+        assert_eq!(result, DreamGateResult::Allowed);
+    }
+
+    #[test]
+    fn test_gate_custom_min_new_memories() {
+        let config = DreamConfig {
+            enabled: true,
+            min_hours_between: 0.0,
+            min_new_memories: 3,
+            ..Default::default()
+        };
+        let state = make_state(30.0, 10);
+
+        // 新增 2 条 < 3，拦截
+        let result = DreamGate::check(&config, Some(&state), 12);
+        assert!(matches!(
+            result,
+            DreamGateResult::NotEnoughNewMemories { .. }
+        ));
+
+        // 新增 3 条 >= 3，放行
+        let result = DreamGate::check(&config, Some(&state), 13);
+        assert_eq!(result, DreamGateResult::Allowed);
     }
 }

@@ -466,7 +466,7 @@ required = true
 socket_path = "~/.memrec/memrecd.sock"
 data_dir = "~/.memrec/data"
 vectors_dir = "~/.memrec/vectors"
-log_file = "~/.memrec/memrecd.log"
+log_file = "~/.memrec/logs/memrecd.log"
 ```
 
 **BGE-M3 配置：**
@@ -499,7 +499,7 @@ required = true
 socket_path = "~/.memrec/memrecd.sock"
 data_dir = "~/.memrec/data"
 vectors_dir = "~/.memrec/vectors"
-log_file = "~/.memrec/memrecd.log"
+log_file = "~/.memrec/logs/memrecd.log"
 ```
 
 ### 环境变量
@@ -516,7 +516,6 @@ log_file = "~/.memrec/memrecd.log"
 ~/.memrec/
 ├── config.toml           # 配置文件
 ├── memrecd.sock          # Unix Socket（运行时生成）
-├── memrecd.log           # 服务日志
 ├── data/                 # RocksDB 记忆元数据
 ├── vectors/              # RocksDB 向量存储
 ├── models/               # ONNX Embedding 模型
@@ -535,7 +534,7 @@ log_file = "~/.memrec/memrecd.log"
 │       ├── special_tokens_map.json
 │       ├── tokenizer_config.json
 │       └── sentencepiece.bpe.model
-└── logs/                 # 日志目录
+└── logs/                 # 日志目录（memrecd.YYYY-MM-DD.log 按天滚存，默认保留 7 个）
 ```
 
 ## 切换模型
@@ -677,7 +676,7 @@ systemctl --user start memrecd
 ### 语义搜索返回0条结果
 
 1. 检查模型文件：`ls ~/.memrec/models/`
-2. 检查服务日志：`cat ~/.memrec/memrecd.log`
+2. 检查服务日志：`cat ~/.memrec/logs/memrecd.log`
 3. 降低 min_score：`memrec search "query" --min-score 0.3`
 4. BGE-M3 默认 min_score 为 0.5 — 尝试降低到 0.3-0.4
 

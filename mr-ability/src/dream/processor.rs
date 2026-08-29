@@ -12,7 +12,6 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use thiserror::Error;
-use tokio::sync::RwLock;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -57,7 +56,6 @@ pub struct DreamProcessor {
     vector_store: Option<Arc<dyn VectorStorage>>,
     embedder: Option<Arc<dyn EmbeddingGenerator>>,
     llm: Option<Arc<dyn LlmClient>>,
-    session_count: Arc<RwLock<u32>>,
 }
 
 impl DreamProcessor {
@@ -73,7 +71,6 @@ impl DreamProcessor {
             vector_store: None,
             embedder: None,
             llm: None,
-            session_count: Arc::new(RwLock::new(0)),
         }
     }
 
@@ -95,23 +92,19 @@ impl DreamProcessor {
         self
     }
 
-    pub fn increment_session(&self) {
-        let mut count = self.session_count.blocking_write();
-        *count += 1;
-    }
-
-    pub async fn session_count(&self) -> u32 {
-        *self.session_count.read().await
-    }
-
     pub async fn execute(&self, force: bool) -> Result<DreamResult, DreamError> {
+        // 当前记忆总数：Gate 新记忆门槛与锁/状态记录均基于该值
+        let memory_count = self
+            .storage
+            .count()
+            .await
+            .map_err(|e| DreamError::Storage(e.to_string()))?;
+
         if !force {
-            let session_count = self.session_count.read().await;
             // 时间门槛基于持久化的 dream.state（上次执行完成时间），
             // 与并发锁分离：release 锁后时间信息不丢失，24h 门槛不会失效。
             let last_state = self.lock.read_state();
-            let gate_result = DreamGate::check(&self.config, last_state.as_ref(), *session_count);
-            drop(session_count);
+            let gate_result = DreamGate::check(&self.config, last_state.as_ref(), memory_count);
 
             match gate_result {
                 DreamGateResult::Allowed => {}
@@ -132,10 +125,13 @@ impl DreamProcessor {
                         hours_since_last, min_hours
                     )));
                 }
-                DreamGateResult::NotEnoughSessions { current, min } => {
+                DreamGateResult::NotEnoughNewMemories {
+                    new_memories,
+                    min_new_memories,
+                } => {
                     return Err(DreamError::GateFailed(format!(
-                        "Not enough sessions: {} < {}",
-                        current, min
+                        "Not enough new memories: {} < {}",
+                        new_memories, min_new_memories
                     )));
                 }
             }
@@ -148,8 +144,7 @@ impl DreamProcessor {
             ));
         }
 
-        let session_count = *self.session_count.read().await;
-        if !self.lock.try_acquire(session_count)? {
+        if !self.lock.try_acquire(memory_count as u32)? {
             return Err(DreamError::GateFailed(
                 "Another Dream process is running".to_string(),
             ));
@@ -157,9 +152,16 @@ impl DreamProcessor {
 
         let result = self.process_inner().await;
 
-        // 记录上次执行完成时间戳（无论成败），供 Gate 时间门槛检查。
+        // 记录上次执行后的记忆总数，供 Gate 新记忆门槛检查。
+        // 使用执行后计数：Dream 会软删/硬删旧记忆，若记录执行前计数，
+        // 下次门槛会错误要求补齐被 Dream 清理的缺口。
+        let post_count = self
+            .storage
+            .count()
+            .await
+            .map_err(|e| DreamError::Storage(e.to_string()))?;
         // 写失败仅告警，不影响主流程。
-        if let Err(e) = self.lock.write_state(session_count) {
+        if let Err(e) = self.lock.write_state(post_count as u32) {
             tracing::warn!("Failed to write dream state: {}", e);
         }
 

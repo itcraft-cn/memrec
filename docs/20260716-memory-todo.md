@@ -250,8 +250,11 @@ Dream 触发需依次通过三个门控：
 ```
 Gate 1: config.enabled → DreamGate::Disabled
 Gate 2: time_gate (min_hours) → DreamGate::TooSoon
-Gate 3: session_gate (min_sessions) → DreamGate::NotEnoughSessions
+Gate 3: new_memories_gate (min_new_memories) → DreamGate::NotEnoughNewMemories
 ```
+
+Gate 3 采用“新记忆写入”信号：距上次执行后新增记忆数不足 `min_new_memories` 时拦截，
+避免在没有新数据产生的情况下 Dream 空转。当前记忆总数取自存储层计数（RocksDB 原生 key 计数，不反序列化）。
 
 ### 5.3 实现方案
 
@@ -337,7 +340,7 @@ pub struct DreamLock {
 pub struct LockContent {
     pub pid: u32,
     pub timestamp: i64,
-    pub session_count: u32,
+    pub memory_count: u32,
 }
 
 impl DreamLock {

@@ -127,6 +127,13 @@ impl RocksDBVectorStore {
     pub fn count_cached(&self) -> usize {
         self.cache.lock().unwrap().len()
     }
+
+    /// 是否有待刷盘的脏数据。
+    ///
+    /// 供定时同步循环判断是否需要实际写入，避免无变更时产生无意义日志。
+    pub fn is_dirty(&self) -> bool {
+        *self.dirty.lock().unwrap()
+    }
 }
 
 #[async_trait]

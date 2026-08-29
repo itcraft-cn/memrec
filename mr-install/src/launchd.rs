@@ -59,7 +59,9 @@ impl ServiceManager for LaunchdService {
             std::fs::create_dir_all(parent)?;
         }
 
-        let log_path = home_dir.join("memrecd.log");
+        // 日志由 memrecd 内部 tracing 写入 ~/.memrec/logs/（按天滚存），
+        // stdout/stderr 丢弃，不再生成 ~/.memrec/memrecd.log
+        let log_path = std::path::PathBuf::from("/dev/null");
 
         let plist_content = format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>

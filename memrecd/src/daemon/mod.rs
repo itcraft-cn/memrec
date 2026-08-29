@@ -251,16 +251,32 @@ impl Daemon {
     }
 
     /// 向量存储定时同步循环，每 [`SYNC_INTERVAL_SECS`] 秒将缓存刷盘。
+    ///
+    /// 仅在存在脏数据时实际写入并记录 INFO（携带条数与耗时）；
+    /// 无变更时静默（trace），避免每 30 秒一条无意义日志。
     async fn sync_loop(vector_store: Arc<RocksDBVectorStore>) {
         let mut ticker = interval(Duration::from_secs(SYNC_INTERVAL_SECS));
 
         loop {
             ticker.tick().await;
 
-            if let Err(e) = vector_store.save() {
-                warn!("Failed to sync vector store: {}", e);
-            } else {
-                info!("Vector store synced");
+            let dirty = vector_store.is_dirty();
+            let count = vector_store.count_cached();
+            let start = std::time::Instant::now();
+
+            match vector_store.save() {
+                Ok(()) => {
+                    if dirty {
+                        info!(
+                            "Vector store synced: {} vectors, took {:?}",
+                            count,
+                            start.elapsed()
+                        );
+                    } else {
+                        tracing::trace!("Vector store sync skipped (no changes)");
+                    }
+                }
+                Err(e) => warn!("Failed to sync vector store: {}", e),
             }
         }
     }
