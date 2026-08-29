@@ -64,7 +64,17 @@ pub fn resolve_scope(project: bool, global: bool, all: bool) -> Scope {
         Scope::Global
     } else if all {
         Scope::All
-    } else if project_marker_exists() {
+    } else {
+        default_scope()
+    }
+}
+
+/// 未指定范围参数时的默认范围：按项目根目录 `.mr_pid` 是否存在推断。
+///
+/// 存在 → 已注册项目（`Project`）；不存在 → 公共记忆场景（`Global`）。
+/// 供 CLI 与 MCP 工具共用，保证两入口行为一致。
+pub fn default_scope() -> Scope {
+    if project_marker_exists() {
         Scope::Project
     } else {
         Scope::Global

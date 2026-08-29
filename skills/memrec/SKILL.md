@@ -38,14 +38,17 @@ MemRec 可作为 MCP Server 直接被 AI 客户端（Claude Code、Codex、OpenC
 
 **MCP Tools：**
 
-| Tool | 功能 | 必需参数 |
-|------|------|----------|
-| `mr_add` | 添加记忆 | `content`, `memory_type` |
-| `mr_search` | 语义检索 | `query` |
-| `mr_get` | 获取单条记忆 | `id` |
-| `mr_list` | 列出记忆 | - |
-| `mr_delete` | 删除记忆 | `id` |
-| `mr_stats` | 统计信息 | - |
+| Tool | 功能 | 必需参数 | 范围参数 |
+|------|------|----------|----------|
+| `mr_add` | 添加记忆 | `content`, `memory_type` | `is_global` |
+| `mr_search` | 语义检索 | `query` | `scope`（project/global/all，缺省按 `.mr_pid` 推断） |
+| `mr_get` | 获取单条记忆 | `id` | - |
+| `mr_list` | 列出记忆 | - | `scope`（project/global/all，缺省按 `.mr_pid` 推断） |
+| `mr_delete` | 删除记忆 | `id` | - |
+| `mr_stats` | 统计信息 | - | - |
+
+> `scope` 与 CLI 的 `-p/-g/-a` 对齐：`project`=仅当前项目、`global`=仅公共记忆、`all`=跨所有项目。
+> 均未指定时按项目根 `.mr_pid` 是否存在推断（存在→project，不存在→global）。
 
 **MCP Resources：**
 
@@ -59,11 +62,23 @@ MemRec 可作为 MCP Server 直接被 AI 客户端（Claude Code、Codex、OpenC
 // mr_add
 {"name": "mr_add", "arguments": {"content": "选择JWT认证", "memory_type": "decision", "tags": ["auth", "critical"]}}
 
-// mr_search
-{"name": "mr_search", "arguments": {"query": "认证方案", "min_score": 0.75, "project_only": true}}
+// mr_search（默认范围：按 .mr_pid 推断）
+{"name": "mr_search", "arguments": {"query": "认证方案", "min_score": 0.75}}
+
+// mr_search 仅当前项目
+{"name": "mr_search", "arguments": {"query": "认证方案", "scope": "project"}}
+
+// mr_search 仅公共记忆
+{"name": "mr_search", "arguments": {"query": "用户偏好", "scope": "global"}}
 
 // mr_search 跨项目
-{"name": "mr_search", "arguments": {"query": "xlsb", "cross_project": true}}
+{"name": "mr_search", "arguments": {"query": "xlsb", "scope": "all"}}
+
+// mr_list 仅当前项目
+{"name": "mr_list", "arguments": {"limit": 20, "scope": "project"}}
+
+// mr_list 跨所有项目
+{"name": "mr_list", "arguments": {"limit": 50, "scope": "all"}}
 ```
 
 ## 核心命令

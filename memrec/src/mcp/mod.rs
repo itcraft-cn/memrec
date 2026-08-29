@@ -28,6 +28,21 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+use crate::commands::{default_scope, detect_working_dir, read_project_uuid, Scope};
+
+/// 解析 MCP 工具的 `scope` 参数（project/global/all）。
+///
+/// 与 CLI 的 `-p/-g/-a` 对齐：显式值优先，未指定时按项目根 `.mr_pid`
+/// 是否存在推断默认范围（存在→project，不存在→global）。
+fn parse_scope(scope: Option<&str>) -> Scope {
+    match scope {
+        Some("project") => Scope::Project,
+        Some("global") => Scope::Global,
+        Some("all") => Scope::All,
+        _ => default_scope(),
+    }
+}
+
 /// MCP 服务器，通过 stdin/stdout 与 AI 工具通信。
 pub struct McpServer;
 
@@ -148,16 +163,18 @@ impl McpServer {
                 },
                 {
                     "name": "mr_search",
-                    "description": "Search memories using semantic similarity. Returns results scored by relevance (0-1).",
+                    "description": "Search memories using semantic similarity. Returns results scored by relevance (0-1). Scope: 'project'=current project only, 'global'=global memories only, 'all'=across all projects. When scope is omitted it is inferred from the .mr_pid marker in the project root (project if present, else global).",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
                             "query": { "type": "string", "description": "Search query" },
                             "top_k": { "type": "integer", "description": "Max results to return", "default": 10 },
                             "min_score": { "type": "number", "description": "Minimum similarity score (0-1)", "default": 0.5 },
-                            "project_only": { "type": "boolean", "description": "Search only current project" },
-                            "global_only": { "type": "boolean", "description": "Search only global memories" },
-                            "cross_project": { "type": "boolean", "description": "Search across all projects" },
+                            "scope": {
+                                "type": "string",
+                                "enum": ["project", "global", "all"],
+                                "description": "Search scope. Default: inferred from .mr_pid (project if present, else global)"
+                            },
                             "memory_type": {
                                 "type": "string",
                                 "enum": ["decision", "knowledge", "context", "preference", "conversation"],
@@ -181,13 +198,16 @@ impl McpServer {
                 },
                 {
                     "name": "mr_list",
-                    "description": "List memories with optional filtering.",
+                    "description": "List memories with optional filtering. Scope: 'project'=current project only, 'global'=global memories only, 'all'=all projects. When scope is omitted it is inferred from the .mr_pid marker in the project root (project if present, else global).",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
                             "limit": { "type": "integer", "description": "Max memories to return", "default": 20 },
-                            "project_only": { "type": "boolean", "description": "List only current project" },
-                            "global_only": { "type": "boolean", "description": "List only global memories" }
+                            "scope": {
+                                "type": "string",
+                                "enum": ["project", "global", "all"],
+                                "description": "List scope. Default: inferred from .mr_pid (project if present, else global)"
+                            }
                         }
                     }
                 },
@@ -350,6 +370,10 @@ impl McpServer {
     }
 
     /// `mr_search` 工具实现：语义搜索。
+    ///
+    /// `scope` 三态参数（project/global/all）与 CLI 的 `-p/-g/-a` 对齐；
+    /// 未指定时按项目根 `.mr_pid` 是否存在推断（存在→project，不存在→global）。
+    /// project 范围时携带 `working_dir`，供守护进程正确定位项目 UUID。
     async fn tool_search(&self, args: &Value) -> Result<String, String> {
         let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
         let top_k = args.get("top_k").and_then(|v| v.as_u64()).unwrap_or(10);
@@ -357,19 +381,14 @@ impl McpServer {
             .get("min_score")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.5);
-        let project_only = args
-            .get("project_only")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let global_only = args
-            .get("global_only")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let cross_project = args
-            .get("cross_project")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let scope = parse_scope(args.get("scope").and_then(|v| v.as_str()));
         let memory_type = args.get("memory_type").and_then(|v| v.as_str());
+
+        let (project_only, global_only, cross_project) = match scope {
+            Scope::Project => (true, false, false),
+            Scope::Global => (false, true, false),
+            Scope::All => (false, false, true),
+        };
 
         let mut params = json!({
             "query": query,
@@ -378,8 +397,15 @@ impl McpServer {
             "project_only": project_only,
             "global_only": global_only,
             "cross_project": cross_project,
-            "include_global": !project_only
+            "include_global": false
         });
+
+        // project 范围：传递 working_dir，避免守护进程用自身 cwd 定位到错误项目
+        if scope == Scope::Project {
+            if let Ok(dir) = detect_working_dir() {
+                params["working_dir"] = json!(dir);
+            }
+        }
 
         if let Some(mt) = memory_type {
             params["memory_type"] = json!(mt);
@@ -402,19 +428,29 @@ impl McpServer {
     }
 
     /// `mr_list` 工具实现：列出记忆。
+    ///
+    /// `scope` 三态参数与 CLI 的 `-p/-g/-a` 对齐；未指定时按 `.mr_pid` 推断。
+    /// project 范围时解析 `.mr_pid` 的项目 UUID 传入，精确限定当前项目。
     async fn tool_list(&self, args: &Value) -> Result<String, String> {
         let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(20);
-        let project_only = args
-            .get("project_only")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let global_only = args
-            .get("global_only")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let scope = parse_scope(args.get("scope").and_then(|v| v.as_str()));
 
-        let params =
-            json!({ "limit": limit, "project_only": project_only, "global_only": global_only });
+        let (project_only, global_only, project_id) = match scope {
+            Scope::Project => {
+                let root = detect_working_dir().map_err(|e| e.to_string())?;
+                let root = std::path::PathBuf::from(root);
+                (true, false, read_project_uuid(&root))
+            }
+            Scope::Global => (false, true, None),
+            Scope::All => (false, false, None),
+        };
+
+        let params = json!({
+            "limit": limit,
+            "project_only": project_only,
+            "global_only": global_only,
+            "project_id": project_id
+        });
         let resp = self.call_daemon("list", params).await?;
 
         Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
@@ -714,5 +750,59 @@ mod tests {
 
         let required = mr_search["inputSchema"]["required"].as_array().unwrap();
         assert!(required.contains(&json!("query")));
+
+        // scope 三态枚举：与 CLI -p/-g/-a 对齐
+        let scope = &mr_search["inputSchema"]["properties"]["scope"];
+        let enum_values: Vec<&str> = scope["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert_eq!(enum_values, vec!["project", "global", "all"]);
+    }
+
+    #[test]
+    fn test_mr_list_tool_schema_scope() {
+        let server = make_server();
+        let result = server.handle_tools_list(Some(1.into()));
+
+        let mr_list = result["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == "mr_list")
+            .unwrap();
+
+        let scope = &mr_list["inputSchema"]["properties"]["scope"];
+        let enum_values: Vec<&str> = scope["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert_eq!(enum_values, vec!["project", "global", "all"]);
+        // 旧布尔参数已移除，仅保留 scope
+        assert!(mr_list["inputSchema"]["properties"]
+            .get("project_only")
+            .is_none());
+        assert!(mr_list["inputSchema"]["properties"]
+            .get("global_only")
+            .is_none());
+    }
+
+    #[test]
+    fn test_parse_scope_explicit() {
+        assert_eq!(parse_scope(Some("project")), Scope::Project);
+        assert_eq!(parse_scope(Some("global")), Scope::Global);
+        assert_eq!(parse_scope(Some("all")), Scope::All);
+    }
+
+    #[test]
+    fn test_parse_scope_invalid_falls_back_to_default() {
+        // 未知值/缺失时回退默认推断（当前工作目录有 .mr_pid 时为 Project）
+        let default = default_scope();
+        assert_eq!(parse_scope(Some("invalid")), default);
+        assert_eq!(parse_scope(None), default);
     }
 }
