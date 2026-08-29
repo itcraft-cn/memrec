@@ -151,7 +151,42 @@ impl Default for LlmConfig {
     }
 }
 
+/// 展开 `$NAME` / `${NAME}` 形式的环境变量引用。
+///
+/// - 非引用形式（如明文密钥）返回 `None`，调用方保持原值
+/// - 引用形式但环境变量未设置时同样返回 `None`，保持原值，避免误替换
+fn expand_env_var(value: &str) -> Option<String> {
+    let name = if let Some(rest) = value.strip_prefix("${") {
+        rest.strip_suffix('}')?
+    } else if let Some(rest) = value.strip_prefix('$') {
+        rest
+    } else {
+        return None;
+    };
+    if name.is_empty() {
+        return None;
+    }
+    std::env::var(name).ok()
+}
+
 impl LlmConfig {
+    /// 解析 API Key 中的环境变量引用。
+    ///
+    /// 支持在 config.toml 中通过 `$NAME` 或 `${NAME}` 形式引用环境变量，
+    /// 避免明文密钥落盘，例如：
+    ///
+    /// ```toml
+    /// [llm]
+    /// api_key = "$MEMREC_LLM_KEY"
+    /// ```
+    ///
+    /// 环境变量未设置时保持原值不变，由调用方按未配置处理。
+    pub fn resolve_env_api_key(&mut self) {
+        if let Some(resolved) = expand_env_var(&self.api_key) {
+            self.api_key = resolved;
+        }
+    }
+
     /// 解析思考等级；非法值回退为 `Medium`。
     pub fn think_level(&self) -> ThinkLevel {
         match self.think_level.to_lowercase().as_str() {
@@ -250,5 +285,50 @@ mod tests {
 
         config.think_level = "OFF".to_string();
         assert_eq!(config.think_level(), ThinkLevel::Off);
+    }
+
+    #[test]
+    fn test_resolve_env_api_key_dollar_form() {
+        std::env::set_var("MEMREC_TEST_LLM_KEY_DOLLAR", "sk-env-value");
+        let mut config = LlmConfig::default();
+        config.api_key = "$MEMREC_TEST_LLM_KEY_DOLLAR".to_string();
+        config.resolve_env_api_key();
+        assert_eq!(config.api_key, "sk-env-value");
+        std::env::remove_var("MEMREC_TEST_LLM_KEY_DOLLAR");
+    }
+
+    #[test]
+    fn test_resolve_env_api_key_braced_form() {
+        std::env::set_var("MEMREC_TEST_LLM_KEY_BRACED", "sk-env-value");
+        let mut config = LlmConfig::default();
+        config.api_key = "${MEMREC_TEST_LLM_KEY_BRACED}".to_string();
+        config.resolve_env_api_key();
+        assert_eq!(config.api_key, "sk-env-value");
+        std::env::remove_var("MEMREC_TEST_LLM_KEY_BRACED");
+    }
+
+    #[test]
+    fn test_resolve_env_api_key_plain_unchanged() {
+        let mut config = LlmConfig::default();
+        config.api_key = "sk-plain-text".to_string();
+        config.resolve_env_api_key();
+        assert_eq!(config.api_key, "sk-plain-text");
+    }
+
+    #[test]
+    fn test_resolve_env_api_key_unset_keeps_original() {
+        std::env::remove_var("MEMREC_TEST_LLM_KEY_UNSET");
+        let mut config = LlmConfig::default();
+        config.api_key = "$MEMREC_TEST_LLM_KEY_UNSET".to_string();
+        config.resolve_env_api_key();
+        assert_eq!(config.api_key, "$MEMREC_TEST_LLM_KEY_UNSET");
+    }
+
+    #[test]
+    fn test_resolve_env_api_key_empty_keeps_original() {
+        let mut config = LlmConfig::default();
+        config.api_key = "$".to_string();
+        config.resolve_env_api_key();
+        assert_eq!(config.api_key, "$");
     }
 }

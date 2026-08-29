@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **[llm] api_key supports env var reference**: `api_key = "$MEMREC_LLM_KEY"` (or `${MEMREC_LLM_KEY}`) is expanded to the environment variable value when the daemon loads config.toml, avoiding plaintext keys on disk; keeps the original value if the variable is unset
 - **Pagination**: `ListParams.skip` / `memrec list --skip <n>` — page through memories beyond the latest N; `total` now returns the full count of matching records (accurate next-page detection)
 - **Raw record retrieval & restore**: inspect and recover soft-deleted memories from RocksDB
   - `memrec list --deleted`: list soft-deleted raw records (RocksDB `cf_deleted` column family)

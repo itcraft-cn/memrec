@@ -9,6 +9,7 @@
 
 ### 新增
 
+- **[llm] api_key 支持环境变量引用**：`api_key = "$MEMREC_LLM_KEY"`（或 `${MEMREC_LLM_KEY}`）在守护进程加载 config.toml 时自动展开为环境变量值，避免明文密钥落盘；环境变量未设置时保持原值
 - **分页**：`ListParams.skip` / `memrec list --skip <n>` — 可翻页查看 limit 之外更早的记忆；`total` 现在返回符合条件的完整数量（准确判断是否还有下一页）
 - **原始记录检索与恢复**：从 RocksDB 检索并恢复软删除记忆
   - `memrec list --deleted`：列出软删除的原始记录（RocksDB `cf_deleted` 列族）

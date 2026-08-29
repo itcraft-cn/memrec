@@ -153,7 +153,7 @@ memrec scene update-heat <scene-id> 0.8
 enabled = false            # 设为 true 解锁 Dream 摘要
 provider = "deepseek"       # deepseek / openai / custom（任意 OpenAI 兼容服务）
 url = "https://api.deepseek.com/v1"
-api_key = ""                # API Key
+api_key = ""                # API Key，支持环境变量引用（如 "$MEMREC_LLM_KEY"）
 model = "deepseek-chat"     # 如 deepseek-reasoner、gpt-4o-mini
 think_level = "medium"      # off / minimal / low / medium / high / xhigh
 timeout_secs = 120

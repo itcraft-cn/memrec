@@ -100,6 +100,8 @@ impl DaemonConfig {
             let content = std::fs::read_to_string(&config_path)?;
             let mut config: DaemonConfig = toml::from_str(&content)?;
             config.expand_paths();
+            // 展开 [llm] api_key 中的环境变量引用（如 $MEMREC_LLM_KEY）
+            config.llm.resolve_env_api_key();
             Ok(config)
         } else {
             let config = Self::default();
@@ -229,5 +231,30 @@ mod tests {
         assert!(!config.llm.enabled);
         assert!(config.dedup.enabled);
         assert_eq!(config.llm.max_tokens, 4096);
+    }
+
+    #[test]
+    fn test_daemon_config_resolves_llm_api_key_env() {
+        std::env::set_var("MEMREC_TEST_CFG_LLM_KEY", "sk-from-env");
+        let toml_str = r#"
+            [server]
+            socket_path = "~/.memrec/memrecd.sock"
+            data_dir = "~/.memrec/data"
+            vectors_dir = "~/.memrec/vectors"
+
+            [model]
+            model_type = "bge-m3"
+            source = "huggingface"
+            dimension = 1024
+            files = []
+
+            [llm]
+            enabled = true
+            api_key = "$MEMREC_TEST_CFG_LLM_KEY"
+        "#;
+        let mut config: DaemonConfig = toml::from_str(toml_str).unwrap();
+        config.llm.resolve_env_api_key();
+        assert_eq!(config.llm.api_key, "sk-from-env");
+        std::env::remove_var("MEMREC_TEST_CFG_LLM_KEY");
     }
 }
