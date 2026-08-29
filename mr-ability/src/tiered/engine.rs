@@ -255,6 +255,17 @@ mod tests {
         async fn update(&self, memory: &Memory) -> Result<()> {
             self.save(memory).await
         }
+        async fn restore(&self, id: &Uuid) -> Result<Option<Memory>> {
+            let mut map = self.memories.lock().await;
+            match map.get_mut(id) {
+                Some(m) if m.is_deleted => {
+                    m.is_deleted = false;
+                    m.deleted_at = None;
+                    Ok(Some(m.clone()))
+                }
+                _ => Ok(None),
+            }
+        }
         async fn delete(&self, id: &Uuid) -> Result<bool> {
             let mut map = self.memories.lock().await;
             Ok(map.remove(id).is_some())

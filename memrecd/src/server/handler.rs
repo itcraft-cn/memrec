@@ -668,34 +668,8 @@ impl Router {
             }
         };
 
-        match self.storage.get(&target_id).await {
-            Ok(Some(mut memory)) => {
-                if !memory.is_deleted {
-                    return JsonRpcResponse::error(
-                        JsonRpcError {
-                            code: -32001,
-                            message: "Memory is not deleted, nothing to restore".to_string(),
-                            data: None,
-                        },
-                        id,
-                    );
-                }
-
-                memory.is_deleted = false;
-                memory.deleted_at = None;
-                memory.last_accessed = chrono::Utc::now();
-
-                if let Err(e) = self.storage.update(&memory).await {
-                    return JsonRpcResponse::error(
-                        JsonRpcError {
-                            code: -32000,
-                            message: e.to_string(),
-                            data: None,
-                        },
-                        id,
-                    );
-                }
-
+        match self.storage.restore(&target_id).await {
+            Ok(Some(memory)) => {
                 // 重新加入混合检索索引（向量 + 全文）
                 if let Ok(embed) = self.embedder.embed(&memory.content) {
                     let payload = self.build_payload(&memory);
@@ -714,7 +688,7 @@ impl Router {
             Ok(None) => JsonRpcResponse::error(
                 JsonRpcError {
                     code: -32001,
-                    message: "Memory not found".to_string(),
+                    message: "Memory is not deleted, nothing to restore".to_string(),
                     data: None,
                 },
                 id,

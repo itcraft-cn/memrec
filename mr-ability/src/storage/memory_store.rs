@@ -158,6 +158,26 @@ impl MemoryStorage for MemoryStore {
         }
     }
 
+    async fn restore(&self, id: &Uuid) -> Result<Option<Memory>> {
+        let memory = self.get(id).await?;
+
+        match memory {
+            Some(mut mem) if mem.is_deleted => {
+                mem.is_deleted = false;
+                mem.deleted_at = None;
+                self.save(&mem).await?;
+
+                // 清理软删除索引（与 delete 对称），保证 count() 统计一致
+                let id_key = Self::memory_key(id);
+                let cf_deleted = self.rocksdb.cf_deleted()?;
+                self.rocksdb.delete_cf(cf_deleted, &id_key)?;
+
+                Ok(Some(mem))
+            }
+            _ => Ok(None),
+        }
+    }
+
     async fn list(&self, limit: usize) -> Result<Vec<Memory>> {
         let cf_memories = self.rocksdb.cf_memories()?;
         let iter = self.rocksdb.iter_cf(cf_memories);
@@ -374,5 +394,30 @@ mod tests {
         let retrieved = store.get(&memory.id).await.unwrap();
         assert!(retrieved.is_some());
         assert!(retrieved.unwrap().is_deleted);
+    }
+
+    #[tokio::test]
+    async fn test_memory_restore_clears_deleted_index() {
+        let dir = tempdir().unwrap();
+        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let store = MemoryStore::new(std::sync::Arc::new(rocksdb));
+
+        let memory = Memory::new("test".to_string(), MemoryType::Knowledge);
+        store.save(&memory).await.unwrap();
+
+        // 软删 → count 减少
+        store.delete(&memory.id).await.unwrap();
+        assert_eq!(store.count().await.unwrap(), 0);
+        assert_eq!(store.count_deleted().await.unwrap(), 1);
+
+        // 恢复 → is_deleted=false 且软删索引清理，count 恢复
+        let restored = store.restore(&memory.id).await.unwrap();
+        assert!(restored.is_some());
+        assert!(!restored.unwrap().is_deleted);
+        assert_eq!(store.count().await.unwrap(), 1);
+        assert_eq!(store.count_deleted().await.unwrap(), 0);
+
+        // 再次 restore：非删除状态返回 None
+        assert!(store.restore(&memory.id).await.unwrap().is_none());
     }
 }

@@ -26,6 +26,12 @@ pub trait MemoryStorage: Send + Sync {
     async fn update(&self, memory: &Memory) -> Result<()>;
     async fn delete(&self, id: &Uuid) -> Result<bool>;
 
+    /// 恢复软删除记忆（软删的逆操作）。
+    ///
+    /// 恢复 `is_deleted=true` 的记忆并清理软删除索引（与 `delete` 对称），
+    /// 保证 `count()` 统计一致。返回 `None` 表示记忆不存在或非删除状态。
+    async fn restore(&self, id: &Uuid) -> Result<Option<Memory>>;
+
     async fn list(&self, limit: usize) -> Result<Vec<Memory>>;
     async fn list_by_type(&self, memory_type: MemoryType, limit: usize) -> Result<Vec<Memory>>;
     async fn list_by_tag(&self, tag: &str, limit: usize) -> Result<Vec<Memory>>;
