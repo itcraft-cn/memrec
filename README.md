@@ -1,91 +1,88 @@
-[中文版](README_cn.md) | English
+[English](README_en.md) | 中文
 
-# MemRec — AI Memory Persistence System
+# MemRec — AI记忆持久化系统
 
-> Local-first AI memory with project isolation — for terminal, for private use
+> 本地优先的AI记忆，项目隔离 — 为终端而生，为私密而用
 
-Local memory persistence system for AI CLI tools, providing cross-session memory recovery, knowledge accumulation, and conversation archival.
+本地化记忆持久化系统，为AI CLI工具提供跨会话记忆恢复、知识积累、对话存档能力。
 
-## Features
+## 特性
 
-- **Project Isolation** — Auto-detect git root, .mr_pid persistence, independent memory per project
-- **Hybrid Search** — KNN vector search + BM25 full-text, MMR reranking, Chinese text support
-- **Scene Aggregation** — L2 theme-based aggregation over memory cards, heat-ranked (memory pyramid L0-L3)
-- **Dream Consolidation** — idle-triggered 4-phase memory consolidation with optional LLM summaries
-- **LLM Integration** — optional OpenAI-compatible LLM for Dream summaries
-- **Write Dedup** — ADD/UPDATE/NOOP decision on every write
-- **Plugin Ecosystem** — pi extension & DeepSeek Harness native plugin
-- **Semantic Search** — Local ONNX model — MiniLM-L6-v2 (384d) or BGE-M3 (1024d, multilingual), zero API cost
-- **Smart Scoring** — Time decay, evergreen exemption, source weighting
-- **Cross-Project Search** — `--all` flag to discover related knowledge across projects
-- **AI-first Design** — JSON output by default, concise commands, Skill integration
-- **High Performance** — Rust, <1ms latency, ~118MB (MiniLM) / ~1.5GB (BGE-M3) memory (including model)
-- **Auto-splitting** — Long content (>7.5KB) automatically split into chunks
-- **Systemd Integration** — Manage daemon with `systemctl --user`
-- **Pagination** — `memrec list --skip <n>` for large result sets
-- **Soft Delete Recovery** — `memrec list --deleted` + `memrec restore <id>`
-- **Tag/Type Filtering** — Filter memories by tags and types on list
+- **项目隔离** — 自动检测git root，.mr_pid持久化，多项目独立记忆
+- **混合检索** — KNN向量搜索 + BM25全文检索，MMR重排，中文搜索支持
+- **场景聚合** — L2场景聚合层，按主题聚合记忆卡片，热度排序（记忆金字塔 L0-L3）
+- **Dream 整合** — 空闲时自动触发的四阶段记忆整合，可选 LLM 摘要
+- **LLM 接入** — 可选 OpenAI 兼容大模型，驱动 Dream 摘要
+- **写入去重** — 每次写入 ADD/UPDATE/NOOP 决策
+- **插件生态** — pi 扩展与 DeepSeek Harness 原生插件
+- **语义检索** — 本地ONNX模型 — MiniLM-L6-v2（384维）或 BGE-M3（1024维，多语言），零API费用
+- **智能评分** — 时间衰减、常青豁免、来源权重
+- **跨项目搜索** — `--all`标志发现跨项目关联知识
+- **AI-first设计** — 默认JSON输出，命令简洁，Skill集成
+- **高性能** — Rust实现，<1ms延迟，~118MB（MiniLM）/ ~1.5GB（BGE-M3）内存（含模型）
+- **长文本拆分** — >7.5KB自动拆分为chunks
+- **守护进程管理** — Linux systemd / macOS launchd / Windows Startup
 
-## Quick Start
+## 快速开始
 
-### Install
+### 安装
 
 ```bash
-# One command to install everything
+# 一条命令完成全部安装
 cargo install --locked mr-install
 mr-install
 ```
 
-`mr-install` automatically:
-1. Installs memrec/memrecd via `cargo install`
-2. Creates `~/.memrec/` directory structure
-3. Downloads ONNX embedding model (~90MB)
-4. Registers and starts the daemon service
-5. Verifies the installation
+`mr-install` 自动完成：
+1. 通过 `cargo install` 安装 memrec/memrecd
+2. 创建 `~/.memrec/` 目录结构
+3. 下载 ONNX Embedding 模型（~90MB）
+4. 注册并启动守护进程服务
+5. 验证安装
 
-| Platform | Binary Path | Data Path |
-|----------|------------|-----------|
+| 平台 | 二进制路径 | 数据路径 |
+|------|-----------|---------|
 | Linux | `~/.local/bin/` | `~/.memrec/` |
 | macOS | `~/bin/` | `~/.memrec/` |
 
-### Choose Embedding Model
+### 选择 Embedding 模型
 
-| Model | Dimension | Best For | Disk Space | Memory |
-|-------|-----------|----------|------------|--------|
-| `minilm-l6-v2` (default) | 384 | English-only | ~90MB | ~118MB |
-| `bge-m3` | 1024 | Chinese/multilingual | ~2.3GB | ~1.5GB |
+| 模型 | 维度 | 适用场景 | 磁盘空间 | 内存 |
+|------|------|----------|----------|------|
+| `minilm-l6-v2`（默认） | 384 | 纯英文 | ~90MB | ~118MB |
+| `bge-m3` | 1024 | 中文/多语言 | ~2.3GB | ~1.5GB |
 
 ```bash
-# Default: MiniLM-L6-v2 (English)
+# 默认：MiniLM-L6-v2（英文）
 mr-install
 
-# BGE-M3 (Chinese/multilingual, recommended for Chinese users)
+# BGE-M3（中文/多语言，中文用户推荐）
 mr-install --model bge-m3
 ```
 
-Mirror options for model download:
+模型下载镜像选项：
 
 ```bash
-mr-install --use-hf-mirror           # Use hf-mirror.com (China)
-mr-install --mirror-base-url <URL>   # Custom mirror
+mr-install --use-hf-mirror           # 使用 hf-mirror.com（国内）
+mr-install --mirror-base-url <URL>   # 自定义镜像
 ```
 
-### Usage
+### 使用
 
 ```bash
-# Add memories
-memrec add "Choose JWT auth" --mtype decision --tag critical
-memrec add "RAII: resource acquisition is initialization" --mtype knowledge --tag best-practice --tag rust
-memrec add "User prefers verbose output" --mtype preference --tag output --global
+# 添加记忆
+memrec add "选择JWT认证方案" --mtype decision --tag critical
+memrec add "RAII模式：资源获取即初始化" --mtype knowledge --tag best-practice --tag rust
+memrec add "用户偏好详细输出" --mtype preference --tag output --global
 
-# Hybrid search (KNN + BM25)
-memrec search "auth"                        # default scope: project if .mr_pid exists, else global
-memrec search "performance" -p              # Current project only
-memrec search "preferences" -g              # Global memories only
-memrec search "xlsb" -a                     # Across all projects
-memrec search "中文搜索" --human            # Chinese text supported
+# 混合检索（KNN + BM25）
+memrec search "认证方案"                   # 默认范围：有 .mr_pid → 仅当前项目；无 → 仅公共记忆
+memrec search "性能优化" -p              # 仅当前项目
+memrec search "用户偏好" -g              # 仅公共记忆
+memrec search "xlsb" -a                  # 跨所有项目
+memrec search "中文搜索" --human         # 中文搜索支持
 
-# Other commands
+# 其他
 memrec list --limit 20
 memrec list --limit 10 --skip 20        # 分页：跳过前 20 条
 memrec list --tag rust --type decision   # 按标签/类型过滤
@@ -96,7 +93,7 @@ memrec stats
 memrec version
 
 # L2 场景聚合
-memrec scene create "Rust coding standards" --tag rust
+memrec scene create "Rust开发规范" --tag rust
 memrec scene list --sort-by-heat
 memrec scene add-memory <scene-id> <memory-id>
 
@@ -104,202 +101,226 @@ memrec scene add-memory <scene-id> <memory-id>
 memrec dream --force
 ```
 
-## Project Isolation
+## 项目隔离
 
-MemRec automatically creates independent memory spaces for different projects:
+MemRec 自动为不同项目创建独立的记忆空间：
 
 ```
 project-a/           project-b/
-├── .mr_pid          ├── .mr_pid        ← Auto-created, different IDs
-├── .gitignore       ├── .gitignore     ← Add .mr_pid to .gitignore
+├── .mr_pid          ├── .mr_pid        ← 自动创建，不同ID
+├── .gitignore       ├── .gitignore     ← 建议添加 .mr_pid
 └── src/             └── src/
 ```
 
-- **Git repos**: Auto-detect git root
-- **Non-git dirs**: Use current working directory
-- **Global memories**: `--global` flag, accessible from all projects
-- **Cross-project search**: `--all` searches across all projects
+- **git仓库**：自动检测 git root
+- **非git目录**：使用当前工作目录
+- **公共记忆**：`--global` 标记，所有项目可检索
+- **跨项目搜索**：`--all` 搜索所有项目
 
-## Memory Types
+## 记忆类型
 
-| Type | Flag | Purpose |
-|------|------|---------|
-| Decision | `decision` | Key technical/business decisions |
-| Knowledge | `knowledge` | Knowledge (subdivide via tags: `fact`/`best-practice`/`algorithm`/`tool`) |
-| Context | `context` | Project config, environment info |
-| Preference | `preference` | User preferences (recommend `--global`) |
-| Conversation | `conversation` | Conversation records (default) |
+| 类型 | 标识 | 用途 |
+|------|------|------|
+| 决策 | `decision` | 关键技术/业务决策 |
+| 知识 | `knowledge` | 知识点（通过tag细分：`fact`/`best-practice`/`algorithm`/`tool`） |
+| 上下文 | `context` | 项目配置、环境信息 |
+| 偏好 | `preference` | 用户偏好（推荐 `--global`） |
+| 对话 | `conversation` | 对话记录（默认） |
 
-## Scene Aggregation (L2)
+## 场景聚合（L2）
 
-Memories are organized as a pyramid: L0 raw conversations → L1 memory cards → L2 scene archives → L3 persona (not yet implemented). The L2 scene layer aggregates L1 cards by theme, ranked by access heat:
+记忆按金字塔组织：L0 流水账 → L1 记忆卡片 → L2 场景档案 → L3 人格摘要（暂不实现）。L2 场景层按主题聚合 L1 记忆卡片，并按访问热度排序：
 
 ```bash
-memrec scene create "Rust coding standards" --tag rust   # create a scene
-memrec scene list --sort-by-heat                         # heat-ranked list
-memrec scene add-memory <scene-id> <memory-id>           # attach a memory card
+memrec scene create "Rust开发规范" --tag rust   # 创建场景
+memrec scene list --sort-by-heat                 # 按热度排序列表
+memrec scene add-memory <scene-id> <memory-id>   # 关联记忆卡片
 memrec scene remove-memory <scene-id> <memory-id>
-memrec scene get <scene-id>                              # detail with evidence chain
+memrec scene get <scene-id>                      # 场景详情（含证据链）
 memrec scene update-heat <scene-id> 0.8
 ```
 
-Each scene carries `theme`, `memory_ids`, `heat` and `tags`; heat rises with memory access, giving hot topics priority visibility. Design: [L2-scene-aggregation-design.md](docs/design/L2-scene-aggregation-design.md)
+每个场景包含 `theme`、`memory_ids`、`heat`、`tags`；热度随记忆访问上升，热点主题优先可见。设计文档：[L2-scene-aggregation-design.md](docs/design/L2-scene-aggregation-design.md)
 
-## LLM Integration (OpenAI-compatible)
+## LLM 接入（OpenAI 兼容）
 
-Optional OpenAI-compatible LLM integration powers **Dream consolidation summaries**.
-When disabled (`[llm].enabled = false`), Dream is treated as disabled.
+可选接入 OpenAI 兼容大模型，用于 **Dream 整合摘要**。
+未启用（`[llm].enabled = false`）时，Dream 视为不启用。
 
-Tips: if use env var, should edit `~/.config/environment.d/envvars.conf`, add var in it.
+提示: 若 daemon 由 **systemd 用户服务**启动（不继承 shell 环境变量），请将 API 密钥写入 `~/.memrec/memrecd.env`（权限 600，服务单元通过 `EnvironmentFile` 自动加载；`mr-install` 注册的服务模板已包含该配置）：
+
+```bash
+echo "MEMREC_LLM_KEY=sk-xxx" > ~/.memrec/memrecd.env && chmod 600 ~/.memrec/memrecd.env
+systemctl --user restart memrecd
+```
+
+若在终端手动启动 `memrecd`，直接使用 shell 环境变量即可（`export MEMREC_LLM_KEY=sk-xxx`）。
+不要将密钥写入 `~/.config/environment.d/`（该目录为系统共享配置，且修改后需重启 user manager 才生效）。
 
 ```toml
 # ~/.memrec/config.toml
 [llm]
-enabled = false            # Enable to unlock Dream summaries
-provider = "deepseek"       # deepseek / openai / custom (any OpenAI-compatible)
+enabled = false            # 设为 true 解锁 Dream 摘要
+provider = "deepseek"       # deepseek / openai / custom（任意 OpenAI 兼容服务）
 url = "https://api.deepseek.com/v1"
-api_key = ""                # Your API key, supports env var reference (e.g. "$MEMREC_LLM_KEY")
-model = "deepseek-chat"     # e.g. deepseek-reasoner, gpt-4o-mini
+api_key = ""                # API Key，支持环境变量引用（如 "$MEMREC_LLM_KEY"）
+model = "deepseek-chat"     # 如 deepseek-reasoner、gpt-4o-mini
 think_level = "medium"      # off / minimal / low / medium / high / xhigh
 timeout_secs = 120
 max_tokens = 4096
 temperature = 0.3
 ```
 
-`think_level` maps per provider:
+`think_level` 按 provider 映射：
 
-| think_level | DeepSeek (`thinking` param) | OpenAI (`reasoning_effort`) |
-|-------------|-----------------------------|-----------------------------|
-| `off`       | not sent                    | not sent                    |
+| think_level | DeepSeek（`thinking` 参数） | OpenAI（`reasoning_effort`） |
+|-------------|------------------------------|------------------------------|
+| `off`       | 不发送                       | 不发送                       |
 | `minimal`/`low`/`medium`/`high` | `{type: enabled, effort: high}` | `minimal`/`low`/`medium`/`high` |
-| `xhigh`     | `{type: enabled, effort: max}` | `high`                       |
+| `xhigh`     | `{type: enabled, effort: max}` | `high`                        |
 
-## Write Deduplication (ADD/UPDATE/NOOP)
+## 写入去重（ADD/UPDATE/NOOP）
 
-On every `add`, MemRec searches similar memories (cosine similarity) and decides:
+每次 `add` 时检索相似记忆（余弦相似度）并决策：
 
-- `score >= duplicate_threshold` → **skip** (NOOP), memory not written
-- `update_threshold <= score < duplicate_threshold` → **update** existing memory (merge tags, new content)
-- otherwise → **add** as new memory
+- `score >= duplicate_threshold` → **跳过**（NOOP），不写入
+- `update_threshold <= score < duplicate_threshold` → **更新**已有记忆（合并 tags、内容取新）
+- 否则 → **新增**
 
 ```toml
 [dedup]
 enabled = true
 top_k = 5
-duplicate_threshold = 0.92   # above this = duplicate, skip
-update_threshold = 0.85      # above this = update existing
+duplicate_threshold = 0.92   # 高于此值视为重复，跳过
+update_threshold = 0.85      # 高于此值合并更新已有记忆
 ```
 
-Disable per-call with `--no-dedup` (CLI) or `"dedup": false` (protocol).
-The decision layer is pluggable: rule-based today, LLM-based (true DELETE/conflict resolution) is reserved for evolution.
+单次调用可用 `--no-dedup`（CLI）或 `"dedup": false`（协议）关闭。
+决策层可插拔：当前为规则版，LLM 版（真正的 DELETE/矛盾消解）预留演进。
 
-## Dream Consolidation
+## Dream 记忆整合
 
-Dream is a background job that consolidates memories like human sleep does — triggered automatically when the system is idle, or manually via `memrec dream --force`. It runs 4 phases:
+Dream 是后台记忆整合作业，类比睡眠中的记忆巩固——系统空闲时自动触发，或通过 `memrec dream --force` 手动触发。共 4 个阶段：
 
-1. **CrossProjectExtract** — extract cross-project common themes
-2. **PersonalSummary** — aggregate global memories into a personal profile
-3. **Cleanup** — remove stale / low-importance memories
-4. **VectorRegen** — regenerate missing embeddings (off by default, heavy)
+1. **CrossProjectExtract** — 提取跨项目共性主题
+2. **PersonalSummary** — 聚合全局记忆，生成个人画像
+3. **Cleanup** — 清理过期、低重要性记忆
+4. **VectorRegen** — 为缺失向量重新生成嵌入（资源消耗大，默认关闭）
 
-Gate conditions: at least `min_memories` (20) memories, oldest memory age ≥ `max_age_hours` (168h), and `min_hours_between` (24h) since the last run. With `[llm]` configured, consolidation produces an LLM summary memory tagged `dream-integrated`.
+门槛条件：至少 `min_memories`（20）条可整合记忆、最老记忆年龄 ≥ `max_age_hours`（168h）、距上次执行 ≥ `min_hours_between`（24h）、且距上次执行后**用户新增**记忆 ≥ `min_new_memories`（1，新记忆门槛，按 `created_at > last_run` 且非 System 来源统计）。配置 `[llm]` 后，整合会生成 LLM 摘要记忆，标记 `dream-integrated`。
+
+**整合保留策略**（防止有价值记忆被压缩丢失）：
+
+- `integration_preserve_importance`（0.85）— importance 达标记忆不整合
+- `integration_preserve_tags`（`critical`）— 命中标签不整合
+- `integration_preserve_types`（`preference` + `context`）— 用户偏好与配置/环境信息保留原文（context 压缩后细节不可恢复）
+- `integration_min_content_len`（10 字符）— 过滤过短测试/占位垃圾
+- `integration_max_memories`（100）— 单次整合输入上限，按重要性升序选取，防 LLM token 超窗
+
+**健壮性**：仅执行成功才更新 `dream.state`（LLM 故障恢复后可立即重试）；整合记忆记录 `metadata.source_ids` 实现幂等（崩溃残留自动补删）；LLM 整合成功后才执行阶段 1-4；整合摘要由强约束模板产出（`## 主题`/`## 要点`/`## 结论`，无套话）。
 
 ```toml
 [dream]
-enabled = false            # enable to unlock background consolidation
-requires_llm = true        # gate fails when [llm] not configured
-min_memories = 20
-max_age_hours = 168
-min_hours_between = 24.0
-phase_vector_regen = false # Phase 4, resource-heavy, off by default
+enabled = false            # 设为 true 解锁后台整合
+requires_llm = true        # 未配置 [llm] 时门槛检查失败
+min_memories = 20          # 最少可整合记忆数
+max_age_hours = 168        # 整合的记忆最大年龄（小时）
+min_hours_between = 24.0   # 两次整合最小间隔（小时）
+min_new_memories = 1       # 距上次执行后用户新增记忆数门槛
+integration_max_memories = 100        # 单次整合输入上限（重要性升序选取）
+integration_preserve_importance = 0.85  # 高重要性记忆保留
+integration_preserve_tags = ["critical"]  # 命中标签保留
+integration_preserve_types = ["preference", "context"]  # 保留的记忆类型（原文）
+integration_min_content_len = 10      # 过短内容过滤（字符）
+cleanup_inactive_days = 90  # 阶段3：不活跃天数门槛
+cleanup_importance_threshold = 0.1    # 阶段3：清理重要性下限
+phase_vector_regen = false # 阶段4，资源消耗大，默认关闭
 
 [idle]
-enabled = true             # idle monitor
-check_interval_secs = 300  # check every 5 minutes
-load_threshold = 0.5       # idle when load average below this
-auto_dream_enabled = true  # auto-trigger Dream when idle
+enabled = true             # 空闲监控
+check_interval_secs = 300  # 每 5 分钟检查一次
+load_threshold = 0.5       # load average 低于此值视为空闲
+auto_dream_enabled = true  # 空闲时自动触发 Dream
 
 [queue]
 normal_queue_capacity = 1000
 dream_queue_capacity = 10
 
 [log]
-enabled = true
-rotation_days = 7          # keep 7 days of logs
+enabled = true             # 启用文件日志（false 时仅输出 stdout）
+level = "info"             # 日志级别：trace/debug/info/warn/error
+rotation_days = 7          # 按天滚存，保留最近 7 个日志文件（本地时区 0 点切换）
+memrecd_log = "~/.memrec/logs/memrecd.log"  # 日志文件完整路径（本地时区时间戳）
 ```
 
-## Plugins
+## 插件
 
-| Plugin | Platform | Capabilities |
-|--------|----------|--------------|
-| `pi-extensions/memrec.ts` | pi coding agent | 6 LLM tools (`memrec_search`/`add`/`get`/`list`/`delete`/`stats`) + auto context injection on agent start; commands `/memrec`, `/memrec-auto` |
-| `dsh-plugin/` | DeepSeek Harness | 7 native tools (`mr_add`/`mr_search`/`mr_get`/`mr_list`/`mr_delete`/`mr_stats`/`mr_dream`) + context injection + auto session recording (LLM-extracted) |
+| 插件 | 平台 | 能力 |
+|------|------|------|
+| `pi-extensions/memrec.ts` | pi 编码代理 | 6 个 LLM 工具（`memrec_search`/`add`/`get`/`list`/`delete`/`stats`）+ agent 启动自动注入上下文；命令 `/memrec`、`/memrec-auto` |
+| `dsh-plugin/` | DeepSeek Harness | 7 个原生工具（`mr_add`/`mr_search`/`mr_get`/`mr_list`/`mr_delete`/`mr_stats`/`mr_dream`）+ 上下文注入 + 会话自动记录（LLM 提取） |
 
-- **pi**: copy `pi-extensions/memrec.ts` to `~/.pi/agent/extensions/`, then `/reload`
-- **DSH**: see [dsh-plugin/README.md](dsh-plugin/README.md)
+- **pi**：将 `pi-extensions/memrec.ts` 复制到 `~/.pi/agent/extensions/`，然后 `/reload`
+- **DSH**：详见 [dsh-plugin/README.md](dsh-plugin/README.md)
 
-## Data Location
+## 数据位置
 
 ```
 ~/.memrec/
-├── config.toml           # Configuration
+├── config.toml           # 配置文件
 ├── memrecd.sock          # Unix Socket
-├── data/                 # RocksDB memory metadata
-├── vectors/              # RocksDB vector storage
-├── fts/                  # Tantivy full-text search index
-├── logs/                 # Log files
-│   ├── memrecd.log       # Daemon log (no ANSI colors)
-│   └── dream.log         # Dream consolidation job log
-└── models/               # ONNX Embedding model
-    ├── Qdrant--all-MiniLM-L6-v2-onnx/   # MiniLM-L6-v2 (default)
+├── data/                 # RocksDB 记忆元数据
+├── vectors/              # RocksDB 向量存储
+└── models/               # ONNX Embedding 模型
+    ├── Qdrant--all-MiniLM-L6-v2-onnx/   # MiniLM-L6-v2（默认）
     │   ├── model.onnx
     │   ├── tokenizer.json
     │   └── ...
-    └── BAAI--bge-m3/                     # BGE-M3 (multilingual)
+    └── BAAI--bge-m3/                     # BGE-M3（多语言）
         ├── model.onnx
         ├── model.onnx_data
         ├── tokenizer.json
         └── ...
 ```
 
-## Environment Variables
+## 环境变量
 
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `MEMREC_MODEL_DIR` | Custom model path | `~/.memrec/models/<model-dir>/` (model-specific) |
-| `MEMREC_MIN_SCORE` | Min similarity score | `0.75 (MiniLM) / 0.5 (BGE-M3)` |
-| `RUST_LOG` | Log level | `info` |
+| 变量 | 用途 | 默认值 |
+|------|------|--------|
+| `MEMREC_MODEL_DIR` | 自定义模型路径 | `~/.memrec/models/<模型目录>/`（模型相关） |
+| `MEMREC_MIN_SCORE` | 语义搜索最低相似度 | `0.75（MiniLM）/ 0.5（BGE-M3）` |
+| `MEMREC_LLM_KEY` | LLM API Key（`[llm] api_key` 可引用 `"$MEMREC_LLM_KEY"`；systemd 服务经 `~/.memrec/memrecd.env` 加载） | 空 |
+| `RUST_LOG` | 日志级别 | `info` |
 
-## Documentation
+## 文档
 
-- [Manual](MANUAL.md)
-- [Manual (Chinese)](MANUAL_cn.md)
-- [Skill Documentation](skills/memrec/SKILL.md)
-- [L2 Scene Aggregation Design](docs/design/L2-scene-aggregation-design.md)
-- [DSH Plugin Design](docs/design/dsh-plugin-design.md)
-- [Idle-triggered Dream Design](docs/superpowers/specs/2026-07-30-idle-dream-design.md)
+- [使用手册](MANUAL_cn.md)
+- [Manual (English)](MANUAL.md)
+- [Skill文档](skills/memrec/SKILL.md)
+- [L2 场景聚合设计](docs/design/L2-scene-aggregation-design.md)
+- [DSH 插件设计](docs/design/dsh-plugin-design.md)
+- [空闲触发 Dream 设计](docs/superpowers/specs/2026-07-30-idle-dream-design.md)
 
-## Project Structure
+## 项目结构
 
 ```
 memrec/
-├── common/       # Shared types and protocol
-├── memrecd/      # Daemon service
-├── memrec/       # CLI tool
-├── mr-install/   # Installer
-├── mr-ability/   # Core library (search/embedding/dream/llm/dedup/queue/idle)
-├── mr-common/    # Shared types
-├── mr-protocol/  # JSON-RPC protocol
-├── dsh-plugin/   # DeepSeek Harness plugin
-├── pi-extensions/# pi extension
-└── docs/         # Documentation
+├── common/       # 共享类型和协议
+├── memrecd/      # 守护进程服务
+├── memrec/       # CLI工具
+├── mr-install/   # 安装器
+├── mr-ability/   # 核心能力库（检索/嵌入/Dream/LLM/去重/队列/空闲监控）
+├── mr-common/    # 共享类型
+├── mr-protocol/  # JSON-RPC 协议
+├── dsh-plugin/   # DeepSeek Harness 插件
+├── pi-extensions/# pi 扩展
+└── docs/         # 文档
 ```
 
-## License
+## 许可证
 
 Apache-2.0
 
-## Changelog
+## 更新日志
 
-See [CHANGELOG.md](CHANGELOG.md)
-
+详见 [CHANGELOG.md](CHANGELOG.md)（英文版 [CHANGELOG_en.md](CHANGELOG_en.md)）
