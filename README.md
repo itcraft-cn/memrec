@@ -150,6 +150,8 @@ Each scene carries `theme`, `memory_ids`, `heat` and `tags`; heat rises with mem
 Optional OpenAI-compatible LLM integration powers **Dream consolidation summaries**.
 When disabled (`[llm].enabled = false`), Dream is treated as disabled.
 
+Tips: if use env var, should edit `~/.config/environment.d/envvars.conf`, add var in it.
+
 ```toml
 # ~/.memrec/config.toml
 [llm]
@@ -300,3 +302,4 @@ Apache-2.0
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md)
+

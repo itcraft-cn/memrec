@@ -147,6 +147,8 @@ memrec scene update-heat <scene-id> 0.8
 可选接入 OpenAI 兼容大模型，用于 **Dream 整合摘要**。
 未启用（`[llm].enabled = false`）时，Dream 视为不启用。
 
+提示: 若使用环境变量配置 API KEY，需要编辑 `~/.config/environment.d/envvars.conf`，将变量加入其中。
+
 ```toml
 # ~/.memrec/config.toml
 [llm]
