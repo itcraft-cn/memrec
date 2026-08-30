@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Documentation naming unified (Chinese as default)**: `README_cn.md`→`README.md`, `README.md`→`README_en.md`; `CHANGELOG_cn.md`→`CHANGELOG.md`, `CHANGELOG.md`→`CHANGELOG_en.md`; `MANUAL_cn.md`→`MANUAL.md`, `MANUAL.md`→`MANUAL_en.md`; language-switch links added at the top of each doc, all references updated
 - **systemd service template supports env file**: the `memrecd.service` registered by `mr-install` now includes `EnvironmentFile=-~/.memrec/memrecd.env` (optional user env file, mode 600), fixing LLM 401s caused by systemd services not inheriting shell env vars (e.g. `MEMREC_LLM_KEY`); README env-var guidance updated accordingly (recommend `memrecd.env`, stop recommending the shared `environment.d`)
 - **Dream integration preserve strategy extended**: new `integration_preserve_types` (default preserves `preference` + `context`) — context config/environment info (file paths, verification data, progress) loses irrecoverable details when compressed, so it is excluded from integration by default; new `integration_min_content_len` (default 10 chars) filters out short test/placeholder garbage
 - **Logs now use local timezone (+8)**: timestamps switch from UTC to local time (with offset); daily rotation boundary moves from UTC midnight to local midnight (previously the Aug 30 early-morning entries still went into the Aug 29 file); replaced `tracing-appender` with a self-implemented `LocalDailyWriter` (tracing-appender rotates on UTC and cannot be configured), file names remain `memrecd.YYYY-MM-DD.log`, and stale-file cleanup now sorts by file name date (mtime is unreliable for batch writes)
@@ -149,7 +150,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New config.toml format: `[model]` section with `model_type`, `source`, `dimension`, `[[model.files]]` array
 - Nested `DaemonServerConfig` in `DaemonConfig` with `expand_tilde` for path resolution
 - `sentencepiece.bpe.model` support in `ModelFileType` for BGE-M3 tokenizer
-- Comprehensive user manual: `MANUAL.md` (English) and `MANUAL_cn.md` (Chinese)
+- Comprehensive user manual: `MANUAL_en.md` (English) and `MANUAL.md` (Chinese)
 
 ### Changed
 
@@ -159,7 +160,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Vector dimension: 384 (MiniLM) or 1024 (BGE-M3), determined by model selection
 - Memory usage: ~118MB (MiniLM) / ~1.5GB (BGE-M3) at runtime
 - Model download size: ~90MB (MiniLM) / ~2.3GB (BGE-M3)
-- Documentation consolidated: `docs/user-guide.md` and `docs/installation.md` merged into `MANUAL.md` / `MANUAL_cn.md`
+- Documentation consolidated: `docs/user-guide.md` and `docs/installation.md` merged into `MANUAL_en.md` / `MANUAL.md`
 - README documentation links updated to point to MANUAL files
 
 ### Fixed
@@ -172,8 +173,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Old flat config format (`name = "Qdrant/all-MiniLM-L6-v2-onnx"` in config.toml)
 - Hardcoded model path assumptions
-- `docs/user-guide.md` (superseded by `MANUAL_cn.md`)
-- `docs/installation.md` (superseded by `MANUAL.md` / `MANUAL_cn.md`)
+- `docs/user-guide.md` (superseded by `MANUAL.md`)
+- `docs/installation.md` (superseded by `MANUAL_en.md` / `MANUAL.md`)
 
 ---
 

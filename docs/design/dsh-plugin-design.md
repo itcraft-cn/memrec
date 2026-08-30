@@ -198,7 +198,7 @@ dsh plugin --profile web add /disk2/helly_data/code/rust/memrec/dsh-plugin
 | 2 | 上下文注入 | 会话中模型可见注入记忆，token 可控 |
 | 3 | 自动记录 | turn 结束自动写入 memrec，频率受限 |
 | 4 | 安装启用 | profile 加载成功，工具列表出现 mr_* |
-| 5 | 文档 | README + MANUAL_cn 章节 |
+| 5 | 文档 | README + MANUAL 章节 |
 
 ## 7. 风险与对策
 

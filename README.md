@@ -294,8 +294,8 @@ memrecd_log = "~/.memrec/logs/memrecd.log"  # 日志文件完整路径（本地�
 
 ## 文档
 
-- [使用手册](MANUAL_cn.md)
-- [Manual (English)](MANUAL.md)
+- [使用手册](MANUAL.md)
+- [Manual (English)](MANUAL_en.md)
 - [Skill文档](skills/memrec/SKILL.md)
 - [L2 场景聚合设计](docs/design/L2-scene-aggregation-design.md)
 - [DSH 插件设计](docs/design/dsh-plugin-design.md)

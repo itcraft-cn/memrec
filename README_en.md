@@ -301,8 +301,8 @@ memrecd_log = "~/.memrec/logs/memrecd.log"  # full log path (local-timezone time
 
 ## Documentation
 
-- [Manual](MANUAL.md)
-- [Manual (Chinese)](MANUAL_cn.md)
+- [Manual](MANUAL_en.md)
+- [Manual (Chinese)](MANUAL.md)
 - [Skill Documentation](skills/memrec/SKILL.md)
 - [L2 Scene Aggregation Design](docs/design/L2-scene-aggregation-design.md)
 - [DSH Plugin Design](docs/design/dsh-plugin-design.md)

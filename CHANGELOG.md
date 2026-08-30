@@ -21,6 +21,7 @@
 
 ### 修复
 
+- **文档命名统一（中文为默认）**：`README_cn.md`→`README.md`、`README.md`→`README_en.md`；`CHANGELOG_cn.md`→`CHANGELOG.md`、`CHANGELOG.md`→`CHANGELOG_en.md`；`MANUAL_cn.md`→`MANUAL.md`、`MANUAL.md`→`MANUAL_en.md`；各文档顶部互加语言切换链接，所有引用同步更新
 - **systemd 服务模板支持环境文件**：`mr-install` 注册的 memrecd.service 增加 `EnvironmentFile=-~/.memrec/memrecd.env`（可选的用户环境文件，权限 600），解决 daemon 由 systemd 启动时不继承 shell 环境变量（如 `MEMREC_LLM_KEY`）导致的 LLM 401；README 环境变量提示同步修正（推荐 `memrecd.env`，不再推荐共享的 `environment.d`）
 - **Dream 整合保留策略扩展**：新增 `integration_preserve_types`（默认保留 `preference` + `context`）——context 类配置/环境信息（文件路径、验证数据、进度状态）压缩后细节不可恢复，默认不参与整合；新增 `integration_min_content_len`（默认 10 字符）过滤过短测试/占位垃圾记录
 - **日志改用本地时区（+8）**：日志时间戳由 UTC 改为本地时间（含时区偏移），按天滚存切分点由 UTC 0 点改为本地 0 点（此前 8/30 凌晨仍写入 8/29 文件）；用自实现 `LocalDailyWriter` 替换 `tracing-appender`（其按 UTC 切分，无法配置时区），文件名仍为 `memrecd.YYYY-MM-DD.log`，过期清理改为按文件名日期排序（mtime 批量写入不可靠）
@@ -149,7 +150,7 @@
 - 新 config.toml 格式：`[model]` 节包含 `model_type`、`source`、`dimension`、`[[model.files]]` 数组
 - `DaemonConfig` 中嵌套 `DaemonServerConfig`，支持 `expand_tilde` 路径展开
 - `ModelFileType` 支持 `sentencepiece.bpe.model`（BGE-M3 分词器）
-- 完整用户手册：`MANUAL.md`（英文）和 `MANUAL_cn.md`（中文）
+- 完整用户手册：`MANUAL_en.md`（英文）和 `MANUAL.md`（中文）
 
 ### 变更
 
@@ -159,7 +160,7 @@
 - 向量维度：384（MiniLM）或 1024（BGE-M3），由模型选择决定
 - 运行时内存：~118MB（MiniLM）/ ~1.5GB（BGE-M3）
 - 模型下载大小：~90MB（MiniLM）/ ~2.3GB（BGE-M3）
-- 文档整合：`docs/user-guide.md` 和 `docs/installation.md` 合并为 `MANUAL.md` / `MANUAL_cn.md`
+- 文档整合：`docs/user-guide.md` 和 `docs/installation.md` 合并为 `MANUAL_en.md` / `MANUAL.md`
 - README 文档链接更新指向 MANUAL 文件
 
 ### 修复
@@ -172,8 +173,8 @@
 
 - 旧扁平配置格式（config.toml 中的 `name = "Qdrant/all-MiniLM-L6-v2-onnx"`）
 - 硬编码模型路径假设
-- `docs/user-guide.md`（已被 `MANUAL_cn.md` 取代）
-- `docs/installation.md`（已被 `MANUAL.md` / `MANUAL_cn.md` 取代）
+- `docs/user-guide.md`（已被 `MANUAL.md` 取代）
+- `docs/installation.md`（已被 `MANUAL_en.md` / `MANUAL.md` 取代）
 
 ---
 

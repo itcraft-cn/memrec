@@ -1,198 +1,199 @@
-# MemRec User Manual
+# MemRec 使用手册
 
-## Overview
+> [English](MANUAL_en.md) | 中文
 
-MemRec is a local-first AI memory persistence system for AI CLI tools. It provides cross-session memory recovery, knowledge accumulation, and conversation archival with project isolation and semantic search.
+## 概述
 
-**Core principle:** AI-first — default JSON output, concise commands, designed for Agents.
+MemRec 是面向 AI CLI 工具的本地优先记忆持久化系统。它为 AI Agent 提供跨会话的记忆恢复、知识积累、对话存档能力，支持项目隔离和语义检索。
 
-## Installation
+**核心理念：** AI-first — 默认 JSON 输出，命令简洁，为 Agent 而非人类设计。
 
-### Requirements
+## 安装
 
-| Item | Requirement |
-|------|-------------|
-| OS | Linux / macOS |
-| Rust | 1.75+ (only needed for `mr-install` first-time install) |
-| Disk | ~200MB (MiniLM) / ~2.5GB (BGE-M3) including model |
-| Memory | ~118MB (MiniLM) / ~1.5GB (BGE-M3) at runtime |
+### 系统要求
 
-### One-Command Install
+| 项目 | 要求 |
+|------|------|
+| 操作系统 | Linux / macOS |
+| Rust | 1.75+（仅 mr-install 首次安装需要） |
+| 磁盘空间 | ~200MB（MiniLM）/ ~2.5GB（BGE-M3，含模型） |
+| 内存 | ~118MB（MiniLM）/ ~1.5GB（BGE-M3）运行时 |
+
+### 一键安装
 
 ```bash
 cargo install --locked mr-install
 mr-install
 ```
 
-`mr-install` automatically:
+`mr-install` 自动完成：
+1. 通过 `cargo install` 安装 memrec/memrecd
+2. 创建 `~/.memrec/` 目录结构
+3. 下载 ONNX Embedding 模型
+4. 注册并启动守护进程服务
+5. 验证安装
 
-1. Installs memrec/memrecd via `cargo install`
-2. Creates `~/.memrec/` directory structure
-3. Downloads ONNX embedding model
-4. Registers and starts the daemon service
-5. Verifies the installation
+### 选择 Embedding 模型
 
-### Choosing an Embedding Model
-
-| Model | Dimension | Best For | Disk Space | Memory | Default min_score |
-|-------|-----------|----------|------------|--------|-------------------|
-| `minilm-l6-v2` (default) | 384 | English-only | ~90MB | ~118MB | 0.75 |
-| `bge-m3` | 1024 | Chinese/multilingual | ~2.3GB | ~1.5GB | 0.5 |
+| 模型 | 维度 | 适用场景 | 磁盘空间 | 内存 | 默认 min_score |
+|------|------|----------|----------|------|----------------|
+| `minilm-l6-v2`（默认） | 384 | 纯英文 | ~90MB | ~118MB | 0.75 |
+| `bge-m3` | 1024 | 中文/多语言 | ~2.3GB | ~1.5GB | 0.5 |
 
 ```bash
-# Default: MiniLM-L6-v2 (English)
+# 默认：MiniLM-L6-v2（英文）
 mr-install
 
-# BGE-M3 (Chinese/multilingual, recommended for Chinese users)
+# BGE-M3（中文/多语言，中文用户推荐）
 mr-install --model bge-m3
 ```
 
-**Why different min_score defaults?** BGE-M3 produces inherently lower cosine similarity scores than MiniLM. With MiniLM, exact matches score >0.8; with BGE-M3, exact matches score ~0.74. The 0.5 default for BGE-M3 ensures relevant results are not filtered out.
+**为什么 min_score 默认值不同？** BGE-M3 的余弦相似度分数天然低于 MiniLM。MiniLM 精确匹配 >0.8；BGE-M3 精确匹配约 0.74。BGE-M3 的 0.5 默认值确保相关结果不被过滤。
 
-### Mirror Options (China)
-
-```bash
-mr-install --use-hf-mirror           # Use hf-mirror.com
-mr-install --mirror-base-url <URL>   # Custom mirror
-```
-
-### Skip Steps
+### 镜像选项（中国大陆）
 
 ```bash
-mr-install --skip-install   # Skip cargo install (binaries already installed)
-mr-install --skip-model     # Skip model download
-mr-install --skip-service   # Skip service registration
-mr-install --skip-verify    # Skip verification tests
+mr-install --use-hf-mirror           # 使用 hf-mirror.com
+mr-install --mirror-base-url <URL>   # 自定义镜像
 ```
 
-## Service Management
+### 跳过步骤
+
+```bash
+mr-install --skip-install   # 跳过 cargo install（已手动安装二进制）
+mr-install --skip-model     # 跳过模型下载
+mr-install --skip-service   # 跳过服务注册
+mr-install --skip-verify    # 跳过安装验证
+```
+
+## 服务管理
 
 ### Linux (systemd)
 
 ```bash
-systemctl --user status memrecd     # Check status
-systemctl --user stop memrecd       # Stop
-systemctl --user restart memrecd    # Restart
-journalctl --user -u memrecd -f     # View logs
+systemctl --user status memrecd     # 查看状态
+systemctl --user stop memrecd       # 停止
+systemctl --user restart memrecd    # 重启
+journalctl --user -u memrecd -f     # 查看日志
 ```
 
-Service file: `~/.config/systemd/user/memrecd.service`
+服务文件：`~/.config/systemd/user/memrecd.service`
 
 ### macOS (launchd)
 
 ```bash
-launchctl list cn.itcraft.memrecd               # Check status
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/cn.itcraft.memrecd.plist   # Stop
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/cn.itcraft.memrecd.plist # Start
+launchctl list cn.itcraft.memrecd               # 查看状态
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/cn.itcraft.memrecd.plist   # 停止
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/cn.itcraft.memrecd.plist # 启动
 ```
 
-Config file: `~/Library/LaunchAgents/cn.itcraft.memrecd.plist`
+配置文件：`~/Library/LaunchAgents/cn.itcraft.memrecd.plist`
 
-Features: RunAtLoad + KeepAlive — starts on login, auto-restarts on crash.
+特性：RunAtLoad + KeepAlive，登录即启动，崩溃自动重启。
 
-### Important: Restarting the Daemon
+### 重要：重启守护进程
 
-When restarting memrecd, you must remove the stale socket file first:
+重启 memrecd 时，需要先删除残留的 socket 文件：
 
 ```bash
 rm -f ~/.memrec/memrecd.sock
-systemctl --user restart memrecd   # or: memrecd
+systemctl --user restart memrecd   # 或直接：memrecd
 ```
 
-With BGE-M3, model loading + vector rebuild takes ~75-90 seconds before the socket is ready.
+使用 BGE-M3 时，模型加载 + 向量重建约需 75-90 秒，socket 才可用。
 
-## Commands
+## 命令
 
-### Command Reference
+### 命令一览
 
-| Command | Purpose |
-|---------|---------|
-| `memrec add` | Add a memory |
-| `memrec search` | Semantic search |
-| `memrec get` | Get a single memory |
-| `memrec list` | List memories |
-| `memrec delete` | Delete a memory |
-| `memrec stats` | Statistics |
-| `memrec version` | Version info |
+| 命令 | 用途 |
+|------|------|
+| `memrec add` | 添加记忆 |
+| `memrec search` | 语义检索 |
+| `memrec get` | 获取单条记忆 |
+| `memrec list` | 列出记忆 |
+| `memrec delete` | 删除记忆 |
+| `memrec stats` | 统计信息 |
+| `memrec version` | 版本信息 |
 
-### Adding Memories
+### 添加记忆
 
 ```bash
-memrec add "content" --mtype <type> [--tag <tag>] [--global] [--source <source>] [--scope <scope>]
+memrec add "内容" --mtype <类型> [--tag <标签>] [--global] [--source <来源>] [--scope <范围>]
 ```
 
-#### Memory Types
+#### 记忆类型
 
-| Type | Flag | Purpose | Recommended Tags |
-|------|------|---------|-----------------|
-| Decision | `decision` | Key technical/business decisions | `--tag critical` |
-| Knowledge | `knowledge` | Knowledge points, best practices, facts | See subcategories below |
-| Context | `context` | Project config, environment info | Project-related tags |
-| Preference | `preference` | User preferences | `--global` |
-| Conversation | `conversation` | Conversation records (default) | - |
+| 类型 | 标识 | 用途 | 推荐标签 |
+|------|------|------|----------|
+| 决策 | `decision` | 关键技术/业务决策 | `--tag critical` |
+| 知识 | `knowledge` | 知识点、最佳实践、事实 | 见下方细分 |
+| 上下文 | `context` | 项目配置、环境信息 | 项目相关标签 |
+| 偏好 | `preference` | 用户偏好 | `--global` |
+| 对话 | `conversation` | 对话记录（默认） | - |
 
-#### Knowledge Subcategories (via tags)
+#### knowledge 通过 tag 细分
 
-| Tag | Purpose | Example |
-|-----|---------|---------|
-| `fact` | Physical laws, math formulas, objective facts | `--tag fact --tag physics` |
-| `best-practice` | Best practices, design patterns | `--tag best-practice` |
-| `algorithm` | Algorithms, formula derivations | `--tag algorithm` |
-| `tool` | Tool usage tips | `--tag tool --tag rust` |
+| tag | 用途 | 示例 |
+|-----|------|------|
+| `fact` | 物理定律、数学公式、客观事实 | `--tag fact --tag physics` |
+| `best-practice` | 最佳实践、设计模式 | `--tag best-practice` |
+| `algorithm` | 算法、公式推导 | `--tag algorithm` |
+| `tool` | 工具使用技巧 | `--tag tool --tag rust` |
 
-#### Examples
+#### 示例
 
 ```bash
-# Decision
-memrec add "Choose JWT auth: stateless, easy to scale" --mtype decision --tag auth --tag critical
+# 决策
+memrec add "选择JWT认证方案，理由：无状态、易扩展" --mtype decision --tag auth --tag critical
 
-# Fact
-memrec add "Speed of light c=3×10⁸m/s, constant in vacuum" --mtype knowledge --tag fact --tag physics
+# 事实类知识
+memrec add "光速c=3×10⁸m/s，真空环境中恒定" --mtype knowledge --tag fact --tag physics
 
-# Best practice
-memrec add "RAII: resource acquisition is initialization, destructor auto-releases" --mtype knowledge --tag best-practice --tag rust
+# 最佳实践
+memrec add "RAII模式：资源获取即初始化，析构自动释放" --mtype knowledge --tag best-practice --tag rust
 
-# Project context
-memrec add "Tech stack: Rust+Tokio+RocksDB, communication: Unix Socket" --mtype context --tag tech
+# 项目上下文
+memrec add "技术栈：Rust+Tokio+RocksDB，通信：Unix Socket" --mtype context --tag tech
 
-# User preference (global memory)
-memrec add "User prefers verbose output" --mtype preference --tag output --global
+# 用户偏好（公共记忆）
+memrec add "用户偏好详细输出" --mtype preference --tag output --global
 ```
 
-#### Global vs Project Memories
+#### 公共记忆 vs 项目记忆
 
 ```bash
-# Project memory (default): only searchable from current project
-memrec add "Project A database selection" --mtype decision --tag critical
+# 项目记忆（默认）：仅当前项目可检索
+memrec add "项目A的数据库选型" --mtype decision --tag critical
 
-# Global memory: searchable from all projects
-memrec add "User prefers dark theme" --mtype preference --tag ui --global
+# 公共记忆：所有项目可检索
+memrec add "用户偏好暗色主题" --mtype preference --tag ui --global
 ```
 
-#### Source and Scope
+#### 来源与范围
 
-| Flag | Values | Description |
-|------|--------|-------------|
-| `--source` | `user` (default), `system`, `inferred`, `external` | Memory origin — affects search ranking |
-| `--scope` | `project` (default), `global`, `workspace` | Memory visibility |
+| 参数 | 值 | 说明 |
+|------|------|------|
+| `--source` | `user`（默认）、`system`、`inferred`、`external` | 记忆来源 — 影响搜索排序权重 |
+| `--scope` | `project`（默认）、`global`、`workspace` | 记忆可见范围 |
 
 ```bash
-# User-sourced memory (highest search weight)
-memrec add "My preference: use tabs not spaces" --mtype preference --source user --global
+# 用户来源记忆（搜索权重最高）
+memrec add "我的偏好：使用tab而非空格" --mtype preference --source user --global
 
-# System-sourced memory
-memrec add "Auto-detected: project uses Rust 1.75" --mtype context --source system
+# 系统来源记忆
+memrec add "自动检测：项目使用Rust 1.75" --mtype context --source system
 
-# Inferred knowledge
-memrec add "Likely prefers functional style based on code patterns" --mtype knowledge --source inferred
+# 推断知识
+memrec add "根据代码模式推断偏好函数式风格" --mtype knowledge --source inferred
 ```
 
-#### Auto-Splitting Long Content
+#### 长文本自动拆分
 
-Content exceeding 7.5KB is automatically split into chunks:
+超过 7.5KB 的内容会自动拆分为多个 chunk：
 
 ```bash
-memrec add "Very long content..." --mtype knowledge
+memrec add "很长的内容..." --mtype knowledge
 # WARN: Content too long (12.5KB > 7.5KB), auto-splitting into chunks...
 # WARN: Split into 2 parts
 # Part 1: Added 550e8400-...
@@ -200,118 +201,117 @@ memrec add "Very long content..." --mtype knowledge
 # All 2 parts added: [550e8400-..., 6ba7b810-...]
 ```
 
-Each chunk generates its own embedding and shares a `chunk_group_id`. Use `--merge` to get the full content.
+每个 chunk 独立生成 embedding，共享 `chunk_group_id`。获取完整内容使用 `--merge`。
 
-### Hybrid Search
+### 混合检索
 
-MemRec combines KNN vector search with BM25 full-text search for optimal results.
+MemRec 结合 KNN 向量搜索与 BM25 全文检索，提供最优搜索结果。
 
 ```bash
-memrec search "query" [options]
+memrec search "查询" [选项]
 ```
 
-#### Search Pipeline
+#### 搜索流程
 
-1. **KNN + BM25**: Parallel search, merge and normalize scores
-2. **Time Decay**: Recent memories ranked higher (knowledge/decision exempt)
-3. **Source Weighting**: User memories weighted higher than system/inferred
-4. **MMR Reranking**: Diverse results, reduce redundancy
+1. **KNN + BM25**：并行搜索，合并归一化分数
+2. **时间衰减**：近期记忆权重更高（knowledge/decision 豁免）
+3. **来源权重**：用户记忆权重高于系统/推断
+4. **MMR 重排**：结果多样性，减少冗余
 
-#### Chinese Text Support
+#### 中文搜索
 
-Chinese text search is supported via n-gram tokenizer (2-4 grams). No additional configuration needed.
+通过 N-gram 分词器（2-4 字）支持中文全文检索，无需额外配置。
 
 ```bash
 memrec search "中文搜索" --human
 ```
 
-#### Search Scope
+#### 搜索范围
 
-| Option | Scope | Purpose |
-|--------|-------|---------|
-| (default) | Inferred from `.mr_pid` | Registered project→project only; otherwise→global only |
-| `-p, --project` | Current project only | Precise project search |
-| `-g, --global` | Global memories only | Find user preferences |
-| `-a, --all` | All projects | Cross-project discovery |
+| 选项 | 范围 | 用途 |
+|------|------|------|
+| 默认 | 按 `.mr_pid` 推断 | 已注册项目→仅当前项目；未注册→仅公共记忆 |
+| `-p, --project` | 仅当前项目 | 精确项目内搜索 |
+| `-g, --global` | 仅公共记忆 | 查找用户偏好 |
+| `-a, --all` | 所有项目 | 跨项目关联搜索 |
 
-> The three scope options are mutually exclusive. When none is given, the CLI checks
-> for a `.mr_pid` marker file in the project root: present → `-p` (project only),
-> absent → `-g` (global only).
+> 三个范围参数互斥。均未指定时，检测当前项目根目录是否存在 `.mr_pid` 标记文件：
+> 存在则默认 `-p`（仅当前项目），不存在则默认 `-g`（仅公共记忆）。
 
-#### Options
+#### 选项
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-k, --top-k` | Number of results | 10 |
-| `--min-score` | Minimum similarity threshold | 0.5 (BGE-M3) / 0.75 (MiniLM) |
-| `-p, --project` | Current project only | Inferred from `.mr_pid` |
-| `-g, --global` | Global memories only | Inferred from `.mr_pid` |
-| `-a, --all` | All projects | - |
-| `--mtype` | Filter by type | - |
-| `--human` | Human-readable output | - |
-| `--hybrid-alpha` | KNN vs BM25 weight (0=BM25 only, 1=KNN only) | 0.5 |
-| `--mmr-enabled` | Enable MMR reranking | true |
-| `--mmr-lambda` | MMR diversity (0=max diversity, 1=max relevance) | 0.7 |
+| 选项 | 说明 | 默认值 |
+|------|------|--------|
+| `-k, --top-k` | 返回结果数 | 10 |
+| `--min-score` | 最低相似度阈值 | 0.5（BGE-M3）/ 0.75（MiniLM） |
+| `-p, --project` | 仅当前项目 | 按 `.mr_pid` 推断 |
+| `-g, --global` | 仅公共记忆 | 按 `.mr_pid` 推断 |
+| `-a, --all` | 跨所有项目 | - |
+| `--mtype` | 按类型过滤 | - |
+| `--human` | 人类可读输出 | - |
+| `--hybrid-alpha` | KNN与BM25权重（0=纯BM25，1=纯KNN） | 0.5 |
+| `--mmr-enabled` | 启用MMR重排 | true |
+| `--mmr-lambda` | MMR多样性（0=最大多样性，1=最大相关性） | 0.7 |
 
-#### Examples
+#### 示例
 
 ```bash
-# Basic search
-memrec search "auth"
+# 基本搜索
+memrec search "认证方案"
 
-# Project-only search
-memrec search "performance" -p
+# 项目内精确搜索
+memrec search "性能优化" -p
 
-# Global memories
-memrec search "preferences" -g
+# 公共记忆搜索
+memrec search "用户偏好" -g
 
-# Cross-project search
+# 跨项目搜索
 memrec search "xlsb" -a
 
-# Adjust result count and threshold
-memrec search "architecture" -k 20 --min-score 0.6
+# 调整返回数量和阈值
+memrec search "架构" -k 20 --min-score 0.6
 
-# Filter by type
-memrec search "decision" --mtype decision
+# 按类型过滤
+memrec search "决策" --mtype decision
 
-# Human-readable format
-memrec search "architecture" --human
+# 人类可读格式
+memrec search "架构" --human
 ```
 
-#### Similarity Scores
+#### 相似度评分
 
-**MiniLM-L6-v2:**
+**MiniLM-L6-v2：**
 
-| Score Range | Meaning |
-|-------------|---------|
-| 0.9+ | Highly relevant, exact match |
-| 0.8-0.9 | Relevant, semantically similar |
-| 0.75-0.8 | Somewhat relevant |
-| < 0.75 | Likely irrelevant (filtered by default) |
+| score 范围 | 含义 |
+|-----------|------|
+| 0.9+ | 高度相关，精确匹配 |
+| 0.8-0.9 | 相关，语义相近 |
+| 0.75-0.8 | 基本相关 |
+| < 0.75 | 可能不相关（被默认过滤） |
 
-**BGE-M3:**
+**BGE-M3：**
 
-| Score Range | Meaning |
-|-------------|---------|
-| 0.7+ | Highly relevant, exact match |
-| 0.5-0.7 | Relevant, semantically similar |
-| 0.4-0.5 | Somewhat relevant |
-| < 0.4 | Likely irrelevant (filtered by default) |
+| score 范围 | 含义 |
+|-----------|------|
+| 0.7+ | 高度相关，精确匹配 |
+| 0.5-0.7 | 相关，语义相近 |
+| 0.4-0.5 | 基本相关 |
+| < 0.4 | 可能不相关（被默认过滤） |
 
-**Adjusting the threshold:**
+**调整阈值：**
 
 ```bash
-# Temporary
+# 临时调整
 memrec search "query" --min-score 0.6
 
-# Global (environment variable)
+# 全局调整（环境变量）
 export MEMREC_MIN_SCORE=0.6
 memrec search "query"
 ```
 
-#### Output Format
+#### 输出格式
 
-**Default JSON (AI Agent friendly):**
+**默认 JSON（AI Agent 友好）：**
 
 ```json
 {
@@ -323,7 +323,7 @@ memrec search "query"
         "memory_id": "550e8400-...",
         "score": 0.86,
         "memory_type": "decision",
-        "content_preview": "Choose JWT auth...",
+        "content_preview": "选择JWT认证方案...",
         "project_id": "312a9769-...",
         "tags": ["auth", "critical"],
         "created_at": "2026-04-23T..."
@@ -336,114 +336,113 @@ memrec search "query"
 }
 ```
 
-**Human-readable (`--human`):**
+**人类可读格式（`--human`）：**
 
 ```
 Found 5 memories:
 
-[DECISION] Choose JWT auth... (score: 0.86)
+[DECISION] 选择JWT认证方案... (score: 0.86)
   ID: 550e8400-...
   Project: 312a9769-...
   Tags: ["auth", "critical"]
   Created: 2026-04-23
 ```
 
-### Get Memory Details
+### 获取记忆详情
 
 ```bash
-# Get a single memory
+# 获取单条记忆
 memrec get <memory-id>
 
-# Get full content of a chunked memory
+# 获取分块记忆的完整内容
 memrec get <memory-id> --merge
 ```
 
-### List Memories
+### 列出记忆
 
 ```bash
-memrec list                  # Default: 20 items
-memrec list --limit 50       # List 50
-memrec list -p               # Current project only (default when .mr_pid exists)
-memrec list -g               # Global memories only (default without .mr_pid)
-memrec list -a               # All projects
+memrec list                  # 默认列出20条
+memrec list --limit 50       # 列出50条
+memrec list -p               # 仅当前项目（有 .mr_pid 时默认）
+memrec list -g               # 仅公共记忆（无 .mr_pid 时默认）
+memrec list -a               # 跨所有项目
 ```
 
-### Delete Memory
+### 删除记忆
 
 ```bash
 memrec delete <memory-id>
 ```
 
-Deletion is soft — memories are marked as `is_deleted=true`.
+删除为软删除，记忆标记为 `is_deleted=true`。
 
-### Statistics
+### 统计信息
 
 ```bash
 memrec stats
 ```
 
-## Project Isolation
+## 项目隔离
 
-### Auto-Detection
+### 自动检测机制
 
-MemRec automatically detects project context:
+MemRec 自动检测项目上下文，无需手动指定：
 
-1. **Git repos**: Auto-detect git root (`git rev-parse --show-toplevel`)
-2. **Non-git dirs**: Use current working directory
-3. **Project ID**: Created in `.mr_pid` file at project root
+1. **git 仓库**：自动检测 git root（`git rev-parse --show-toplevel`）
+2. **非 git 目录**：使用当前工作目录
+3. **项目标识**：在项目根目录创建 `.mr_pid` 文件
 
-### .mr_pid File
+### .mr_pid 文件
 
-Auto-created, no manual management needed:
+自动创建，无需手动管理：
 
 ```
 your-project/
-├── .mr_pid               # Project ID file
-├── .gitignore            # Add .mr_pid to .gitignore
+├── .mr_pid               # 项目ID文件（勿提交git）
+├── .gitignore            # 建议添加 .mr_pid
 └── ...
 ```
 
-Contents:
+内容示例：
 
 ```
 memrec_project_id=b435a636-481b-43dd-a819-cc2cedebf365
 created_at=2026-04-23T02:45:47.828915366+00:00
 ```
 
-**Notes:**
+**注意：**
+- 将 `.mr_pid` 添加到 `.gitignore`，避免多人协作时项目ID冲突
+- 移动项目目录后，project_id 不变（`.mr_pid` 随项目移动）
+- 同一 git 仓库内所有子目录共享同一 project_id
 
-- Add `.mr_pid` to `.gitignore` to avoid project ID conflicts in team collaboration
-- Moving a project directory preserves the project_id (`.mr_pid` moves with the project)
-- All subdirectories within a git repo share the same project_id
-
-### Isolation Example
+### 隔离示例
 
 ```bash
-# In memrec project
+# 在 memrec 项目
 cd /disk2/code/rust/memrec
-memrec add "memrec architecture: Rust+RocksDB+UnixSocket" --mtype context
-# → Written to memrec/.mr_pid's project_id
+memrec add "memrec架构：Rust+RocksDB+UnixSocket" --mtype context
+# → 写入 memrec/.mr_pid 的 project_id
 
-# In hydrakiller project
+# 在 hydrakiller 项目
 cd /disk2/code/java/hydrakiller
-memrec add "hydrakiller tech stack: Kotlin+Spring+ONNX" --mtype context
-# → Written to hydrakiller/.mr_pid's project_id (different)
+memrec add "hydrakiller技术栈：Kotlin+Spring+ONNX" --mtype context
+# → 写入 hydrakiller/.mr_pid 的 project_id（不同）
 
-# Search auto-isolates
+# 搜索自动隔离
 cd /disk2/code/rust/memrec
-memrec search "architecture" -p          # Only memrec project results
+memrec search "架构" -p          # 仅返回 memrec 项目
 
-# Cross-project search
-memrec search "architecture" -a           # All projects' architecture memories
+# 跨项目搜索
+memrec search "架构" -a          # 返回所有项目的架构相关记忆
 ```
 
-## Configuration
+## 配置
 
 ### config.toml
 
-Location: `~/.memrec/config.toml`
+位置：`~/.memrec/config.toml`
 
-**MiniLM-L6-v2 config:**
+**MiniLM-L6-v2 配置：**
 
 ```toml
 version = "0.3.0"
@@ -467,16 +466,16 @@ sha256 = "da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0"
 file_type = "tokenizer"
 required = true
 
-# ... more files
+# ... 更多文件
 
 [server]
 socket_path = "~/.memrec/memrecd.sock"
 data_dir = "~/.memrec/data"
 vectors_dir = "~/.memrec/vectors"
-log_file = "~/.memrec/memrecd.log"
+log_file = "~/.memrec/logs/memrecd.log"
 ```
 
-**BGE-M3 config:**
+**BGE-M3 配置：**
 
 ```toml
 version = "0.3.0"
@@ -500,33 +499,71 @@ sha256 = "1eebfb28493f67bba03ce0ef64bfdc7fc5a3bd9d7493f818bb1d78cd798416b4"
 file_type = "onnx-external-data"
 required = true
 
-# ... more files
+# ... 更多文件
 
 [server]
 socket_path = "~/.memrec/memrecd.sock"
 data_dir = "~/.memrec/data"
 vectors_dir = "~/.memrec/vectors"
-log_file = "~/.memrec/memrecd.log"
+log_file = "~/.memrec/logs/memrecd.log"
 ```
 
-### Environment Variables
+### 环境变量
 
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `MEMREC_MODEL_DIR` | Custom model path | `~/.memrec/models/<model-dir>/` |
-| `MEMREC_MIN_SCORE` | Min similarity score | 0.75 (MiniLM) / 0.5 (BGE-M3) |
-| `RUST_LOG` | Log level | `info` |
+| 变量 | 用途 | 默认值 |
+|------|------|--------|
+| `MEMREC_MODEL_DIR` | 自定义模型路径 | `~/.memrec/models/<模型目录>/` |
+| `MEMREC_MIN_SCORE` | 语义搜索最低相似度 | 0.75（MiniLM）/ 0.5（BGE-M3） |
+| `MEMREC_LLM_KEY` | LLM API Key（`[llm] api_key` 可引用 `"$MEMREC_LLM_KEY"`；systemd 服务经 `~/.memrec/memrecd.env` 加载） | 空 |
+| `RUST_LOG` | 日志级别 | `info` |
 
-## Data Directory
+### LLM 与 Dream 配置
+
+可选接入 OpenAI 兼容大模型驱动 Dream 整合摘要；`[dream]` 控制整合行为。
+
+```toml
+[llm]
+enabled = false            # 设为 true 解锁 Dream 摘要
+provider = "deepseek"       # deepseek / openai / custom（任意 OpenAI 兼容服务）
+url = "https://api.deepseek.com/v1"
+api_key = ""                # 支持环境变量引用（如 "$MEMREC_LLM_KEY"）
+model = "deepseek-chat"
+think_level = "medium"      # off / minimal / low / medium / high / xhigh
+timeout_secs = 120
+max_tokens = 4096
+temperature = 0.3
+
+[dream]
+enabled = false
+requires_llm = true
+min_memories = 20           # 最少可整合记忆数
+max_age_hours = 168         # 整合的记忆最大年龄（小时）
+min_hours_between = 24.0    # 两次整合最小间隔（小时）
+min_new_memories = 1        # 距上次执行后用户新增记忆数门槛
+integration_max_memories = 100        # 单次整合输入上限（重要性升序选取，防 token 超窗）
+integration_preserve_importance = 0.85  # 高重要性记忆保留（不整合）
+integration_preserve_tags = ["critical"]  # 命中标签保留
+integration_preserve_types = ["preference", "context"]  # 保留的记忆类型（原文，context 压缩后细节不可恢复）
+integration_min_content_len = 10      # 过滤过短测试/占位记录（字符）
+
+[log]
+enabled = true             # 文件日志（false 时仅输出 stdout）
+level = "info"             # trace/debug/info/warn/error
+rotation_days = 7          # 按天滚存保留最近 N 个文件（本地时区 0 点切换）
+memrecd_log = "~/.memrec/logs/memrecd.log"  # 日志完整路径（本地时区时间戳，含 +08:00 偏移）
+```
+
+> systemd 用户服务不继承 shell 环境变量：将 API 密钥写入 `~/.memrec/memrecd.env`（权限 600，服务模板已通过 `EnvironmentFile` 加载）后 `systemctl --user restart memrecd`；终端手动启动时直接 `export` 即可。
+
+## 数据目录
 
 ```
 ~/.memrec/
-├── config.toml           # Configuration
-├── memrecd.sock          # Unix Socket (runtime)
-├── memrecd.log           # Service log
-├── data/                 # RocksDB memory metadata
-├── vectors/              # RocksDB vector storage
-├── models/               # ONNX Embedding models
+├── config.toml           # 配置文件
+├── memrecd.sock          # Unix Socket（运行时生成）
+├── data/                 # RocksDB 记忆元数据
+├── vectors/              # RocksDB 向量存储
+├── models/               # ONNX Embedding 模型
 │   ├── Qdrant--all-MiniLM-L6-v2-onnx/   # MiniLM-L6-v2
 │   │   ├── model.onnx
 │   │   ├── tokenizer.json
@@ -542,142 +579,179 @@ log_file = "~/.memrec/memrecd.log"
 │       ├── special_tokens_map.json
 │       ├── tokenizer_config.json
 │       └── sentencepiece.bpe.model
-└── logs/                 # Log directory
+└── logs/                 # 日志目录（memrecd.YYYY-MM-DD.log 按天滚存，默认保留 7 个）
 ```
 
-## Switching Models
+## 切换模型
 
-To switch from MiniLM to BGE-M3 (or vice versa):
+从 MiniLM 切换到 BGE-M3（或反之）：
 
-1. **Reinstall with new model:**
+1. **使用新模型重新安装：**
    ```bash
    mr-install --model bge-m3 --skip-install --skip-service
    ```
 
-2. **Back up existing vectors:**
+2. **备份现有向量：**
    ```bash
    mv ~/.memrec/vectors ~/.memrec/vectors.minilm.bak
    ```
 
-3. **Restart the daemon** (vectors will be auto-rebuilt):
+3. **重启守护进程**（向量将自动重建）：
    ```bash
    rm -f ~/.memrec/memrecd.sock
    systemctl --user restart memrecd
    ```
 
-4. **Wait for rebuild** (~75-90s for BGE-M3 with ~500 memories)
+4. **等待重建完成**（BGE-M3 约 500 条记忆需 ~75-90 秒）
 
-**Important:** Switching models requires rebuilding all vectors because different models produce different-dimensional embeddings. Old vectors are incompatible with the new model.
+**重要：** 切换模型需要重建所有向量，因为不同模型产生不同维度的 embedding。旧向量与新模型不兼容。
 
 ## MCP Server
 
-MemRec supports the Model Context Protocol (MCP) for direct AI client integration:
+MemRec 支持 Model Context Protocol (MCP)，可直接与 AI 客户端集成：
 
 ```bash
-memrec --mcp    # Start MCP server in stdio mode
+memrec --mcp    # 以 stdio 模式启动 MCP 服务器
 ```
 
-### MCP Tools
+### MCP 工具
 
-| Tool | Purpose |
-|------|---------|
-| `mr_add` | Add a memory |
-| `mr_search` | Semantic search |
-| `mr_get` | Get memory details |
-| `mr_list` | List memories |
-| `mr_delete` | Delete a memory |
-| `mr_stats` | Get statistics |
+| 工具 | 用途 |
+|------|------|
+| `mr_add` | 添加记忆 |
+| `mr_search` | 语义检索 |
+| `mr_get` | 获取记忆详情 |
+| `mr_list` | 列出记忆 |
+| `mr_delete` | 删除记忆 |
+| `mr_stats` | 获取统计信息 |
 
-### MCP Resources
+### MCP 资源
 
-| Resource | Purpose |
-|----------|---------|
-| `memrec://stats` | System statistics |
-| `memrec://project` | Current project info |
+| 资源 | 用途 |
+|------|------|
+| `memrec://stats` | 系统统计 |
+| `memrec://project` | 当前项目信息 |
 
-## AI Agent Workflow
+## AI Agent 工作流
 
 ```bash
-# 1. Start task: retrieve relevant history
-memrec search "related topic" -p
+# 1. 开始任务：检索相关历史
+memrec search "相关主题" -p
 
-# 2. After making a decision: record it
-memrec add "Choose X approach, reason: ..." --mtype decision --tag critical
+# 2. 做出决策后：记录
+memrec add "选择XXX方案，理由：..." --mtype decision --tag critical
 
-# 3. User expresses preference: record as global
-memrec add "User prefers Y" --mtype preference --global
+# 3. 用户表达偏好：记录为公共记忆
+memrec add "用户偏好YYY" --mtype preference --global
 
-# 4. Discover cross-project connections
-memrec search "related topic" -a
+# 4. 发现跨项目关联
+memrec search "相关主题" -a
 
-# 5. End task
+# 5. 结束任务
 memrec stats
 ```
 
-### Skill Integration
+### Skill 集成
 
-AI CLI tools (like opencode) can integrate via Skill:
+AI CLI 工具（如 opencode）可通过 Skill 集成：
+- Skill 文件：`~/.opencode/skills/memrec/SKILL.md`
+- AI agent 自动读取 Skill，了解命令用法和最佳实践
 
-- Skill file: `~/.opencode/skills/memrec/SKILL.md`
-- AI agent auto-reads Skill to learn commands and best practices
+## DeepSeek Harness (DSH) 插件集成
 
-## Performance
+MemRec 提供 DSH 原生插件（仓库 `dsh-plugin/` 目录，npm 包 `@memrec/dsh-plugin`），
+比 MCP 桥接更深度：
 
-| Metric | MiniLM-L6-v2 | BGE-M3 |
-|--------|-------------|--------|
-| Startup time | < 50ms | ~75-90s (model load + vector rebuild) |
-| Request latency | < 1ms | < 1ms |
-| Search latency | < 5ms | < 10ms |
-| Memory usage | ~118MB | ~1.5GB |
-| Vector dimension | 384 | 1024 |
-| Model disk size | ~90MB | ~2.3GB |
+| 能力 | 说明 |
+|------|------|
+| 原生工具 | `mr_add` / `mr_search` / `mr_get` / `mr_list` / `mr_delete` / `mr_stats` / `mr_dream`，无 `mcp__` 前缀 |
+| 项目隔离 | 工具自动携带会话工作目录（MCP 模式不传 `working_dir`，项目隔离失效；插件修复此问题） |
+| 上下文注入 | 模型请求前自动检索当前项目相关记忆注入会话 |
+| 自动记录 | turn 结束时 LLM 提取决策/知识/偏好写入 memrec（`source: inferred`） |
 
-## Troubleshooting
-
-### "Failed to connect to memrecd"
-
-Daemon not running. Start it:
+启用步骤：
 
 ```bash
+# 1. 构建插件
+cd dsh-plugin && npm install && npm run build
+
+# 2. 安装到 profile（如 web）
+dsh plugin --profile web add /abs/path/to/memrec/dsh-plugin
+
+# 3. 在 $DSH_HOME/profiles/web/cordis.patch.yml 追加：
+# - insert:
+#     - id: memrec
+#       name: '/abs/path/to/memrec/dsh-plugin/lib/index.js'
+#       config:
+#         socketPath: '~/.memrec/memrecd.sock'
+#         injectContext: true
+#         autoRecord: true
+
+# 4. 重启 DSH 进程后生效
+```
+
+配置项（均可选）：`socketPath`、`injectContext`、`contextTopK`、
+`contextMinScore`、`contextRefreshTurns`、`autoRecord`、
+`autoRecordProvider`、`autoRecordModel`、`autoRecordInterval`、
+`autoRecordMaxPerSession`。详见 `dsh-plugin/README.md` 与
+`docs/design/dsh-plugin-design.md`。
+
+## 性能参考
+
+| 指标 | MiniLM-L6-v2 | BGE-M3 |
+|------|-------------|--------|
+| 启动时间 | < 50ms | ~75-90秒（模型加载+向量重建） |
+| 请求延迟 | < 1ms | < 1ms |
+| 搜索延迟 | < 5ms | < 10ms |
+| 内存占用 | ~118MB | ~1.5GB |
+| 向量维度 | 384 | 1024 |
+| 模型磁盘大小 | ~90MB | ~2.3GB |
+
+## 常见问题
+
+### 启动报错 "Failed to connect to memrecd"
+
+守护进程未运行。启动方法：
+```bash
 memrecd
-# or
+# 或
 systemctl --user start memrecd
 ```
 
-### Search returns 0 results
+### 语义搜索返回0条结果
 
-1. Check model files: `ls ~/.memrec/models/`
-2. Check service log: `cat ~/.memrec/memrecd.log`
-3. Lower min_score: `memrec search "query" --min-score 0.3`
-4. For BGE-M3, the default min_score is 0.5 — try lowering to 0.3-0.4
+1. 检查模型文件：`ls ~/.memrec/models/`
+2. 检查服务日志：`cat ~/.memrec/logs/memrecd.log`
+3. 降低 min_score：`memrec search "query" --min-score 0.3`
+4. BGE-M3 默认 min_score 为 0.5 — 尝试降低到 0.3-0.4
 
-### Project memories not isolated
+### 项目记忆没有隔离
 
-1. Confirm `.mr_pid` exists in project root
-2. Confirm you're running commands inside the project directory (not `~` or `/tmp`)
-3. Git repos auto-detect git root
+1. 确认 `.mr_pid` 文件存在于项目根目录
+2. 确认在项目目录内执行命令（不是 `~` 或 `/tmp`）
+3. git 仓库会自动检测 git root
 
-### Model download fails (China)
+### 模型下载失败（中国大陆网络）
 
 ```bash
 mr-install --use-hf-mirror
 ```
 
-### Switching models
+### 切换模型
 
-1. Reinstall with new model: `mr-install --model <model> --skip-install --skip-service`
-2. Back up vectors: `mv ~/.memrec/vectors ~/.memrec/vectors.bak`
-3. Restart daemon: `rm -f ~/.memrec/memrecd.sock && systemctl --user restart memrecd`
+1. 使用新模型重新安装：`mr-install --model <模型> --skip-install --skip-service`
+2. 备份向量：`mv ~/.memrec/vectors ~/.memrec/vectors.bak`
+3. 重启守护进程：`rm -f ~/.memrec/memrecd.sock && systemctl --user restart memrecd`
 
-## Upgrade
+## 升级
 
 ```bash
 mr-install
 ```
 
-Re-running mr-install upgrades everything (cargo install overwrites old versions, service restarts).
+重新运行 mr-install 即可升级（cargo install 会覆盖旧版本，服务会重启）。
 
-## Uninstall
+## 卸载
 
 ```bash
 # Linux
@@ -692,6 +766,6 @@ launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/cn.itcraft.memrecd.plist
 rm ~/Library/LaunchAgents/cn.itcraft.memrecd.plist
 rm ~/bin/memrec ~/bin/memrecd ~/bin/mr-install
 
-# Delete data (optional, clears all memories)
+# 删除数据（可选，会清除所有记忆）
 rm -rf ~/.memrec
 ```
