@@ -316,8 +316,10 @@ impl DreamProcessor {
             .await
             .map_err(|e| DreamError::Storage(e.to_string()))?;
 
-        // P4: 排除高价值记忆（importance ≥ 阈值、命中保留标签、Preference 类型），
-        // 长期价值记忆不参与整合与删除。
+        // P4: 排除高价值记忆（importance ≥ 阈值、命中保留标签、保留类型），
+        // 长期价值记忆（critical/高重要性/Preference/Context）不参与整合与删除。
+        // 同时过滤过短内容（测试/占位垃圾记录）。
+        let min_content_len = self.config.integration_min_content_len;
         let mut candidates: Vec<Memory> = all
             .into_iter()
             .filter(|m| !m.is_deleted && m.created_at < cutoff)
@@ -327,7 +329,12 @@ impl DreamProcessor {
                         .tags
                         .iter()
                         .any(|t| self.config.integration_preserve_tags.contains(t))
-                    && m.memory_type != MemoryType::Preference
+                    && !self
+                        .config
+                        .integration_preserve_types
+                        .iter()
+                        .any(|t| t == &m.memory_type.to_string())
+                    && m.content.trim().chars().count() >= min_content_len
             })
             .collect();
 
@@ -645,7 +652,10 @@ mod tests {
         let (processor, storage, _dir) = create_test_processor();
 
         for i in 0..3 {
-            let mut memory = Memory::new(format!("memory {}", i), MemoryType::Knowledge);
+            let mut memory = Memory::new(
+                format!("memory {} content for integration test", i),
+                MemoryType::Knowledge,
+            );
             memory.created_at = Utc::now() - chrono::Duration::hours(2);
             storage.save(&memory).await.unwrap();
         }
@@ -756,7 +766,10 @@ mod tests {
             DreamProcessor::new(config, dir.path(), storage.clone()).with_llm(StdArc::new(llm));
 
         for i in 0..3 {
-            let mut memory = Memory::new(format!("memory {}", i), MemoryType::Knowledge);
+            let mut memory = Memory::new(
+                format!("memory {} content for integration test", i),
+                MemoryType::Knowledge,
+            );
             // 记忆年龄须大于 max_age_hours（100h），才会被选中
             memory.created_at = Utc::now() - chrono::Duration::hours(200);
             storage.save(&memory).await.unwrap();
@@ -796,7 +809,10 @@ mod tests {
             DreamProcessor::new(config, dir.path(), storage.clone()).with_llm(StdArc::new(llm));
 
         for i in 0..3 {
-            let mut memory = Memory::new(format!("memory {}", i), MemoryType::Knowledge);
+            let mut memory = Memory::new(
+                format!("memory {} content for integration test", i),
+                MemoryType::Knowledge,
+            );
             memory.created_at = Utc::now() - chrono::Duration::hours(200);
             memory.importance = 0.5;
             storage.save(&memory).await.unwrap();
@@ -927,6 +943,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_integration_preserves_context_and_short_content() {
+        // P4 扩展: context 类型（配置/环境信息）默认保留；过短内容（测试/占位）不整合
+        let dir = tempdir().unwrap();
+        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
+
+        let config = DreamConfig {
+            enabled: true,
+            requires_llm: false,
+            min_memories: 1,
+            max_age_hours: 100,
+            phase_cross_project: false,
+            phase_personal_summary: false,
+            phase_cleanup: false,
+            ..Default::default()
+        };
+        let processor = DreamProcessor::new(config, dir.path(), storage.clone());
+
+        // 普通旧知识：应整合
+        let mut knowledge = Memory::new(
+            "regular old knowledge about glibc arena".to_string(),
+            MemoryType::Knowledge,
+        );
+        knowledge.created_at = Utc::now() - chrono::Duration::hours(200);
+        knowledge.importance = 0.5;
+        storage.save(&knowledge).await.unwrap();
+
+        // context 类型：应保留（配置细节不可压缩）
+        let mut ctx = Memory::new(
+            "cotael-srv 配置路径: scenes.toml 账目体系, scheduler.toml 任务调度".to_string(),
+            MemoryType::Context,
+        );
+        ctx.created_at = Utc::now() - chrono::Duration::hours(200);
+        ctx.importance = 0.5;
+        storage.save(&ctx).await.unwrap();
+
+        // 过短内容（测试垃圾）：不参与整合，保留在库中
+        let mut junk = Memory::new("测试".to_string(), MemoryType::Knowledge);
+        junk.created_at = Utc::now() - chrono::Duration::hours(200);
+        junk.importance = 0.5;
+        storage.save(&junk).await.unwrap();
+
+        let result = processor.execute(true).await;
+        assert!(result.is_ok());
+        let dream_result = result.unwrap();
+        // 仅整合 knowledge（context 与过短内容被排除）
+        assert_eq!(dream_result.integrated_count, 1);
+
+        let all = storage.list(100).await.unwrap();
+        let alive: Vec<_> = all.into_iter().filter(|m| !m.is_deleted).collect();
+        assert!(alive.iter().any(|m| m.id == ctx.id), "context 应保留");
+        assert!(alive.iter().any(|m| m.id == junk.id), "过短内容应保留");
+        assert!(!alive.iter().any(|m| m.id == knowledge.id));
+    }
+
+    #[tokio::test]
     async fn test_integration_respects_max_memories() {
         // P1: integration_max_memories 限制单次整合输入量
         let dir = tempdir().unwrap();
@@ -947,7 +1019,10 @@ mod tests {
         let processor = DreamProcessor::new(config, dir.path(), storage.clone());
 
         for i in 0..5 {
-            let mut memory = Memory::new(format!("memory {}", i), MemoryType::Knowledge);
+            let mut memory = Memory::new(
+                format!("memory {} content for integration test", i),
+                MemoryType::Knowledge,
+            );
             memory.created_at = Utc::now() - chrono::Duration::hours(200);
             memory.importance = 0.5;
             storage.save(&memory).await.unwrap();

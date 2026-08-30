@@ -270,6 +270,15 @@ pub struct DreamConfig {
     #[serde(default = "default_integration_preserve_tags")]
     pub integration_preserve_tags: Vec<String>,
 
+    /// 保留的记忆类型：这些类型的记忆不参与整合与删除（保留原文）。
+    /// 如 `context`（配置/环境信息，压缩后细节不可恢复）与 `preference`（用户偏好）。
+    #[serde(default = "default_integration_preserve_types")]
+    pub integration_preserve_types: Vec<String>,
+
+    /// 参与整合的记忆最小内容长度（字符），过短的测试/占位记录不整合
+    #[serde(default = "default_integration_min_content_len")]
+    pub integration_min_content_len: usize,
+
     /// Phase 3 清理：不活跃天数门槛
     #[serde(default = "default_cleanup_inactive_days")]
     pub cleanup_inactive_days: u64,
@@ -333,6 +342,12 @@ fn default_integration_preserve_importance() -> f32 {
 fn default_integration_preserve_tags() -> Vec<String> {
     vec!["critical".to_string()]
 }
+fn default_integration_preserve_types() -> Vec<String> {
+    vec!["preference".to_string(), "context".to_string()]
+}
+fn default_integration_min_content_len() -> usize {
+    10
+}
 fn default_cleanup_inactive_days() -> u64 {
     90
 }
@@ -364,6 +379,8 @@ impl Default for DreamConfig {
             integration_max_memories: 100,
             integration_preserve_importance: 0.85,
             integration_preserve_tags: vec!["critical".to_string()],
+            integration_preserve_types: vec!["preference".to_string(), "context".to_string()],
+            integration_min_content_len: 10,
             cleanup_inactive_days: 90,
             cleanup_importance_threshold: 0.1,
             batch_size: 100,
@@ -623,6 +640,11 @@ mod tests {
             config.integration_preserve_tags,
             vec!["critical".to_string()]
         );
+        assert_eq!(
+            config.integration_preserve_types,
+            vec!["preference".to_string(), "context".to_string()]
+        );
+        assert_eq!(config.integration_min_content_len, 10);
         assert_eq!(config.cleanup_inactive_days, 90);
         assert_eq!(config.cleanup_importance_threshold, 0.1);
     }

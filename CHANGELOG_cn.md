@@ -19,6 +19,7 @@
 
 ### 修复
 
+- **Dream 整合保留策略扩展**：新增 `integration_preserve_types`（默认保留 `preference` + `context`）——context 类配置/环境信息（文件路径、验证数据、进度状态）压缩后细节不可恢复，默认不参与整合；新增 `integration_min_content_len`（默认 10 字符）过滤过短测试/占位垃圾记录
 - **日志改用本地时区（+8）**：日志时间戳由 UTC 改为本地时间（含时区偏移），按天滚存切分点由 UTC 0 点改为本地 0 点（此前 8/30 凌晨仍写入 8/29 文件）；用自实现 `LocalDailyWriter` 替换 `tracing-appender`（其按 UTC 切分，无法配置时区），文件名仍为 `memrecd.YYYY-MM-DD.log`，过期清理改为按文件名日期排序（mtime 批量写入不可靠）
 - **Dream 整合健壮性与质量改进**（P1-P7）：
   - **P1 输入上限**：新增 `integration_max_memories`（默认 100），单次 LLM 整合按重要性排序截取，防止千条记忆拼接导致 token 超窗
