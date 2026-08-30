@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Logs now use local timezone (+8)**: timestamps switch from UTC to local time (with offset); daily rotation boundary moves from UTC midnight to local midnight (previously the Aug 30 early-morning entries still went into the Aug 29 file); replaced `tracing-appender` with a self-implemented `LocalDailyWriter` (tracing-appender rotates on UTC and cannot be configured), file names remain `memrecd.YYYY-MM-DD.log`, and stale-file cleanup now sorts by file name date (mtime is unreliable for batch writes)
 - **Dream integration robustness & quality** (P1-P7):
   - **P1 input cap**: new `integration_max_memories` (default 100); single LLM integration truncates by importance, preventing token window overflow from concatenating thousands of memories
   - **P2 no state write on failure**: `dream.state` is written only on success, so retries are immediate after LLM outage instead of wasting the 24h window
