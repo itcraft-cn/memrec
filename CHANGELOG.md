@@ -21,6 +21,7 @@
 
 ### 修复
 
+- **systemd 服务模板支持环境文件**：`mr-install` 注册的 memrecd.service 增加 `EnvironmentFile=-~/.memrec/memrecd.env`（可选的用户环境文件，权限 600），解决 daemon 由 systemd 启动时不继承 shell 环境变量（如 `MEMREC_LLM_KEY`）导致的 LLM 401；README 环境变量提示同步修正（推荐 `memrecd.env`，不再推荐共享的 `environment.d`）
 - **Dream 整合保留策略扩展**：新增 `integration_preserve_types`（默认保留 `preference` + `context`）——context 类配置/环境信息（文件路径、验证数据、进度状态）压缩后细节不可恢复，默认不参与整合；新增 `integration_min_content_len`（默认 10 字符）过滤过短测试/占位垃圾记录
 - **日志改用本地时区（+8）**：日志时间戳由 UTC 改为本地时间（含时区偏移），按天滚存切分点由 UTC 0 点改为本地 0 点（此前 8/30 凌晨仍写入 8/29 文件）；用自实现 `LocalDailyWriter` 替换 `tracing-appender`（其按 UTC 切分，无法配置时区），文件名仍为 `memrecd.YYYY-MM-DD.log`，过期清理改为按文件名日期排序（mtime 批量写入不可靠）
 - **Dream 整合健壮性与质量改进**（P1-P7）：

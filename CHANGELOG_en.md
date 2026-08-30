@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **systemd service template supports env file**: the `memrecd.service` registered by `mr-install` now includes `EnvironmentFile=-~/.memrec/memrecd.env` (optional user env file, mode 600), fixing LLM 401s caused by systemd services not inheriting shell env vars (e.g. `MEMREC_LLM_KEY`); README env-var guidance updated accordingly (recommend `memrecd.env`, stop recommending the shared `environment.d`)
 - **Dream integration preserve strategy extended**: new `integration_preserve_types` (default preserves `preference` + `context`) — context config/environment info (file paths, verification data, progress) loses irrecoverable details when compressed, so it is excluded from integration by default; new `integration_min_content_len` (default 10 chars) filters out short test/placeholder garbage
 - **Logs now use local timezone (+8)**: timestamps switch from UTC to local time (with offset); daily rotation boundary moves from UTC midnight to local midnight (previously the Aug 30 early-morning entries still went into the Aug 29 file); replaced `tracing-appender` with a self-implemented `LocalDailyWriter` (tracing-appender rotates on UTC and cannot be configured), file names remain `memrecd.YYYY-MM-DD.log`, and stale-file cleanup now sorts by file name date (mtime is unreliable for batch writes)
 - **Dream integration robustness & quality** (P1-P7):

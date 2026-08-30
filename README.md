@@ -147,13 +147,15 @@ memrec scene update-heat <scene-id> 0.8
 可选接入 OpenAI 兼容大模型，用于 **Dream 整合摘要**。
 未启用（`[llm].enabled = false`）时，Dream 视为不启用。
 
-提示: 若使用环境变量配置 API KEY，需要编辑 `~/.config/environment.d/envvars.conf`，将变量加入其中。
-若 daemon 由 systemd 用户服务启动（不继承 shell 环境），需将密钥写入 `~/.memrec/memrecd.env`（权限 600，已由服务单元 `EnvironmentFile` 加载）：
+提示: 若 daemon 由 **systemd 用户服务**启动（不继承 shell 环境变量），请将 API 密钥写入 `~/.memrec/memrecd.env`（权限 600，服务单元通过 `EnvironmentFile` 自动加载；`mr-install` 注册的服务模板已包含该配置）：
 
 ```bash
 echo "MEMREC_LLM_KEY=sk-xxx" > ~/.memrec/memrecd.env && chmod 600 ~/.memrec/memrecd.env
 systemctl --user restart memrecd
 ```
+
+若在终端手动启动 `memrecd`，直接使用 shell 环境变量即可（`export MEMREC_LLM_KEY=sk-xxx`）。
+不要将密钥写入 `~/.config/environment.d/`（该目录为系统共享配置，且修改后需重启 user manager 才生效）。
 
 ```toml
 # ~/.memrec/config.toml

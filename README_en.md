@@ -150,13 +150,15 @@ Each scene carries `theme`, `memory_ids`, `heat` and `tags`; heat rises with mem
 Optional OpenAI-compatible LLM integration powers **Dream consolidation summaries**.
 When disabled (`[llm].enabled = false`), Dream is treated as disabled.
 
-Tips: if you use an env var for the API key, edit `~/.config/environment.d/envvars.conf` and add the variable there.
-If the daemon runs as a systemd user service (which does not inherit shell env), write the key to `~/.memrec/memrecd.env` (mode 600, loaded by the service unit via `EnvironmentFile`):
+If the daemon runs as a **systemd user service** (which does not inherit shell env), write the API key to `~/.memrec/memrecd.env` (mode 600; the service unit loads it via `EnvironmentFile`, and the `mr-install` service template already includes this line):
 
 ```bash
 echo "MEMREC_LLM_KEY=sk-xxx" > ~/.memrec/memrecd.env && chmod 600 ~/.memrec/memrecd.env
 systemctl --user restart memrecd
 ```
+
+When running `memrecd` manually in a terminal, just use the shell env var (`export MEMREC_LLM_KEY=sk-xxx`).
+Do not put the key into `~/.config/environment.d/` — that directory is system-wide shared config, and changes only take effect after restarting the user manager.
 
 ```toml
 # ~/.memrec/config.toml

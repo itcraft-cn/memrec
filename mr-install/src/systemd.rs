@@ -61,6 +61,10 @@ RestartSec=5
 
 Environment="RUST_LOG=info"
 
+# 从 ~/.memrec/memrecd.env 加载环境变量（如 MEMREC_LLM_KEY）。
+# 文件可不存在（- 前缀），由用户按需创建（权限 600）。
+EnvironmentFile=-{home}/.memrec/memrecd.env
+
 WorkingDirectory={home}
 
 # 日志由 memrecd 内部 tracing 写入 ~/.memrec/logs/（按天滚存），
