@@ -189,8 +189,8 @@ mod tests {
             provider = "deepseek"
             url = "https://api.deepseek.com/v1"
             api_key = "sk-test"
-            model = "deepseek-reasoner"
-            think_level = "xhigh"
+            model = "deepseek-v4-flash"
+            think_level = "low"
 
             [dedup]
             enabled = true
@@ -204,8 +204,8 @@ mod tests {
         let config: DaemonConfig = toml::from_str(toml_str).unwrap();
         assert!(config.llm.enabled);
         assert_eq!(config.llm.api_key, "sk-test");
-        assert_eq!(config.llm.model, "deepseek-reasoner");
-        assert_eq!(config.llm.think_level(), mr_common::ThinkLevel::Xhigh);
+        assert_eq!(config.llm.model, "deepseek-v4-flash");
+        assert_eq!(config.llm.think_level(), mr_common::ThinkLevel::Low);
         assert_eq!(config.dedup.top_k, 10);
         assert_eq!(config.dedup.duplicate_threshold, 0.95);
         assert_eq!(config.dedup.update_threshold, 0.88);

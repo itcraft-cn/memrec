@@ -120,10 +120,10 @@ fn default_llm_url() -> String {
     "https://api.deepseek.com/v1".to_string()
 }
 fn default_llm_model() -> String {
-    "deepseek-chat".to_string()
+    "deepseek-v4-flash".to_string()
 }
 fn default_think_level_str() -> String {
-    "medium".to_string()
+    "low".to_string()
 }
 fn default_llm_timeout() -> u64 {
     120
