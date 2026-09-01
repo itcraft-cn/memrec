@@ -17,8 +17,8 @@ name = "mr_ability"
 path = "src/lib.rs"
 
 [dependencies]
-mr-common = { path = "../mr-common", version = "0.8.0-dev" } # managed by updgitver
-mr-protocol = { path = "../mr-protocol", version = "0.8.0-dev" } # managed by updgitver
+mr-common = { path = "../mr-common", version = "0.9.0-dev" } # managed by updgitver
+mr-protocol = { path = "../mr-protocol", version = "0.9.0-dev" } # managed by updgitver
 anyhow.workspace = true
 thiserror.workspace = true
 serde.workspace = true
@@ -36,6 +36,7 @@ tantivy.workspace = true
 rusqlite.workspace = true
 regex.workspace = true
 reqwest.workspace = true
+lazy-regex.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

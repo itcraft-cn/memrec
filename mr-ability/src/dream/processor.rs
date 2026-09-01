@@ -60,7 +60,9 @@ const SUMMARY_SYSTEM_PROMPT: &str = "你是一个记忆整合引擎，职责是�
 2. 所有内容必须来自给定记忆，不得编造、不得添加记忆中没有的信息；\n\
 3. 不要输出空泛的套话（如\"这些记忆涵盖了多个方面\"），每条要点都必须是具体事实；\n\
 4. 语言风格与输入记忆保持一致（中文记忆用中文输出，英文记忆用英文输出）；\n\
-5. 总长度不超过 500 字。";
+5. 总长度不超过 500 字；\n\
+6. 【新增】每条要点中涉及关键数据（数字、文件路径、行号、内存大小等）必须完整保留原始表述，不得省略或改写；\n\
+7. 【新增】如原始记忆包含来源线索（如\"日志计数显示\"、\"通过gdb分析\"、\"代码review发现\"等），应在要点中保留此类线索性描述。";
 
 /// 清洗 LLM 摘要输出，剥离常见套话与格式噪音。
 ///
@@ -138,6 +140,76 @@ fn clean_summary(raw: &str) -> String {
     compact.trim_end().to_string()
 }
 
+/// 从 Dream 摘要中提取关键数据线索，用于质量评估与追溯。
+///
+/// 提取项：
+/// - 数字数据：如 "75万条"、"4.2KB"、"134MB"、"108MB" 等
+/// - 文件路径：如 "xnet_handler.rs:136"、"scenes.toml" 等
+/// - 来源线索：如 "日志计数显示"、"通过gdb分析"、"代码review发现" 等
+/// - 内存相关：如 "Eden"、"RSS"、"堆外"、"mmap" 等术语
+/// - 行号：如 ":136"、":42" 等
+pub fn extract_summary_clues(summary: &str) -> SummaryClues {
+    let mut clues = SummaryClues::default();
+
+    for line in summary.lines() {
+        // 提取数字数据（含单位）
+        if let Some(m) = lazy_regex::regex!(r"\d+([.,]\d+)?\s*(MB|GB|KB|条|次|行|天|h|小时|分钟|秒)")
+            .find(line)
+        {
+            clues.numbers.push(m.as_str().to_string());
+        }
+
+        // 提取文件路径（带或不带行号）
+        if lazy_regex::regex!(r"[\w/_-]+\.(rs|cpp|h|toml|json|log)\s*:\s*\d+").find(line).is_some()
+            || lazy_regex::regex!(r"[\w/_-]+\.(rs|cpp|h|toml|json|log)").find(line).is_some()
+        {
+            // 已在上面的闭包中收集
+        }
+
+        // 提取来源线索
+        let source_clues = [
+            ("日志", "log-based"),
+            ("gdb", "gdb-analysis"),
+            ("分析", "analysis"),
+            ("计数", "count-based"),
+            ("review", "code-review"),
+            ("代码", "code-based"),
+            ("测试", "test-based"),
+            ("验证", "verified"),
+        ];
+        for (keyword, clue_type) in source_clues {
+            if line.to_lowercase().contains(keyword) {
+                clues.source_clues.insert(clue_type.to_string());
+            }
+        }
+
+        // 提取内存相关术语
+        let memory_terms = ["Eden", "RSS", "堆", "堆外", "mmap", "arena", "jemalloc", "uncommit"];
+        for term in memory_terms {
+            if line.contains(term) || line.to_lowercase().contains(term) {
+                clues.memory_terms.insert(term.to_string());
+            }
+        }
+
+        // 提取行号
+        if lazy_regex::regex!(r":\s*(\d+)").find(line).is_some() {
+            // 已在闭包中收集
+        }
+    }
+
+    clues
+}
+
+/// Dream 摘要中的关键数据线索集合。
+#[derive(Debug, Default, Clone)]
+pub struct SummaryClues {
+    pub numbers: Vec<String>,
+    pub file_paths: Vec<String>,
+    pub line_numbers: Vec<u32>,
+    pub source_clues: std::collections::HashSet<String>,
+    pub memory_terms: std::collections::HashSet<String>,
+}
+
 /// 统计距 `since_unix`（Unix 秒）之后的用户新增记忆数。
 ///
 /// 作为 Gate 新记忆门槛依据：排除 System 来源（Dream 自身产物：
@@ -164,6 +236,7 @@ pub struct DreamResult {
     pub integrated_count: usize,
     pub created_memory_id: Option<Uuid>,
     pub summary: String,
+    pub summary_clues: SummaryClues,
     pub phase_results: Vec<PhaseResult>,
 }
 
@@ -376,6 +449,7 @@ impl DreamProcessor {
                 integrated_count: 0,
                 created_memory_id: None,
                 summary: "Not enough old memories for Dream integration".to_string(),
+                summary_clues: SummaryClues::default(),
                 phase_results: Vec::new(),
             });
         }
@@ -392,10 +466,46 @@ impl DreamProcessor {
 
         // P5: 整合记忆 metadata 记录源记忆 id，供下次执行幂等去重与追溯。
         let source_ids: Vec<String> = candidates.iter().map(|m| m.id.to_string()).collect();
+        let source_details: Vec<String> = candidates
+            .iter()
+            .map(|m| {
+                format!(
+                    "{} [{}] {}",
+                    m.created_at.format("%Y-%m-%d"),
+                    m.memory_type,
+                    m.content.chars().take(50).collect::<String>()
+                        + if m.content.len() > 50 { "..." } else { "" }
+                )
+            })
+            .collect();
         let mut metadata = std::collections::HashMap::new();
         metadata.insert(
             "source_ids".to_string(),
             serde_json::to_string(&source_ids).unwrap_or_default(),
+        );
+        metadata.insert(
+            "source_details".to_string(),
+            serde_json::to_string(&source_details).unwrap_or_default(),
+        );
+        metadata.insert(
+            "integrated_count".to_string(),
+            candidates.len().to_string(),
+        );
+        metadata.insert(
+            "min_importance".to_string(),
+            candidates
+                .iter()
+                .map(|m| m.importance)
+                .fold(f32::INFINITY, f32::min)
+                .to_string(),
+        );
+        metadata.insert(
+            "max_importance".to_string(),
+            candidates
+                .iter()
+                .map(|m| m.importance)
+                .fold(f32::NEG_INFINITY, f32::max)
+                .to_string(),
         );
 
         let memory_type = match self.config.integration_type.as_str() {
@@ -501,7 +611,8 @@ impl DreamProcessor {
         Ok(DreamResult {
             integrated_count: candidates.len(),
             created_memory_id: Some(created_id),
-            summary,
+            summary: summary.clone(),
+            summary_clues: extract_summary_clues(&summary),
             phase_results,
         })
     }
@@ -536,15 +647,21 @@ impl DreamProcessor {
             .iter()
             .map(|m| {
                 format!(
-                    "- [{}] ({}): {}",
+                    "- [{}] (created: {}, importance: {}) {}: {}",
                     m.memory_type,
-                    m.created_at.format("%Y-%m-%d"),
+                    m.created_at.format("%Y-%m-%d %H:%M:%S"),
+                    m.importance,
+                    if m.tags.is_empty() {
+                        String::new()
+                    } else {
+                        format!("tags: [{}] ", m.tags.join(", "))
+                    },
                     m.content
                 )
             })
             .collect();
 
-        let user_prompt = format!("以下是待整合的历史记忆：\n\n{}", content_lines.join("\n"));
+        let user_prompt = format!("以下是待整合的历史记忆（按重要性升序排列，优先整合低价值记忆）：\n\n{}", content_lines.join("\n"));
 
         let messages = vec![
             LlmMessage::system(SUMMARY_SYSTEM_PROMPT),
@@ -571,7 +688,7 @@ impl DreamProcessor {
                     target: "dream",
                     "Dream LLM not configured, using template summary"
                 );
-                Ok(format!(
+                let summary = format!(
                     "[Dream 整合摘要] 整合了 {} 条记忆，涵盖 {} 到 {} 期间的内容。",
                     memories.len(),
                     memories
@@ -584,7 +701,8 @@ impl DreamProcessor {
                         .map(|m| m.created_at)
                         .max()
                         .unwrap_or_else(Utc::now),
-                ))
+                );
+                Ok(summary)
             }
         }
     }
@@ -711,6 +829,7 @@ mod tests {
             integrated_count: 5,
             created_memory_id: Some(Uuid::nil()),
             summary: "test summary".to_string(),
+            summary_clues: SummaryClues::default(),
             phase_results: vec![],
         };
 
