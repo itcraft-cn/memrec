@@ -21,7 +21,7 @@ use thiserror::Error;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use mr_common::LlmConfig;
+use mr_common::{LlmConfig, ThinkLevel};
 
 use super::types::{ChatCompletionRequest, ChatCompletionResponse, LlmMessage};
 
@@ -58,6 +58,22 @@ pub trait LlmClient: Send + Sync {
     /// 网络失败、非 2xx 状态码、响应空文本均返回错误。
     async fn chat(&self, messages: &[LlmMessage]) -> Result<String, LlmError>;
 
+    /// 以指定思考等级发起对话补全。
+    ///
+    /// 默认实现忽略覆盖值直接调用 [`chat`](Self::chat)（使用配置的 think_level），
+    /// 需要按调用控制思考强度的实现（如 [`OpenAiCompatibleClient`]）覆写。
+    ///
+    /// 模板化/结构化生成任务（如 Dream 摘要）应传 [`ThinkLevel::Off`]
+    /// 强制直白输出，避免推理内容污染结果。
+    async fn chat_with_think(
+        &self,
+        messages: &[LlmMessage],
+        think_level: mr_common::ThinkLevel,
+    ) -> Result<String, LlmError> {
+        let _ = think_level;
+        self.chat(messages).await
+    }
+
     /// 客户端是否已配置可用（有 API Key）。
     fn configured(&self) -> bool;
 }
@@ -88,12 +104,14 @@ impl OpenAiCompatibleClient {
     }
 
     /// 构造请求体，注入 provider 特有的思考参数。
-    fn build_request(&self, messages: &[LlmMessage]) -> ChatCompletionRequest {
+    fn build_request(
+        &self,
+        messages: &[LlmMessage],
+        think_level: ThinkLevel,
+    ) -> ChatCompletionRequest {
         let mut extra = serde_json::Map::new();
-        if let Some(serde_json::Value::Object(map)) = self
-            .config
-            .think_level()
-            .to_provider_param(&self.config.provider)
+        if let Some(serde_json::Value::Object(map)) =
+            think_level.to_provider_param(&self.config.provider)
         {
             extra.extend(map);
         }
@@ -110,13 +128,22 @@ impl OpenAiCompatibleClient {
 #[async_trait]
 impl LlmClient for OpenAiCompatibleClient {
     async fn chat(&self, messages: &[LlmMessage]) -> Result<String, LlmError> {
+        self.chat_with_think(messages, self.config.think_level())
+            .await
+    }
+
+    async fn chat_with_think(
+        &self,
+        messages: &[LlmMessage],
+        think_level: ThinkLevel,
+    ) -> Result<String, LlmError> {
         if !self.configured() {
             return Err(LlmError::Http(
                 "LLM api_key is empty, check [llm] config".to_string(),
             ));
         }
 
-        let request = self.build_request(messages);
+        let request = self.build_request(messages, think_level);
         let request_id = Uuid::new_v4();
         debug!(
             request_id = %request_id,
@@ -253,9 +280,10 @@ mod tests {
         config.think_level = "xhigh".to_string();
         let client = OpenAiCompatibleClient::new(config);
 
-        let req = client.build_request(&[LlmMessage::user("hello")]);
-        assert_eq!(req.extra["thinking"]["effort"], "max");
-        assert_eq!(req.model, "deepseek-chat");
+        let req = client.build_request(&[LlmMessage::user("hello")], ThinkLevel::Xhigh);
+        assert_eq!(req.extra["thinking"]["type"], "enabled");
+        assert_eq!(req.extra["reasoning_effort"], "max");
+        assert_eq!(req.model, "deepseek-v4-flash");
         assert_eq!(req.max_tokens, Some(4096));
     }
 
@@ -267,18 +295,42 @@ mod tests {
         config.think_level = "medium".to_string();
         let client = OpenAiCompatibleClient::new(config);
 
-        let req = client.build_request(&[]);
+        let req = client.build_request(&[], ThinkLevel::Medium);
         assert_eq!(req.extra["reasoning_effort"], "medium");
     }
 
     #[test]
-    fn test_build_request_off_no_thinking() {
+    fn test_build_request_off_disables_thinking() {
+        // DeepSeek 思考模式默认打开：Off 必须显式 disabled（而非不传）
         let mut config = LlmConfig::default();
         config.think_level = "off".to_string();
         let client = OpenAiCompatibleClient::new(config);
 
-        let req = client.build_request(&[]);
-        assert!(req.extra.as_object().unwrap().is_empty());
+        let req = client.build_request(&[], ThinkLevel::Off);
+        assert_eq!(req.extra["thinking"]["type"], "disabled");
+        assert!(req.extra.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn test_build_request_per_call_think_override() {
+        // 配置 think_level=medium（默认），按调用覆盖为 Off：显式 disabled
+        let client = OpenAiCompatibleClient::new(LlmConfig::default());
+        let req = client.build_request(&[], ThinkLevel::Off);
+        assert_eq!(req.extra["thinking"]["type"], "disabled");
+
+        // 覆盖为 High：deepseek 注入 reasoning_effort=high
+        let req = client.build_request(&[], ThinkLevel::High);
+        assert_eq!(req.extra["thinking"]["type"], "enabled");
+        assert_eq!(req.extra["reasoning_effort"], "high");
+    }
+
+    #[test]
+    fn test_build_request_deepseek_medium_effort() {
+        // 文档映射：medium → high
+        let client = OpenAiCompatibleClient::new(LlmConfig::default());
+        let req = client.build_request(&[], ThinkLevel::Medium);
+        assert_eq!(req.extra["thinking"]["type"], "enabled");
+        assert_eq!(req.extra["reasoning_effort"], "high");
     }
 
     #[test]

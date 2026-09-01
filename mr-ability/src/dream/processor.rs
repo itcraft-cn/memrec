@@ -153,15 +153,19 @@ pub fn extract_summary_clues(summary: &str) -> SummaryClues {
 
     for line in summary.lines() {
         // 提取数字数据（含单位）
-        if let Some(m) = lazy_regex::regex!(r"\d+([.,]\d+)?\s*(MB|GB|KB|条|次|行|天|h|小时|分钟|秒)")
-            .find(line)
+        if let Some(m) =
+            lazy_regex::regex!(r"\d+([.,]\d+)?\s*(MB|GB|KB|条|次|行|天|h|小时|分钟|秒)").find(line)
         {
             clues.numbers.push(m.as_str().to_string());
         }
 
         // 提取文件路径（带或不带行号）
-        if lazy_regex::regex!(r"[\w/_-]+\.(rs|cpp|h|toml|json|log)\s*:\s*\d+").find(line).is_some()
-            || lazy_regex::regex!(r"[\w/_-]+\.(rs|cpp|h|toml|json|log)").find(line).is_some()
+        if lazy_regex::regex!(r"[\w/_-]+\.(rs|cpp|h|toml|json|log)\s*:\s*\d+")
+            .find(line)
+            .is_some()
+            || lazy_regex::regex!(r"[\w/_-]+\.(rs|cpp|h|toml|json|log)")
+                .find(line)
+                .is_some()
         {
             // 已在上面的闭包中收集
         }
@@ -184,7 +188,9 @@ pub fn extract_summary_clues(summary: &str) -> SummaryClues {
         }
 
         // 提取内存相关术语
-        let memory_terms = ["Eden", "RSS", "堆", "堆外", "mmap", "arena", "jemalloc", "uncommit"];
+        let memory_terms = [
+            "Eden", "RSS", "堆", "堆外", "mmap", "arena", "jemalloc", "uncommit",
+        ];
         for term in memory_terms {
             if line.contains(term) || line.to_lowercase().contains(term) {
                 clues.memory_terms.insert(term.to_string());
@@ -487,10 +493,7 @@ impl DreamProcessor {
             "source_details".to_string(),
             serde_json::to_string(&source_details).unwrap_or_default(),
         );
-        metadata.insert(
-            "integrated_count".to_string(),
-            candidates.len().to_string(),
-        );
+        metadata.insert("integrated_count".to_string(), candidates.len().to_string());
         metadata.insert(
             "min_importance".to_string(),
             candidates
@@ -661,7 +664,10 @@ impl DreamProcessor {
             })
             .collect();
 
-        let user_prompt = format!("以下是待整合的历史记忆（按重要性升序排列，优先整合低价值记忆）：\n\n{}", content_lines.join("\n"));
+        let user_prompt = format!(
+            "以下是待整合的历史记忆（按重要性升序排列，优先整合低价值记忆）：\n\n{}",
+            content_lines.join("\n")
+        );
 
         let messages = vec![
             LlmMessage::system(SUMMARY_SYSTEM_PROMPT),
@@ -676,8 +682,10 @@ impl DreamProcessor {
                     memories.len(),
                     messages.iter().map(|m| m.content.len()).sum::<usize>()
                 );
+                // 模板化摘要不需要推理：强制关闭 thinking，直白输出，
+                // 避免 DeepSeek 推理内容（复述指令等）污染 content。
                 let raw = llm
-                    .chat(&messages)
+                    .chat_with_think(&messages, mr_common::ThinkLevel::Off)
                     .await
                     .map_err(|e| DreamError::Llm(e.to_string()))?;
                 Ok(clean_summary(&raw))

@@ -164,7 +164,7 @@ mod tests {
         // LLM 默认关闭，Dream 需 LLM 时视为不启用
         assert!(!config.llm.enabled);
         assert_eq!(config.llm.provider, "deepseek");
-        assert_eq!(config.llm.think_level(), mr_common::ThinkLevel::Medium);
+        assert_eq!(config.llm.think_level(), mr_common::ThinkLevel::Low);
         assert!(config.dedup.enabled);
         assert_eq!(config.dedup.top_k, 5);
         assert_eq!(config.dedup.duplicate_threshold, 0.92);

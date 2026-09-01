@@ -21,6 +21,7 @@
 
 ### 修复
 
+- **DeepSeek 思考模式参数修正**（按官方文档 thinking_mode）：思考模式**默认打开**，`off` 必须显式传 `{"thinking":{"type":"disabled"}}`（此前不传导致实际仍深度思考，推理内容污染 Dream 摘要输出）；强度参数改为顶层 `reasoning_effort`（此前误放 `thinking.effort`），映射 `low→low`、`medium→high`（官方映射）、`high→high`、`xhigh→max`；**Dream 摘要调用强制禁用思考**（`chat_with_think(Off)`，模板化输出不需推理，简单直白）
 - **文档命名统一（中文为默认）**：`README_cn.md`→`README.md`、`README.md`→`README_en.md`；`CHANGELOG_cn.md`→`CHANGELOG.md`、`CHANGELOG.md`→`CHANGELOG_en.md`；`MANUAL_cn.md`→`MANUAL.md`、`MANUAL.md`→`MANUAL_en.md`；各文档顶部互加语言切换链接，所有引用同步更新
 - **systemd 服务模板支持环境文件**：`mr-install` 注册的 memrecd.service 增加 `EnvironmentFile=-~/.memrec/memrecd.env`（可选的用户环境文件，权限 600），解决 daemon 由 systemd 启动时不继承 shell 环境变量（如 `MEMREC_LLM_KEY`）导致的 LLM 401；README 环境变量提示同步修正（推荐 `memrecd.env`，不再推荐共享的 `environment.d`）
 - **Dream 整合保留策略扩展**：新增 `integration_preserve_types`（默认保留 `preference` + `context`）——context 类配置/环境信息（文件路径、验证数据、进度状态）压缩后细节不可恢复，默认不参与整合；新增 `integration_min_content_len`（默认 10 字符）过滤过短测试/占位垃圾记录

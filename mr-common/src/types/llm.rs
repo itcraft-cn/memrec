@@ -14,10 +14,11 @@ use serde::{Deserialize, Serialize};
 
 /// 思考强度等级。
 ///
-/// 参照 DeepSeek 模型目录的 `reasoningEffortMap` 设计：
-/// - `minimal`/`low`/`medium`/`high` 映射为 DeepSeek 的 `high`
-/// - `xhigh` 映射为 DeepSeek 的 `max`
-/// - `off` 表示关闭思考（DeepSeek 的 `disabled`）
+/// 参照 DeepSeek 推理模式文档（thinking_mode）的 `effort` 取值设计：
+/// - `minimal`/`low` → DeepSeek `low`
+/// - `medium` → DeepSeek `medium`
+/// - `high`/`xhigh` → DeepSeek `high`
+/// - `off` → 不传思考参数（简单直白输出，适合模板化/结构化生成任务）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ThinkLevel {
@@ -32,35 +33,48 @@ pub enum ThinkLevel {
     Medium,
     /// 高强度思考
     High,
-    /// 极强思考（映射 DeepSeek max）
+    /// 极强思考（映射 DeepSeek 最高档）
     Xhigh,
 }
 
 impl ThinkLevel {
     /// 按 provider 生成思考参数（完整顶层参数对象）。
     ///
+    /// 依据 DeepSeek 思考模式文档（thinking_mode）：
+    /// - 思考模式**默认打开**，关闭必须显式传 `{"thinking":{"type":"disabled"}}`
+    ///   （不传 = 默认思考，effort=high）
+    /// - 强度参数为顶层 `reasoning_effort`（枚举 `low/high/max`），
+    ///   DeepSeek 映射：`low→low`、`medium→high`、`high→high`、`xhigh→max`
+    ///
     /// # 返回
     ///
-    /// - DeepSeek 系（provider 含 `deepseek`）：`{"thinking":{"type":"enabled","effort":"high|max"}}`
-    /// - OpenAI 系（provider 含 `openai`）：`{"reasoning_effort":"minimal|low|medium|high"}`
-    /// - 其他 provider 或 `Off`：`None`（不传思考参数）
+    /// - DeepSeek 系（provider 含 `deepseek`）：
+    ///   - `Off` → `{"thinking":{"type":"disabled"}}`
+    ///   - 开启 → `{"thinking":{"type":"enabled"},"reasoning_effort":"low|high|max"}`
+    /// - OpenAI 系（provider 含 `openai`）：`{"reasoning_effort":"none|minimal|low|medium|high"}`
+    /// - 其他 provider 或无需思考参数的组合：`None`
     pub fn to_provider_param(&self, provider: &str) -> Option<serde_json::Value> {
         let p = provider.to_lowercase();
         if p.contains("deepseek") {
-            let effort = match self {
-                Self::Off => return None,
-                Self::Minimal | Self::Low | Self::Medium | Self::High => "high",
-                Self::Xhigh => "max",
-            };
-            Some(serde_json::json!({
-                "thinking": {
-                    "type": "enabled",
-                    "effort": effort,
-                }
-            }))
+            match self {
+                // 思考模式默认打开：Off 必须显式 disabled，不能省略
+                Self::Off => Some(serde_json::json!(
+                    {"thinking": {"type": "disabled"}}
+                )),
+                // 强度映射（文档）：low→low，medium→high，high→high，xhigh→max
+                Self::Minimal | Self::Low => Some(serde_json::json!(
+                    {"thinking": {"type": "enabled"}, "reasoning_effort": "low"}
+                )),
+                Self::Medium | Self::High => Some(serde_json::json!(
+                    {"thinking": {"type": "enabled"}, "reasoning_effort": "high"}
+                )),
+                Self::Xhigh => Some(serde_json::json!(
+                    {"thinking": {"type": "enabled"}, "reasoning_effort": "max"}
+                )),
+            }
         } else if p.contains("openai") {
             match self {
-                Self::Off => None,
+                Self::Off => Some(serde_json::json!({"reasoning_effort": "none"})),
                 Self::Minimal => Some(serde_json::json!({"reasoning_effort": "minimal"})),
                 Self::Low => Some(serde_json::json!({"reasoning_effort": "low"})),
                 Self::Medium => Some(serde_json::json!({"reasoning_effort": "medium"})),
@@ -222,15 +236,30 @@ mod tests {
 
     #[test]
     fn test_deepseek_mapping() {
+        // 思考模式默认打开：Off 必须显式 disabled（不传 = 默认思考 effort=high）
+        assert_eq!(
+            ThinkLevel::Off.to_provider_param("deepseek"),
+            Some(serde_json::json!({"thinking": {"type": "disabled"}}))
+        );
+        // 强度映射（文档）：low→low，medium/high→high，xhigh→max
+        assert_eq!(
+            ThinkLevel::Low.to_provider_param("deepseek"),
+            Some(serde_json::json!(
+                {"thinking": {"type": "enabled"}, "reasoning_effort": "low"}
+            ))
+        );
         assert_eq!(
             ThinkLevel::Medium.to_provider_param("deepseek"),
-            Some(serde_json::json!({"thinking": {"type": "enabled", "effort": "high"}}))
+            Some(serde_json::json!(
+                {"thinking": {"type": "enabled"}, "reasoning_effort": "high"}
+            ))
         );
         assert_eq!(
             ThinkLevel::Xhigh.to_provider_param("deepseek"),
-            Some(serde_json::json!({"thinking": {"type": "enabled", "effort": "max"}}))
+            Some(serde_json::json!(
+                {"thinking": {"type": "enabled"}, "reasoning_effort": "max"}
+            ))
         );
-        assert_eq!(ThinkLevel::Off.to_provider_param("deepseek"), None);
     }
 
     #[test]
@@ -243,7 +272,11 @@ mod tests {
             ThinkLevel::Xhigh.to_provider_param("openai"),
             Some(serde_json::json!({"reasoning_effort": "high"}))
         );
-        assert_eq!(ThinkLevel::Off.to_provider_param("openai"), None);
+        // Off：OpenAI 原生推理默认关闭，显式传 none
+        assert_eq!(
+            ThinkLevel::Off.to_provider_param("openai"),
+            Some(serde_json::json!({"reasoning_effort": "none"}))
+        );
     }
 
     #[test]
@@ -256,7 +289,8 @@ mod tests {
         let config = LlmConfig::default();
         assert!(!config.enabled);
         assert_eq!(config.provider, "deepseek");
-        assert_eq!(config.think_level(), ThinkLevel::Medium);
+        // 默认 think_level 字符串为 "low"
+        assert_eq!(config.think_level(), ThinkLevel::Low);
         assert_eq!(config.max_tokens, 4096);
     }
 
