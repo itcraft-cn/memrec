@@ -27,7 +27,6 @@ pub struct ServerConfig {
     pub socket_path: String,
     pub data_dir: String,
     pub vectors_dir: String,
-    pub log_file: String,
 }
 
 impl InstallConfig {
@@ -40,7 +39,6 @@ impl InstallConfig {
                 socket_path: "~/.memrec/memrecd.sock".to_string(),
                 data_dir: "~/.memrec/data".to_string(),
                 vectors_dir: "~/.memrec/vectors".to_string(),
-                log_file: "~/.memrec/logs/memrecd.log".to_string(),
             },
             llm: LlmConfig::default(),
             dedup: mr_common::DedupConfig::default(),

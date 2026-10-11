@@ -7,7 +7,7 @@
 
 pub mod fastembed;
 
-pub use fastembed::FastEmbedGenerator;
+pub use fastembed::{missing_required_files, resolve_model_dir, FastEmbedGenerator};
 
 use anyhow::Result;
 use mr_common::ModelConfig;

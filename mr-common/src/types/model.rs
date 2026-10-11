@@ -238,7 +238,7 @@ impl ModelFile {
             },
             ModelFile {
                 filename: "tokenizer.json".to_string(),
-                remote_path: "tokenizer.json".to_string(),
+                remote_path: "onnx/tokenizer.json".to_string(),
                 sha256: "6710678b12670bc442b99edc952c4d996ae309a7020c1fa0096dd245c2faf790"
                     .to_string(),
                 file_type: ModelFileType::Tokenizer,
@@ -246,7 +246,7 @@ impl ModelFile {
             },
             ModelFile {
                 filename: "config.json".to_string(),
-                remote_path: "config.json".to_string(),
+                remote_path: "onnx/config.json".to_string(),
                 sha256: "f24afd5de914fba8c668426c43d208a1a54022500c63b2c160be20891686fce8"
                     .to_string(),
                 file_type: ModelFileType::Config,
@@ -254,7 +254,7 @@ impl ModelFile {
             },
             ModelFile {
                 filename: "special_tokens_map.json".to_string(),
-                remote_path: "special_tokens_map.json".to_string(),
+                remote_path: "onnx/special_tokens_map.json".to_string(),
                 sha256: "8c785abebea9ae3257b61681b4e6fd8365ceafde980c21970d001e834cf10835"
                     .to_string(),
                 file_type: ModelFileType::SpecialTokensMap,
@@ -262,7 +262,7 @@ impl ModelFile {
             },
             ModelFile {
                 filename: "tokenizer_config.json".to_string(),
-                remote_path: "tokenizer_config.json".to_string(),
+                remote_path: "onnx/tokenizer_config.json".to_string(),
                 sha256: "7e4c1cc848840aeccdd763458c18dd525eb0f795c992e00ebe9c28554e7db2d4"
                     .to_string(),
                 file_type: ModelFileType::TokenizerConfig,
@@ -270,7 +270,7 @@ impl ModelFile {
             },
             ModelFile {
                 filename: "sentencepiece.bpe.model".to_string(),
-                remote_path: "sentencepiece.bpe.model".to_string(),
+                remote_path: "onnx/sentencepiece.bpe.model".to_string(),
                 sha256: "cfc8146abe2a0488e9e2a0c56de7952f7c11ab059eca145a0a727afce0db2865"
                     .to_string(),
                 file_type: ModelFileType::SentencePieceModel,
@@ -387,5 +387,51 @@ impl ModelConfig {
         self.files
             .iter()
             .find(|f| f.file_type == ModelFileType::TokenizerConfig)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// BGE-M3 的分词器/配置文件必须从仓库 `onnx/` 子目录下载。
+    ///
+    /// `BAAI/bge-m3` 仓库根目录与 `onnx/` 子目录下同名文件内容不同，
+    /// 记录在案的文件哈希对应的是 `onnx/` 子目录版本；若 remote_path
+    /// 指向根目录会导致哈希校验失败、模型下载不完整。
+    #[test]
+    fn test_bge_m3_remote_paths_all_under_onnx() {
+        for file in ModelFile::for_bge_m3() {
+            assert!(
+                file.remote_path.starts_with("onnx/"),
+                "{} remote_path should be under onnx/, got {}",
+                file.filename,
+                file.remote_path
+            );
+        }
+    }
+
+    /// onnx/ 子目录版本的哈希必须与 `BGE_M3_SETUP.md` 记录一致。
+    #[test]
+    fn test_bge_m3_tokenizer_hashes_are_onnx_variant() {
+        let files = ModelFile::for_bge_m3();
+        let get = |name: &str| {
+            files
+                .iter()
+                .find(|f| f.filename == name)
+                .unwrap_or_else(|| panic!("missing {name}"))
+        };
+        assert_eq!(
+            get("tokenizer.json").sha256,
+            "6710678b12670bc442b99edc952c4d996ae309a7020c1fa0096dd245c2faf790"
+        );
+        assert_eq!(
+            get("config.json").sha256,
+            "f24afd5de914fba8c668426c43d208a1a54022500c63b2c160be20891686fce8"
+        );
+        assert_eq!(
+            get("tokenizer_config.json").sha256,
+            "7e4c1cc848840aeccdd763458c18dd525eb0f795c992e00ebe9c28554e7db2d4"
+        );
     }
 }

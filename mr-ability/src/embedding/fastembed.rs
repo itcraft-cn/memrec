@@ -42,19 +42,15 @@ impl FastEmbedGenerator {
     /// 加载本地模型文件并初始化 ONNX Runtime 推理会话。
     /// 若必需文件缺失则返回错误，提示运行 `mr-install` 下载模型。
     pub fn new(model_config: ModelConfig) -> Result<Self> {
-        let model_dir = Self::get_model_dir(&model_config)?;
+        let model_dir = resolve_model_dir(&model_config)?;
 
-        for file in &model_config.files {
-            if file.required {
-                let file_path = model_dir.join(&file.filename);
-                if !file_path.exists() {
-                    anyhow::bail!(
-                        "Model file missing: {} from {:?}. Download required.",
-                        file.filename,
-                        model_dir
-                    );
-                }
-            }
+        let missing = missing_required_files(&model_config)?;
+        if !missing.is_empty() {
+            anyhow::bail!(
+                "Model file(s) missing: {} from {:?}. Download required (run `mr-install --use-hf-mirror`).",
+                missing.join(", "),
+                model_dir
+            );
         }
 
         let onnx_file = model_config
@@ -98,36 +94,54 @@ impl FastEmbedGenerator {
             model_config,
         })
     }
+}
 
-    /// 确定模型目录路径。
-    ///
-    /// 优先级：`MEMREC_MODEL_DIR` 环境变量 > 配置项 `model_dir` > 默认 `~/.memrec/models/<dir_name>`
-    fn get_model_dir(model_config: &ModelConfig) -> Result<PathBuf> {
-        if let Ok(env_path) = std::env::var(ENV_MODEL_DIR) {
-            let path = PathBuf::from(env_path);
-            if path.is_absolute() {
-                return Ok(path);
-            }
-            let home =
-                dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
-            return Ok(home.join(path));
+/// 确定模型目录路径。
+///
+/// 优先级：`MEMREC_MODEL_DIR` 环境变量 > 配置项 `model_dir` > 默认 `~/.memrec/models/<dir_name>`。
+///
+/// 供守护进程启动预检与模型加载共用，避免两处路径解析逻辑不一致。
+pub fn resolve_model_dir(model_config: &ModelConfig) -> Result<PathBuf> {
+    if let Ok(env_path) = std::env::var(ENV_MODEL_DIR) {
+        let path = PathBuf::from(env_path);
+        if path.is_absolute() {
+            return Ok(path);
         }
-
-        if let Some(ref model_dir) = model_config.model_dir {
-            let path = PathBuf::from(model_dir);
-            if path.is_absolute() {
-                return Ok(path);
-            }
-            let home =
-                dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
-            return Ok(home.join(path));
-        }
-
         let home =
             dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
-        let dir_name = model_config.local_dir_name();
-        Ok(home.join(".memrec/models").join(dir_name))
+        return Ok(home.join(path));
     }
+
+    if let Some(ref model_dir) = model_config.model_dir {
+        let path = PathBuf::from(model_dir);
+        if path.is_absolute() {
+            return Ok(path);
+        }
+        let home =
+            dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
+        return Ok(home.join(path));
+    }
+
+    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Failed to get home directory"))?;
+    let dir_name = model_config.local_dir_name();
+    Ok(home.join(".memrec/models").join(dir_name))
+}
+
+/// 返回模型目录下缺失的必需文件名列表。
+///
+/// 用于守护进程启动预检：模型文件缺失时提前失败并给出明确的修复指引，
+/// 而非在深层初始化中静默退出。目录无法解析或清单为空时返回空列表。
+pub fn missing_required_files(model_config: &ModelConfig) -> Result<Vec<String>> {
+    if model_config.files.is_empty() {
+        return Ok(Vec::new());
+    }
+    let model_dir = resolve_model_dir(model_config)?;
+    Ok(model_config
+        .files
+        .iter()
+        .filter(|f| f.required && !model_dir.join(&f.filename).exists())
+        .map(|f| f.filename.clone())
+        .collect())
 }
 
 /// 从模型目录读取指定类型的模型文件。
@@ -239,5 +253,50 @@ mod tests {
         println!("狗-汽车相似度: {}", sim13);
 
         assert!(sim12 > sim13, "语义相似度测试失败: 狗猫应比狗汽车更相似");
+    }
+
+    #[test]
+    fn test_missing_required_files_reports_all_when_dir_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = ModelConfig::default();
+        config.model_dir = Some(dir.path().to_string_lossy().to_string());
+
+        let missing = missing_required_files(&config).unwrap();
+        let expected: Vec<String> = config
+            .files
+            .iter()
+            .filter(|f| f.required)
+            .map(|f| f.filename.clone())
+            .collect();
+
+        assert_eq!(missing, expected);
+        assert!(!missing.is_empty());
+    }
+
+    #[test]
+    fn test_missing_required_files_empty_when_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = ModelConfig::default();
+        config.model_dir = Some(dir.path().to_string_lossy().to_string());
+
+        for file in config.files.iter().filter(|f| f.required) {
+            std::fs::write(dir.path().join(&file.filename), b"x").unwrap();
+        }
+
+        assert!(missing_required_files(&config).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_missing_required_files_skips_optional() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = ModelConfig::default();
+        config.model_dir = Some(dir.path().to_string_lossy().to_string());
+
+        // 仅写入必需文件，可选文件缺失不应出现在缺失列表中
+        for file in config.files.iter().filter(|f| f.required) {
+            std::fs::write(dir.path().join(&file.filename), b"x").unwrap();
+        }
+
+        assert!(missing_required_files(&config).unwrap().is_empty());
     }
 }

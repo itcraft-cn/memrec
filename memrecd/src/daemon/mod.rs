@@ -15,7 +15,7 @@ use std::time::Duration;
 use tokio::signal;
 use tokio::sync::mpsc;
 use tokio::time::interval;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::config::DaemonConfig;
 use crate::server::{Router, UnixSocketServer};
@@ -83,10 +83,35 @@ impl Daemon {
         info!("Socket: {:?}", self.config.server.socket_path);
 
         if !self.config.model.is_ready() {
+            error!(
+                "Model configuration is not ready: no file manifest. Run `mr-install` to download the model."
+            );
             anyhow::bail!(
                 "Model configuration is not ready. Please run mr-install to download the model."
             );
         }
+
+        // 启动预检：必需模型文件缺失时立即显式报错，同时写入日志文件与 stderr，
+        // 避免仅在深层初始化（FastEmbed 加载）中失败而"静默退出"。
+        let model_dir =
+            mr_ability::embedding::resolve_model_dir(&self.config.model).map_err(|e| {
+                error!("Failed to resolve embedding model directory: {}", e);
+                e
+            })?;
+        let missing = mr_ability::embedding::missing_required_files(&self.config.model)?;
+        if !missing.is_empty() {
+            error!(
+                "Embedding model files missing in {}: {}. Run `mr-install --skip-install --skip-service --skip-verify --use-hf-mirror` to download.",
+                model_dir.display(),
+                missing.join(", ")
+            );
+            anyhow::bail!(
+                "Embedding model files missing in {}: {}",
+                model_dir.display(),
+                missing.join(", ")
+            );
+        }
+        info!("Model files verified in {}", model_dir.display());
 
         let rocksdb = Arc::new(RocksDBStore::open(&self.config.server.data_dir)?);
         let storage = Arc::new(MemoryStore::new(rocksdb.clone()));
