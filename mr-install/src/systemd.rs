@@ -52,6 +52,11 @@ Description=MemRec Memory Persistence Daemon
 Documentation=https://github.com/itcraft-cn/memrec
 After=default.target
 
+# 失败重启限流：60 秒内启动失败超过 3 次即停止重启，避免崩溃循环刷屏。
+# 恢复方式：systemctl --user reset-failed memrecd && systemctl --user start memrecd
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
 [Service]
 Type=simple
 ExecStart={bin}/memrecd
