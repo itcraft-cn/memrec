@@ -72,6 +72,8 @@ pub struct RetrievalGraph {
     pub depth: usize,
     pub decay: f32,
     pub weight: f32,
+    /// 图命中保留名额比例（0.0-1.0）：最终 top_k 中为图命中预留的比例。
+    pub quota: f32,
 }
 
 impl Default for RetrievalGraph {
@@ -81,6 +83,7 @@ impl Default for RetrievalGraph {
             depth: 1,
             decay: 0.6,
             weight: 0.3,
+            quota: 0.25,
         }
     }
 }
@@ -1019,14 +1022,41 @@ impl Router {
                     }
                 }
 
-                // 图命中并入后统一按分重排并截断
+                // 统一按分排序（含种子与图命中）
                 results.sort_by(|a, b| {
                     b.score
                         .partial_cmp(&a.score)
                         .unwrap_or(std::cmp::Ordering::Equal)
                         .then_with(|| a.memory_id.cmp(&b.memory_id))
                 });
-                results.truncate(p.top_k.max(1));
+
+                // 图命中保留名额：图命中分 = seed_score × graph_score × weight，恒低于
+                // 其种子分；若仅按分合并后截断，图命中必被种子填满的 top_k 挤出，图扩散
+                // 等同失效。故为图命中预留 quota×top_k 个名额，使其能进入最终结果。
+                let top_k = p.top_k.max(1);
+                let graph_slots =
+                    ((top_k as f32) * self.retrieval_graph.quota.clamp(0.0, 1.0)).ceil() as usize;
+                if graph_slots > 0 {
+                    let (graph_hits, seed_hits): (Vec<SearchHit>, Vec<SearchHit>) =
+                        results.into_iter().partition(|r| r.edge_hint.is_some());
+                    if !graph_hits.is_empty() {
+                        let g = graph_slots.min(graph_hits.len());
+                        let s = top_k.saturating_sub(g);
+                        let mut merged: Vec<SearchHit> = seed_hits.into_iter().take(s).collect();
+                        merged.extend(graph_hits.into_iter().take(g));
+                        // 最终仍按分展示排序
+                        merged.sort_by(|a, b| {
+                            b.score
+                                .partial_cmp(&a.score)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                                .then_with(|| a.memory_id.cmp(&b.memory_id))
+                        });
+                        results = merged;
+                    } else {
+                        results = seed_hits;
+                    }
+                }
+                results.truncate(top_k);
 
                 let total = results.len();
 
@@ -1754,6 +1784,11 @@ mod tests {
     ///
     /// 返回 `(Router, EdgeStore)`：测试可手动建边后验证扩散召回。
     fn router_with_graph() -> (Router, Arc<dyn mr_ability::storage::EdgeStorage>) {
+        router_with_graph_quota(0.25)
+    }
+
+    /// 同上，但显式指定图命中保留名额比例，用于验证保留名额机制。
+    fn router_with_graph_quota(quota: f32) -> (Router, Arc<dyn mr_ability::storage::EdgeStorage>) {
         let dir = tempdir().unwrap();
         let data_dir = dir.path().to_path_buf();
         std::mem::forget(dir);
@@ -1791,7 +1826,14 @@ mod tests {
             DedupConfig::default(),
             None,
         )
-        .with_edge_store(edge_store.clone());
+        .with_edge_store(edge_store.clone())
+        .with_retrieval_graph(RetrievalGraph {
+            enabled: true,
+            depth: 1,
+            decay: 0.6,
+            weight: 0.3,
+            quota,
+        });
         (router, edge_store)
     }
 
@@ -1898,6 +1940,83 @@ mod tests {
             .find(|r| r.memory_id == b_id)
             .expect("邻居 B 应经图扩散进入结果");
         assert!(b_hit.edge_hint.is_some(), "图命中应带 EdgeHint");
+    }
+
+    #[tokio::test]
+    async fn test_search_graph_quota_reserves_slot() {
+        // 种子填满 top_k 时：quota=0 图命中被截断；quota>0 图命中获保留名额。
+        // 构造 helper：返回 (图命中是否进入结果)。
+        async fn has_graph_hit(quota: f32) -> bool {
+            let (router, edge_store) = router_with_graph_quota(quota);
+
+            // 5 条同内容种子，恰好填满 top_k=5
+            let mut seed_ids = Vec::new();
+            for i in 0..5u64 {
+                let r = router
+                    .route(add_request_dedup_off(
+                        "rust ownership and borrowing rules",
+                        100 + i,
+                    ))
+                    .await;
+                if let Some(ResponseResult::Memory(m)) = r.result {
+                    seed_ids.push(m.memory.id);
+                }
+            }
+            assert_eq!(seed_ids.len(), 5);
+
+            // B 仅写入记忆库、不进索引，只能经图扩散到达
+            let b_mem = mr_common::Memory::new(
+                "cargo workspace dependency layout".to_string(),
+                MemoryType::Knowledge,
+            );
+            let b_id = b_mem.id;
+            router.storage.add(&b_mem).await.unwrap();
+            let edge = mr_common::MemoryEdge::new(
+                seed_ids[0],
+                b_id,
+                mr_common::EdgeType::References,
+                0.9,
+                "test".to_string(),
+            );
+            edge_store.save(&edge).await.unwrap();
+
+            let resp = router
+                .route(JsonRpcRequest::new(
+                    RequestAction::SearchMemory,
+                    Some(RequestParams::SearchMemory(SearchMemoryParams {
+                        query: "rust ownership and borrowing rules".to_string(),
+                        project_id: None,
+                        include_global: true,
+                        project_only: false,
+                        global_only: false,
+                        cross_project: false,
+                        memory_type: None,
+                        top_k: 5,
+                        min_score: 0.0,
+                        working_dir: None,
+                        hybrid_alpha: default_hybrid_alpha(),
+                        mmr_enabled: false,
+                        mmr_lambda: default_mmr_lambda(),
+                    })),
+                    7,
+                ))
+                .await;
+            match resp.result {
+                Some(ResponseResult::SemanticSearchResult(r)) => {
+                    r.results.iter().any(|x| x.memory_id == b_id)
+                }
+                _ => panic!("expected semantic search result"),
+            }
+        }
+
+        assert!(
+            !has_graph_hit(0.0).await,
+            "quota=0 时图命中应按分截断（图命中分恒低于种子分）"
+        );
+        assert!(
+            has_graph_hit(0.25).await,
+            "quota>0 时图命中应获得保留名额并进入结果"
+        );
     }
 
     #[tokio::test]

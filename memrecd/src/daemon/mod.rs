@@ -28,7 +28,7 @@ use mr_ability::llm::{LlmClient, OpenAiCompatibleClient};
 use mr_ability::propagation::{MockDeltaGenerator, PropagationEngine};
 use mr_ability::search::{MmrConfig, ScorerConfig};
 use mr_ability::storage::{
-    DreamRunStore, EdgeStore, HybridStore, IndexingStorage, MemoryStorage, MemoryStore,
+    DreamRunStore, EdgeStore, FtsStorage, HybridStore, IndexingStorage, MemoryStorage, MemoryStore,
     PropagationStore, RocksDBStore, RocksDBVectorStore, TantivyStore, VectorStorage,
 };
 
@@ -140,6 +140,10 @@ impl Daemon {
             .join("fts");
         let fts_store = Arc::new(TantivyStore::open(&fts_dir).await?);
 
+        // 启动全文索引自愈：修正历史遗留的“活跃记忆缺全文文档 / 软删记忆残留全文
+        // 文档”不一致（旧版本 Dream 写路径曾绕过全文索引维护）。
+        self.reconcile_fts_index(&storage, &fts_store).await?;
+
         let hybrid_store = Arc::new(HybridStore::new(
             vector_store.clone(),
             fts_store,
@@ -233,6 +237,7 @@ impl Daemon {
                 depth: self.config.dream.retrieval_graph_depth,
                 decay: self.config.dream.retrieval_graph_decay,
                 weight: self.config.dream.retrieval_graph_weight,
+                quota: self.config.dream.retrieval_graph_quota,
             }),
         );
 
@@ -311,6 +316,64 @@ impl Daemon {
             vector_store.count_cached()
         );
 
+        Ok(())
+    }
+
+    /// 启动全文索引自愈：比对活跃记忆与全文索引文档数，增量修正不一致。
+    ///
+    /// 旧版本 Dream 写路径绕过全文索引维护，可能残留两类不一致：活跃记忆缺全文
+    /// 文档（检索不到）、软删记忆残留全文文档（“幽灵结果”）。此处以全文索引文档数
+    /// 与活跃记忆数是否相等为快速判据；相等则跳过（常数代价），不等则增量修复：
+    /// 先移除软删记忆的文档，再补齐缺失的活跃记忆文档。
+    async fn reconcile_fts_index(
+        &self,
+        storage: &Arc<MemoryStore>,
+        fts_store: &Arc<TantivyStore>,
+    ) -> Result<()> {
+        let active = storage.list(usize::MAX).await?;
+        let fts_count = fts_store.count().await?;
+        if fts_count == active.len() {
+            info!("FTS index consistent: {} documents", fts_count);
+            return Ok(());
+        }
+
+        info!(
+            "FTS index inconsistent (docs: {}, active memories: {}); reconciling...",
+            fts_count,
+            active.len()
+        );
+
+        // 1) 移除软删记忆残留的全文文档
+        let deleted = storage.list_deleted().await?;
+        let mut removed = 0usize;
+        for memory in &deleted {
+            if fts_store.contains(&memory.id).await? {
+                fts_store.remove(&memory.id).await?;
+                removed += 1;
+            }
+        }
+
+        // 2) 补齐活跃记忆缺失的全文文档
+        let mut added = 0usize;
+        for memory in &active {
+            if !fts_store.contains(&memory.id).await? {
+                let payload = mr_ability::storage::FtsPayload {
+                    project_id: memory.project_id,
+                    memory_type: memory.memory_type.to_string(),
+                    tags: memory.tags.clone(),
+                    importance: memory.importance,
+                };
+                fts_store.add(&memory.id, &memory.content, payload).await?;
+                added += 1;
+            }
+        }
+
+        info!(
+            "FTS index reconciled: removed {}, added {}, now {} documents",
+            removed,
+            added,
+            fts_store.count().await?
+        );
         Ok(())
     }
 

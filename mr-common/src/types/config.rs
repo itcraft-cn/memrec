@@ -317,6 +317,13 @@ pub struct DreamConfig {
     /// 是否做矛盾消解（识别矛盾对，转为 Contradicts 边）
     #[serde(default = "default_fusion_detect_contradictions")]
     pub fusion_detect_contradictions: bool,
+    /// 是否对融合产出的事实条做近重复去重（上游去重，默认开）
+    #[serde(default = "default_fusion_dedup_enabled")]
+    pub fusion_dedup_enabled: bool,
+    /// 事实条近重复判定阈值（余弦相似度，默认 0.97）；达到即视为重复，
+    /// 仅保留最先产出的一条，避免 Dream 产出冗余记忆与噪声边。
+    #[serde(default = "default_fusion_dedup_threshold")]
+    pub fusion_dedup_threshold: f32,
 
     // ---- Stage N 成网（networking）----
     /// 是否启用成网段
@@ -331,6 +338,14 @@ pub struct DreamConfig {
     /// 是否启用 LLM 语义边（默认关，先零 LLM 跑图）
     #[serde(default = "default_networking_semantic_enabled")]
     pub networking_semantic_enabled: bool,
+    /// 语义边候选池上限：按向量相似度取最相近的若干条送入 LLM（默认 20），
+    /// 避免把全量候选+产出整体入参导致成本随规模线性膨胀。
+    #[serde(default = "default_networking_semantic_max_candidates")]
+    pub networking_semantic_max_candidates: usize,
+    /// 语义边候选的近重复排除阈值（余弦，默认 0.97）：达到即视为重复，
+    /// 不参与语义边生成（重复应去重，而非建立关系边）。
+    #[serde(default = "default_networking_semantic_dup_threshold")]
+    pub networking_semantic_dup_threshold: f32,
     /// 是否启用传播
     #[serde(default = "default_networking_propagation_enabled")]
     pub networking_propagation_enabled: bool,
@@ -348,6 +363,10 @@ pub struct DreamConfig {
     /// 图命中并入候选的权重
     #[serde(default = "default_retrieval_graph_weight")]
     pub retrieval_graph_weight: f32,
+    /// 图命中保留名额比例（0.0-1.0，默认 0.25）：最终 top_k 中为图命中专留
+    /// 的比例，使图命中不被种子分挤压后截断。置 0 则退回"纯按分合并截断"。
+    #[serde(default = "default_retrieval_graph_quota")]
+    pub retrieval_graph_quota: f32,
 
     // ---- dry-run ----
     /// dry-run 预演时是否真调 LLM（关闭时用模板占位摘要）
@@ -441,6 +460,12 @@ fn default_fusion_emit_summary() -> bool {
 fn default_fusion_detect_contradictions() -> bool {
     true
 }
+fn default_fusion_dedup_enabled() -> bool {
+    true
+}
+fn default_fusion_dedup_threshold() -> f32 {
+    0.97
+}
 fn default_networking_enabled() -> bool {
     true
 }
@@ -452,6 +477,12 @@ fn default_networking_similar_threshold() -> f32 {
 }
 fn default_networking_semantic_enabled() -> bool {
     false
+}
+fn default_networking_semantic_max_candidates() -> usize {
+    20
+}
+fn default_networking_semantic_dup_threshold() -> f32 {
+    0.97
 }
 fn default_networking_propagation_enabled() -> bool {
     true
@@ -467,6 +498,9 @@ fn default_retrieval_graph_decay() -> f32 {
 }
 fn default_retrieval_graph_weight() -> f32 {
     0.3
+}
+fn default_retrieval_graph_quota() -> f32 {
+    0.25
 }
 fn default_dry_run_with_llm() -> bool {
     false
@@ -503,15 +537,20 @@ impl Default for DreamConfig {
             fusion_emit_facts: true,
             fusion_emit_summary: true,
             fusion_detect_contradictions: true,
+            fusion_dedup_enabled: true,
+            fusion_dedup_threshold: 0.97,
             networking_enabled: true,
             networking_similar_topk: 5,
             networking_similar_threshold: 0.82,
             networking_semantic_enabled: false,
+            networking_semantic_max_candidates: 20,
+            networking_semantic_dup_threshold: 0.97,
             networking_propagation_enabled: true,
             retrieval_graph_enabled: true,
             retrieval_graph_depth: 1,
             retrieval_graph_decay: 0.6,
             retrieval_graph_weight: 0.3,
+            retrieval_graph_quota: 0.25,
             dry_run_with_llm: false,
         }
     }
@@ -659,6 +698,18 @@ mod tests {
 
         assert_eq!(config.lambda, 0.05);
         assert_eq!(config.weight_recency, 0.3);
+    }
+
+    #[test]
+    fn test_dream_config_new_defaults() {
+        let c = DreamConfig::default();
+        // 上游去重与语义边候选限幅、图命中保留名额的默认值
+        assert!(c.fusion_dedup_enabled);
+        assert_eq!(c.fusion_dedup_threshold, 0.97);
+        assert_eq!(c.networking_semantic_max_candidates, 20);
+        assert_eq!(c.networking_semantic_dup_threshold, 0.97);
+        assert_eq!(c.retrieval_graph_quota, 0.25);
+        assert_eq!(c.retrieval_graph_weight, 0.3);
     }
 
     #[test]

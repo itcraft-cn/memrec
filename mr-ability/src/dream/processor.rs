@@ -65,6 +65,29 @@ pub enum DreamError {
     Llm(String),
 }
 
+/// 计算两个等长向量的余弦相似度；维度不一致或存在零向量时返回 0。
+///
+/// 用于 Dream 上游去重与语义边候选筛选的近似度量。调用方需自行保证向量
+/// 已归一化或对结果量级不敏感；本函数不修改入参。
+fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
+    let mut dot = 0.0f32;
+    let mut na = 0.0f32;
+    let mut nb = 0.0f32;
+    for i in 0..a.len() {
+        dot += a[i] * b[i];
+        na += a[i] * a[i];
+        nb += b[i] * b[i];
+    }
+    if na == 0.0 || nb == 0.0 {
+        0.0
+    } else {
+        dot / (na.sqrt() * nb.sqrt())
+    }
+}
+
 /// 清洗 LLM 摘要输出，剥离常见套话与格式噪音。
 ///
 /// 处理项：Markdown 代码块包裹、常见开场白前缀（循环剥离兼容嵌套）、
@@ -597,10 +620,9 @@ impl DreamProcessor {
                 .partial_cmp(&b.importance)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-        candidates.truncate(self.config.integration_max_memories);
 
-        run.candidate_count = candidates.len();
-
+        // 门禁先于截断：以“可整合候选总数”判定是否达到最小门槛，避免
+        // integration_max_memories < min_memories 时被截断后误报“记忆不足”。
         if candidates.len() < self.config.min_memories {
             warn!(
                 "Not enough memories for Dream integration: {} < {}",
@@ -613,6 +635,9 @@ impl DreamProcessor {
                 dry_run,
             ));
         }
+
+        candidates.truncate(self.config.integration_max_memories);
+        run.candidate_count = candidates.len();
 
         info!(
             "Dream processing {} memories older than {}",
@@ -660,6 +685,9 @@ impl DreamProcessor {
         let mut summary_texts: Vec<String> = Vec::new();
 
         let mem_type = parse_memory_type(&self.config.integration_type);
+        // 上游去重：跨簇累积已保留事实条的嵌入，用于近重复判定。
+        let mut kept_fact_embs: Vec<Vec<f32>> = Vec::new();
+        let mut dedup_dropped = 0usize;
 
         for (cluster, extraction) in &extractions {
             let source_ids: Vec<String> =
@@ -685,7 +713,27 @@ impl DreamProcessor {
                     let mut tags = self.config.integration_tags.clone();
                     tags.push(TAG_INTEGRATED.to_string());
                     tags.push(TAG_FACT.to_string());
-                    let m = build_produced_memory(fact.text.clone(), mem_type, tags, meta, 0.7);
+                    let mut m = build_produced_memory(fact.text.clone(), mem_type, tags, meta, 0.7);
+
+                    // 上游去重：事实条与已保留事实条近重复（余弦 >= 阈值）则丢弃，
+                    // 仅保留最先产出的一条，避免梦产出冗余记忆与"重复当关系"的噪声边。
+                    if self.config.fusion_dedup_enabled {
+                        if let Some(emb) = self
+                            .embedder
+                            .as_ref()
+                            .and_then(|e| e.embed(&m.content).ok())
+                        {
+                            if kept_fact_embs.iter().any(|k| {
+                                cosine_similarity(k, &emb) >= self.config.fusion_dedup_threshold
+                            }) {
+                                dedup_dropped += 1;
+                                continue;
+                            }
+                            m.embedding = Some(emb.clone());
+                            kept_fact_embs.push(emb);
+                        }
+                    }
+
                     let mid = m.id;
                     if !dry_run {
                         self.storage
@@ -734,6 +782,14 @@ impl DreamProcessor {
                     }
                 }
             }
+        }
+
+        if dedup_dropped > 0 {
+            tracing::info!(
+                dropped = dedup_dropped,
+                threshold = self.config.fusion_dedup_threshold,
+                "Dream Stage F 上游去重：丢弃近重复事实条"
+            );
         }
 
         run.integrated_memory_ids = integrated_ids.clone();
@@ -818,8 +874,45 @@ impl DreamProcessor {
                             3,
                             0.6,
                         );
+                        let max_candidates = self.config.networking_semantic_max_candidates;
                         for m in &produced {
-                            match gen.generate(m, &pool, edge_store.as_ref()).await {
+                            // 语义边候选池限幅：按向量相似度取最相近的 top-N，排除自身与
+                            // 近重复（近重复应走上游去重，而非建立关系边），避免把全量
+                            // 候选+产出整体入参导致成本随规模线性膨胀。
+                            let m_emb = produced_emb.get(&m.id);
+                            let mut scored: Vec<(&Memory, f32)> = Vec::new();
+                            for cand in &pool {
+                                if cand.id == m.id {
+                                    continue;
+                                }
+                                let s = match (m_emb, pool_emb.get(&cand.id)) {
+                                    (Some(a), Some(b)) => cosine_similarity(a, b),
+                                    _ => 0.0,
+                                };
+                                if s >= self.config.networking_semantic_dup_threshold {
+                                    continue;
+                                }
+                                scored.push((cand, s));
+                            }
+                            scored.sort_by(|a, b| {
+                                b.1.partial_cmp(&a.1)
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                                    .then_with(|| a.0.id.cmp(&b.0.id))
+                            });
+                            let candidates_limited: Vec<Memory> = if max_candidates == 0 {
+                                Vec::new()
+                            } else {
+                                scored
+                                    .iter()
+                                    .take(max_candidates)
+                                    .map(|(c, _)| (*c).clone())
+                                    .collect()
+                            };
+
+                            match gen
+                                .generate(m, &candidates_limited, edge_store.as_ref())
+                                .await
+                            {
                                 Ok(edges) => {
                                     for e in edges {
                                         if let Err(err) = edge_store.save(&e).await {
@@ -1508,5 +1601,18 @@ mod tests {
         assert!(result.is_ok());
         let dream_result = result.unwrap();
         assert_eq!(dream_result.integrated_count, 2);
+    }
+
+    #[test]
+    fn test_cosine_similarity_basic() {
+        // 同向量相似度为 1，正交为 0，维度不一致或零向量为 0
+        assert!((super::cosine_similarity(&[1.0, 0.0], &[1.0, 0.0]) - 1.0).abs() < 1e-6);
+        assert!((super::cosine_similarity(&[1.0, 0.0], &[0.0, 1.0])).abs() < 1e-6);
+        assert_eq!(super::cosine_similarity(&[1.0], &[1.0, 2.0]), 0.0);
+        assert_eq!(super::cosine_similarity(&[0.0, 0.0], &[1.0, 1.0]), 0.0);
+        // 近重复向量相似度应高于去重阈值 0.97
+        let a = [1.0f32, 2.0, 3.0, 4.0];
+        let b = [1.0f32, 2.0, 3.0, 4.01];
+        assert!(super::cosine_similarity(&a, &b) >= 0.97);
     }
 }

@@ -7,9 +7,9 @@ use async_trait::async_trait;
 use std::path::Path;
 use std::sync::Arc;
 use tantivy::{
-    collector::TopDocs,
+    collector::{Count, TopDocs},
     directory::MmapDirectory,
-    query::QueryParser,
+    query::{QueryParser, TermQuery},
     schema::{Field, IndexRecordOption, Schema, Value, FAST, STORED, STRING, TEXT},
     tokenizer::{LowerCaser, NgramTokenizer, RemoveLongFilter, TextAnalyzer},
     Index, IndexReader, IndexWriter, TantivyDocument,
@@ -151,6 +151,19 @@ impl TantivyStore {
             .reload()
             .context("Failed to reload Tantivy reader")
     }
+
+    /// 判断指定记忆 id 是否已在全文索引中（按 id 精确检索）。
+    ///
+    /// 用于启动阶段全文索引自愈：增量比对活跃记忆是否落库，避免全量重建。
+    pub async fn contains(&self, id: &Uuid) -> Result<bool> {
+        let searcher = self.reader.searcher();
+        let term = tantivy::Term::from_field_text(self.schema.id, &id.to_string());
+        let query = TermQuery::new(term, IndexRecordOption::Basic);
+        let count = searcher
+            .search(&query, &Count)
+            .context("Failed to query Tantivy by id")?;
+        Ok(count > 0)
+    }
 }
 
 #[async_trait]
@@ -284,5 +297,45 @@ impl FtsStorage for TantivyStore {
         self.reader
             .reload()
             .context("Failed to reload Tantivy reader")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::traits::FtsPayload;
+
+    fn payload() -> FtsPayload {
+        FtsPayload {
+            project_id: None,
+            memory_type: "knowledge".to_string(),
+            tags: vec!["t".to_string()],
+            importance: 0.5,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_contains_reflects_add_and_remove() {
+        let store = TantivyStore::new_test();
+        let id = Uuid::new_v4();
+        assert!(!store.contains(&id).await.unwrap(), "未写入前不应存在");
+
+        store.add(&id, "hello world", payload()).await.unwrap();
+        store.reload().unwrap();
+        assert!(store.contains(&id).await.unwrap(), "写入后应存在");
+
+        store.remove(&id).await.unwrap();
+        store.reload().unwrap();
+        assert!(!store.contains(&id).await.unwrap(), "移除后不应存在");
+    }
+
+    #[tokio::test]
+    async fn test_count_tracks_documents() {
+        let store = TantivyStore::new_test();
+        assert_eq!(store.count().await.unwrap(), 0);
+        store.add(&Uuid::new_v4(), "a", payload()).await.unwrap();
+        store.add(&Uuid::new_v4(), "b", payload()).await.unwrap();
+        store.reload().unwrap();
+        assert_eq!(store.count().await.unwrap(), 2);
     }
 }

@@ -82,25 +82,30 @@ impl IndexingStorage {
     /// 先移除是为了保证 `update` 场景下全文索引不产生重复文档；
     /// 对新记忆该移除为无副作用操作。失败仅告警。
     async fn reindex(&self, memory: &Memory) {
-        let embedding = match self.embedder.embed(&memory.content) {
-            Ok(v) if !v.is_empty() => v,
-            Ok(_) => {
-                warn!(
-                    target: "indexing",
-                    "Skip indexing memory {}: empty embedding",
-                    memory.id
-                );
-                return;
-            }
-            Err(e) => {
-                warn!(
-                    target: "indexing",
-                    "Skip indexing memory {}: embedding failed: {}",
-                    memory.id,
-                    e
-                );
-                return;
-            }
+        // 优先复用记忆已携带的向量（如 Dream 上游去重时预计算并写回），
+        // 避免重复嵌入；无预置向量时再回退到嵌入生成器。
+        let embedding = match memory.embedding.clone().filter(|v| !v.is_empty()) {
+            Some(v) => v,
+            None => match self.embedder.embed(&memory.content) {
+                Ok(v) if !v.is_empty() => v,
+                Ok(_) => {
+                    warn!(
+                        target: "indexing",
+                        "Skip indexing memory {}: empty embedding",
+                        memory.id
+                    );
+                    return;
+                }
+                Err(e) => {
+                    warn!(
+                        target: "indexing",
+                        "Skip indexing memory {}: embedding failed: {}",
+                        memory.id,
+                        e
+                    );
+                    return;
+                }
+            },
         };
         // 移除旧文档，避免重复
         if let Err(e) = self.hybrid.remove(&memory.id).await {
@@ -218,11 +223,16 @@ mod tests {
     #[derive(Default)]
     struct FakeHybrid {
         ids: Mutex<HashSet<Uuid>>,
+        embeddings: Mutex<std::collections::HashMap<Uuid, Vec<f32>>>,
     }
 
     impl FakeHybrid {
         fn contains(&self, id: &Uuid) -> bool {
             self.ids.lock().unwrap().contains(id)
+        }
+
+        fn embedding_of(&self, id: &Uuid) -> Option<Vec<f32>> {
+            self.embeddings.lock().unwrap().get(id).cloned()
         }
     }
 
@@ -239,11 +249,15 @@ mod tests {
         async fn add(
             &self,
             id: &Uuid,
-            _embedding: &[f32],
+            embedding: &[f32],
             _text: &str,
             _payload: VectorPayload,
         ) -> Result<()> {
             self.ids.lock().unwrap().insert(*id);
+            self.embeddings
+                .lock()
+                .unwrap()
+                .insert(*id, embedding.to_vec());
             Ok(())
         }
 
@@ -303,5 +317,19 @@ mod tests {
         assert!(!hybrid.contains(&m.id));
         assert!(store.restore(&m.id).await.unwrap().is_some());
         assert!(hybrid.contains(&m.id), "恢复后应重建索引");
+    }
+
+    #[tokio::test]
+    async fn test_reindex_reuses_precomputed_embedding() {
+        // 记忆已携带向量时应直接复用，不再调用嵌入生成器（避免 Dream 重复嵌入）
+        let (store, hybrid, _dir) = build();
+        let mut m = Memory::new("precomputed".to_string(), MemoryType::Knowledge);
+        m.embedding = Some(vec![9.0, 8.0, 7.0, 6.0]);
+        store.save(&m).await.unwrap();
+        assert_eq!(
+            hybrid.embedding_of(&m.id).unwrap(),
+            vec![9.0, 8.0, 7.0, 6.0],
+            "索引应使用记忆预置的向量"
+        );
     }
 }

@@ -110,6 +110,11 @@
 | `retrieval_graph_depth` | 1 | 扩散跳数 |
 | `retrieval_graph_decay` | 0.6 | 衰减 |
 | `retrieval_graph_weight` | 0.3 | 图命中并入候选的权重 |
+| `retrieval_graph_quota` | 0.25 | 图命中保留名额比例（使图命中不被种子分挤出 top_k） |
+| `networking_semantic_max_candidates` | 20 | 语义边候选池按向量相似度限幅 |
+| `networking_semantic_dup_threshold` | 0.97 | 语义边候选近重复排除阈值（重复不建边） |
+| `fusion_dedup_enabled` | true | 是否对融合产出事实条做上游近重复去重 |
+| `fusion_dedup_threshold` | 0.97 | 事实条近重复判定阈值（余弦） |
 
 ### 3.3 复用：边与传播
 
@@ -281,7 +286,10 @@ query ─► hybrid(KNN+BM25) ─► seed hits(top_k)
 
 `GraphTraversalParams{ max_depth=retrieval_graph_depth(1), decay=retrieval_graph_decay(0.6), min_score, max_results, edge_types=Some(Similar/References/CausedBy/Evolves，不含 SameProject 泛边) }`。
 
-图命中分 = `seed_score × graph_score × retrieval_graph_weight`，并入候选后统一重排。
+图命中分 = `seed_score × graph_score × retrieval_graph_weight`（恒低于其种子分）。
+并入后按分排序，并为图命中**保留名额**：种子取 `top_k - g` 条，图命中取
+`g = min(ceil(top_k × retrieval_graph_quota), 图命中数)` 条，二者合并后再按分展示，
+从而保证图命中不被"种子填满 top_k"挤出（`quota=0` 退回旧行为）。
 
 ### 6.3 复用与过滤
 
