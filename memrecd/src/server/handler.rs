@@ -253,54 +253,96 @@ impl Router {
                             }
                             DedupAction::Update(target_id) => {
                                 if let Ok(Some(old)) = self.storage.get(&target_id).await {
-                                    let mut updated = old.clone();
-                                    updated.content = p.content.clone();
-                                    for t in &p.tags {
-                                        if !updated.tags.contains(t) {
-                                            updated.tags.push(t.clone());
-                                        }
-                                    }
-                                    updated.last_accessed = chrono::Utc::now();
-                                    updated.access_count += 1;
+                                    // 更新窗口（附则 A.1）：仅窗口内允许原地合并；
+                                    // 窗口外的"修正"不覆盖历史，改为新增 + 旧记录标记 superseded。
+                                    let window = self.dedup_config.update_window_mins;
+                                    let age_mins =
+                                        (chrono::Utc::now() - old.created_at).num_minutes();
+                                    let within_window = window == 0 || age_mins <= window as i64;
 
-                                    match self.storage.update(&updated).await {
-                                        Ok(_) => {
-                                            // 重建向量索引：先删旧向量再写新向量
-                                            let _ = self.hybrid_store.remove(&target_id).await;
-                                            if let Ok(embed) = self.embedder.embed(&updated.content)
-                                            {
-                                                let payload = self.build_payload(&updated);
-                                                let _ = self
-                                                    .hybrid_store
-                                                    .add(
-                                                        &target_id,
-                                                        &embed,
-                                                        &updated.content,
-                                                        payload,
-                                                    )
-                                                    .await;
+                                    if within_window {
+                                        let mut updated = old.clone();
+                                        updated.content = p.content.clone();
+                                        for t in &p.tags {
+                                            if !updated.tags.contains(t) {
+                                                updated.tags.push(t.clone());
                                             }
-                                            self.archive_manager.archive(&updated).await;
-
-                                            tracing::info!(
-                                                "Add updated existing memory {:?}",
-                                                target_id
-                                            );
-                                            return JsonRpcResponse::success(
-                                                ResponseResult::Memory(MemoryResult {
-                                                    memory: updated,
-                                                    action: "updated".to_string(),
-                                                    duplicates: decision.candidates,
-                                                }),
-                                                id,
-                                            );
                                         }
-                                        Err(e) => {
+                                        updated.last_accessed = chrono::Utc::now();
+                                        updated.access_count += 1;
+
+                                        match self.storage.update(&updated).await {
+                                            Ok(_) => {
+                                                // 重建向量索引：先删旧向量再写新向量
+                                                let _ = self.hybrid_store.remove(&target_id).await;
+                                                if let Ok(embed) =
+                                                    self.embedder.embed(&updated.content)
+                                                {
+                                                    let payload = self.build_payload(&updated);
+                                                    let _ = self
+                                                        .hybrid_store
+                                                        .add(
+                                                            &target_id,
+                                                            &embed,
+                                                            &updated.content,
+                                                            payload,
+                                                        )
+                                                        .await;
+                                                }
+                                                self.archive_manager.archive(&updated).await;
+
+                                                tracing::info!(
+                                                    "Add updated existing memory {:?}",
+                                                    target_id
+                                                );
+                                                return JsonRpcResponse::success(
+                                                    ResponseResult::Memory(MemoryResult {
+                                                        memory: updated,
+                                                        action: "updated".to_string(),
+                                                        duplicates: decision.candidates,
+                                                    }),
+                                                    id,
+                                                );
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!(
+                                                    "Add dedup update failed ({}), falling back to add",
+                                                    e
+                                                );
+                                            }
+                                        }
+                                    } else {
+                                        // 窗口外：标记旧记录为被取代（保留历史，不覆盖、不删除）
+                                        let mut superseded = old.clone();
+                                        if !superseded
+                                            .tags
+                                            .iter()
+                                            .any(|t| t == "superseded")
+                                        {
+                                            superseded.tags.push("superseded".to_string());
+                                        }
+                                        superseded.metadata.insert(
+                                            "superseded_by".to_string(),
+                                            memory.id.to_string(),
+                                        );
+                                        superseded.metadata.insert(
+                                            "superseded_at".to_string(),
+                                            chrono::Utc::now().to_rfc3339(),
+                                        );
+                                        if let Err(e) = self.storage.update(&superseded).await {
                                             tracing::warn!(
-                                                "Add dedup update failed ({}), falling back to add",
+                                                "Failed to mark {:?} superseded: {}",
+                                                target_id,
                                                 e
                                             );
                                         }
+                                        tracing::info!(
+                                            "Add: target {:?} outside update window ({}m > {}m); adding new + marking superseded",
+                                            target_id,
+                                            age_mins,
+                                            window
+                                        );
+                                        // 落到下方正常新增路径
                                     }
                                 } else {
                                     tracing::warn!(
@@ -1505,6 +1547,16 @@ mod tests {
 
     /// 构造带去重配置的路由器（注入 TestEmbedder + 规则决策器）。
     fn router_with_dedup(dup_threshold: f32, update_threshold: f32) -> Router {
+        router_with_dedup_full(dup_threshold, update_threshold, 0)
+    }
+
+    /// 构建带去重配置的 Router；`update_window_mins` 控制原地更新窗口
+    /// （0 表示不限制，便于既有用例）。
+    fn router_with_dedup_full(
+        dup_threshold: f32,
+        update_threshold: f32,
+        update_window_mins: u32,
+    ) -> Router {
         let dir = tempdir().unwrap();
         let data_dir = dir.path().to_path_buf();
         // 保持临时目录存活（Router 生命周期内 RocksDB 需要访问数据文件）
@@ -1536,6 +1588,7 @@ mod tests {
             top_k: 5,
             duplicate_threshold: dup_threshold,
             update_threshold,
+            update_window_mins,
         };
         let decider: Option<Arc<dyn DedupDecider>> =
             Some(Arc::new(RuleDedupDecider::from_config(&dedup_config)));
@@ -1632,6 +1685,43 @@ mod tests {
         // 记忆库仍只有一条
         let count = router.storage.count().await.unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_add_update_window_outside_marks_superseded() {
+        // 附则 A.1：超出更新窗口的"修正"不覆盖历史，改为新增 + 旧记录标记 superseded
+        let router = router_with_dedup_full(0.95, 0.80, 1);
+        let base = "jwt auth uses RS256 signing";
+        let evolved = "jwt auth uses RS256 signing rotation";
+
+        let first = router.route(add_request(base, 1)).await;
+        let first_id = match &first.result {
+            Some(ResponseResult::Memory(m)) => m.memory.id,
+            _ => panic!("expected memory result"),
+        };
+
+        // 将旧记忆老化到窗口之外（窗口 1 分钟）
+        let mut old = router.storage.get(&first_id).await.unwrap().unwrap();
+        old.created_at = chrono::Utc::now() - chrono::Duration::minutes(120);
+        router.storage.update(&old).await.unwrap();
+
+        let second = router.route(add_request(evolved, 2)).await;
+        assert_eq!(extract_action(&second), "added");
+        let second_id = match &second.result {
+            Some(ResponseResult::Memory(m)) => m.memory.id,
+            _ => panic!("expected memory result"),
+        };
+
+        // 旧记录保留且被标记 superseded
+        let old_after = router.storage.get(&first_id).await.unwrap().unwrap();
+        assert!(old_after.tags.iter().any(|t| t == "superseded"));
+        assert_eq!(
+            old_after.metadata.get("superseded_by").map(|s| s.as_str()),
+            Some(second_id.to_string().as_str())
+        );
+
+        // 两条记录并存（未覆盖、未删除）
+        assert_eq!(router.storage.count().await.unwrap(), 2);
     }
 
     #[tokio::test]

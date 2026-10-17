@@ -48,6 +48,18 @@ pub struct DedupConfig {
     /// 达到此阈值更新已有记忆（合并 tags，内容取新）
     #[serde(default = "default_update_threshold")]
     pub update_threshold: f32,
+
+    /// 原地更新窗口（分钟）。仅当已有记忆的年龄不超过该窗口时，才允许
+    /// 写入路径原地合并更新；超出窗口的"修正"改为新增并把旧记录标记为
+    /// `superseded`（保留历史，不做覆盖）。默认 60。
+    ///
+    /// 置 0 表示不限制（始终允许原地更新），用于向后兼容或显式放开。
+    #[serde(default = "default_update_window_mins")]
+    pub update_window_mins: u32,
+}
+
+fn default_update_window_mins() -> u32 {
+    60
 }
 
 fn default_dedup_enabled() -> bool {
@@ -70,6 +82,7 @@ impl Default for DedupConfig {
             top_k: default_dedup_top_k(),
             duplicate_threshold: default_duplicate_threshold(),
             update_threshold: default_update_threshold(),
+            update_window_mins: default_update_window_mins(),
         }
     }
 }
@@ -85,6 +98,7 @@ mod tests {
         assert_eq!(config.top_k, 5);
         assert_eq!(config.duplicate_threshold, 0.92);
         assert_eq!(config.update_threshold, 0.85);
+        assert_eq!(config.update_window_mins, 60);
     }
 
     #[test]
