@@ -171,6 +171,21 @@ memrec 与 Hy Memory 属于同一赛道：本地优先、跨会话、面向 LLM 
 
 ---
 
+## 8.5 接入点可行性核对（2026-10-17 补充）
+
+在设计上策第 1 项时，对照 memrec 实际代码逐点核对，发现**最大工作量不在存储，而在写入契约**：
+
+1. **写入契约缺口（关键）**。`mr-protocol/src/request.rs` 的 `AddParams` 只有 `content / memory_type / tags / project_id / is_global / working_dir / source / scope / dedup`，`mr-protocol` 的 `SearchMemoryParams` 同理，**均无 messages / tool_calls / 代码坐标 / branch**。`memrecd` 的 `handle_add`（`server/handler.rs`）也是 content 字符串直入。因此 Hy Memory 的"带工具轨迹的写入"在 memrec 没有对应入口。吸纳 Coding 双层与 diff 链的前提，是**新增 trace 级写入契约**（一次会话 = 一条 trace），而非只加存储列族。这是本项真正的成本所在。
+2. **事实可变性已确证**。`handle_add` 的去重分支 `DedupAction::Update` 会就地覆盖旧记忆的 `content` 并重建向量（`handler.rs`）。这正好印证 5.4 的缺口：当前事实是可变的，没有版本链。该分支同时也是版本链的**天然挂载点**。
+3. **Dream 阶段框架可复用**。`mr-ability/src/dream/phases/` 已抽象出稳定的阶段模式（`PhaseResult` + four-phase），新增"意图到期扫描""链清理"阶段结构成本低，风险主要在单次 Dream 时长。
+4. **列族扩展模式成熟**。`rocksdb.rs` 已有 `CF_SCENES / CF_BY_SCENE / CF_BY_HEAT / CF_BY_THEME` 四个场景列族先例，coding 链的 `code_chains / by_code_anchor / revisions` 可照搬同一模式。
+5. **对外暴露成本低**。`memrec/src/mcp/mod.rs` 已提供 6 个工具与 resources 机制，新增 `chain_block` 返回通道与工具属增量改动。
+6. **trace 级写入应优先落在插件侧**。`dsh-plugin/` 是当前唯一携带会话上下文（`working_dir`、session event）的入口，最接近 Hy 的 trace 语义；建议 trace 写入契约先在插件侧成形，再下沉到 `mr-protocol`。
+
+结论：上策第 1 项应拆为"**先定 trace 写入契约 → 再落存储与抽取 → 最后接检索通道**"三步，且第一步是设计瓶颈，须先评审契约再动代码。
+
+---
+
 ## 9. 风险与兼容性
 
 - **兼容性**：新增 CF 与新增类型均以 `#[serde(default)]` 方式增量扩展，旧数据反序列化不受影响；`Memory` 现有字段保持不变。
