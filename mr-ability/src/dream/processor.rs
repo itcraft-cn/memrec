@@ -1,14 +1,23 @@
 //! # DreamProcessor 记忆整合处理器
 //!
-//! 执行记忆压缩和整合，类似人类睡眠中的记忆巩固过程。
+//! 执行记忆的两段式整合（Stage F 融合 + Stage N 成网），类似人类睡眠中的
+//! 记忆巩固过程。
 //!
 //! ## 流程
 //!
-//! 1. 筛选符合条件的旧记忆
-//! 2. 调用 LLM 整合生成摘要
-//! 3. 写入新记忆，删除旧记忆
+//! 1. 筛选符合条件的旧记忆（候选）
+//! 2. Stage F 融合：零 LLM 语义聚类 → 分簇 LLM 结构化提炼（事实/摘要/矛盾）
+//!    → 写入整合记忆 + provenance → 软删源
+//! 3. Stage N 成网：零 LLM 边（Similar/SameProject/References/Contradicts）
+//!    → 传播增量
+//! 4. 阶段 1-4（交叉项目/个人摘要/清理/向量重生成）
+//! 5. 全程写入 DreamRun 审计
+//!
+//! ## 命名正交
+//!
+//! 新概念一律用 `DreamRun` / `EdgeBuilder` / `DreamReport`，不复用 `Scene`。
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -17,18 +26,29 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use mr_common::types::{
-    DreamConfig, Memory, MemoryScope, MemorySource, MemoryType, SummaryClues,
+    DreamConfig, DreamRun, DreamRunStatus, GateOutcome, Memory, MemoryScope, MemorySource,
+    MemoryType, QualityMetrics, SummaryClues,
 };
 
 use crate::embedding::EmbeddingGenerator;
-use crate::llm::{LlmClient, LlmMessage};
-use crate::storage::{MemoryStorage, VectorStorage};
+use crate::llm::LlmClient;
+use crate::propagation::PropagationEngine;
+use crate::storage::{DreamRunStorage, EdgeStorage, MemoryStorage, VectorStorage};
 
+use super::fusion::{cluster_candidates, extract_cluster};
 use super::gate::{DreamGate, DreamGateResult};
 use super::lock::DreamLock;
+use super::networking::EdgeBuilder;
 use super::phases::{
     CrossProjectExtractor, MemoryCleaner, PersonalSummarizer, PhaseResult, VectorRegenerator,
 };
+
+/// 整合摘要记忆的标签（幂等与追溯依据）。
+const TAG_INTEGRATED: &str = "dream-integrated";
+/// 整合事实条的标签。
+const TAG_FACT: &str = "dream-fact";
+/// 主题摘要的标签。
+const TAG_SUMMARY: &str = "dream-summary";
 
 #[derive(Debug, Error)]
 pub enum DreamError {
@@ -43,28 +63,6 @@ pub enum DreamError {
     #[error("LLM error: {0}")]
     Llm(String),
 }
-
-/// Dream 整合摘要的 LLM System Prompt（模板约束）。
-///
-/// 要求 LLM 严格按固定 Markdown 模板输出，并通过硬性约束压制套话：
-/// 禁止开场白/结尾寒暄、禁止空泛概括、信息必须来自输入记忆、语言与输入一致、限长。
-/// 产出为结构化内容（主题/要点/结论），便于后续检索与阅读。
-const SUMMARY_SYSTEM_PROMPT: &str = "你是一个记忆整合引擎，职责是从历史记忆中提炼事实并整合为结构化摘要。\
-输出必须严格遵循以下 Markdown 模板，不得增删章节、不得改变章节顺序：\n\
-## 主题\n\
-（用一句话概括这批记忆的核心主题）\n\
-## 要点\n\
-（逐条列出最有价值的独立事实，每条一行，以 \"- \" 开头，最多 10 条）\n\
-## 结论\n\
-（提炼跨记忆的关联、规律或后续行动建议，2-3 行）\n\
-硬性约束：\n\
-1. 直接输出模板内容，禁止任何开场白（如\"以下是\"\"好的\"\"总结如下\"），禁止结尾寒暄、禁止自我评价；\n\
-2. 所有内容必须来自给定记忆，不得编造、不得添加记忆中没有的信息；\n\
-3. 不要输出空泛的套话（如\"这些记忆涵盖了多个方面\"），每条要点都必须是具体事实；\n\
-4. 语言风格与输入记忆保持一致（中文记忆用中文输出，英文记忆用英文输出）；\n\
-5. 总长度不超过 500 字；\n\
-6. 【新增】每条要点中涉及关键数据（数字、文件路径、行号、内存大小等）必须完整保留原始表述，不得省略或改写；\n\
-7. 【新增】如原始记忆包含来源线索（如\"日志计数显示\"、\"通过gdb分析\"、\"代码review发现\"等），应在要点中保留此类线索性描述。";
 
 /// 清洗 LLM 摘要输出，剥离常见套话与格式噪音。
 ///
@@ -232,13 +230,127 @@ async fn count_new_user_memories(
         .count())
 }
 
+/// 把门控结果映射为 DreamRun 的 [`GateOutcome`] 与错误信息。
+fn gate_outcome(result: &DreamGateResult) -> (GateOutcome, String) {
+    match result {
+        DreamGateResult::Allowed => (GateOutcome::Allowed, String::new()),
+        DreamGateResult::Disabled => (GateOutcome::Disabled, "Dream is disabled".to_string()),
+        DreamGateResult::LlmNotConfigured => (
+            GateOutcome::LlmNotConfigured,
+            "Dream requires LLM, but [llm] is not configured".to_string(),
+        ),
+        DreamGateResult::TooSoon {
+            hours_since_last,
+            min_hours,
+        } => (
+            GateOutcome::TooSoon,
+            format!("Too soon: {:.1}h < {:.1}h", hours_since_last, min_hours),
+        ),
+        DreamGateResult::NotEnoughNewMemories {
+            new_memories,
+            min_new_memories,
+        } => (
+            GateOutcome::NotEnoughNew,
+            format!(
+                "Not enough new memories: {} < {}",
+                new_memories, min_new_memories
+            ),
+        ),
+    }
+}
+
+/// 解析配置中的整合记忆类型字符串。
+fn parse_memory_type(s: &str) -> MemoryType {
+    match s {
+        "decision" => MemoryType::Decision,
+        "knowledge" => MemoryType::Knowledge,
+        "context" => MemoryType::Context,
+        "preference" => MemoryType::Preference,
+        _ => MemoryType::Knowledge,
+    }
+}
+
+/// 构建一条 Dream 产出记忆（事实条 / 主题摘要）。
+///
+/// 产出统一为 System 来源、Global 范围、`Uuid::nil()` 项目（与历史 Dream 产出保持一致），
+/// 以便检索来源权重与可见范围稳定。
+fn build_produced_memory(
+    content: String,
+    memory_type: MemoryType,
+    tags: Vec<String>,
+    metadata: HashMap<String, String>,
+    importance: f32,
+) -> Memory {
+    Memory {
+        id: Uuid::new_v4(),
+        project_id: Some(Uuid::nil()),
+        content,
+        memory_type,
+        tags,
+        importance,
+        created_at: Utc::now(),
+        last_accessed: Utc::now(),
+        access_count: 1,
+        source: MemorySource::System,
+        scope: MemoryScope::Global,
+        summary: None,
+        embedding: None,
+        metadata,
+        is_deleted: false,
+        deleted_at: None,
+        chunk_group_id: None,
+        chunk_index: None,
+        chunk_total: None,
+    }
+}
+
+/// Dream 执行结果。
 #[derive(Debug, Clone)]
 pub struct DreamResult {
+    /// 本次运行的审计 ID（未接入 run_store 时为 None）
+    pub run_id: Option<Uuid>,
+    /// 被整合（软删）的源记忆数
     pub integrated_count: usize,
+    /// 代表性产出记忆 ID（主题摘要优先）
     pub created_memory_id: Option<Uuid>,
+    /// 本次全部摘要的合并文本
     pub summary: String,
+    /// 摘要中的关键数据线索
     pub summary_clues: SummaryClues,
+    /// 阶段执行结果
     pub phase_results: Vec<PhaseResult>,
+    /// 聚类簇数
+    pub cluster_count: usize,
+    /// 矛盾对数
+    pub contradiction_count: usize,
+    /// 新建边数
+    pub edge_count: usize,
+    /// 传播增量数
+    pub propagation_count: usize,
+    /// 是否预演
+    pub dry_run: bool,
+    /// 质量度量
+    pub metrics: QualityMetrics,
+}
+
+impl DreamResult {
+    /// 无事可做时的空结果。
+    fn empty(summary: String, dry_run: bool) -> Self {
+        Self {
+            run_id: None,
+            integrated_count: 0,
+            created_memory_id: None,
+            summary,
+            summary_clues: SummaryClues::default(),
+            phase_results: Vec::new(),
+            cluster_count: 0,
+            contradiction_count: 0,
+            edge_count: 0,
+            propagation_count: 0,
+            dry_run,
+            metrics: QualityMetrics::default(),
+        }
+    }
 }
 
 pub struct DreamProcessor {
@@ -248,6 +360,9 @@ pub struct DreamProcessor {
     vector_store: Option<Arc<dyn VectorStorage>>,
     embedder: Option<Arc<dyn EmbeddingGenerator>>,
     llm: Option<Arc<dyn LlmClient>>,
+    edge_store: Option<Arc<dyn EdgeStorage>>,
+    propagation: Option<Arc<PropagationEngine>>,
+    run_store: Option<Arc<dyn DreamRunStorage>>,
 }
 
 impl DreamProcessor {
@@ -263,6 +378,9 @@ impl DreamProcessor {
             vector_store: None,
             embedder: None,
             llm: None,
+            edge_store: None,
+            propagation: None,
+            run_store: None,
         }
     }
 
@@ -276,7 +394,7 @@ impl DreamProcessor {
         self
     }
 
-    /// 注入 LLM 客户端，用于 Dream 整合摘要。
+    /// 注入 LLM 客户端，用于 Dream 分簇提炼。
     ///
     /// 未注入且 `config.requires_llm` 时，Dream 执行将被 Gate 拦截。
     pub fn with_llm(mut self, llm: Arc<dyn LlmClient>) -> Self {
@@ -284,7 +402,40 @@ impl DreamProcessor {
         self
     }
 
+    /// 注入边存储，启用 Stage N 成网。
+    pub fn with_edge_store(mut self, edge_store: Arc<dyn EdgeStorage>) -> Self {
+        self.edge_store = Some(edge_store);
+        self
+    }
+
+    /// 注入传播引擎，启用整合后的增量传播。
+    pub fn with_propagation(mut self, propagation: Arc<PropagationEngine>) -> Self {
+        self.propagation = Some(propagation);
+        self
+    }
+
+    /// 注入 DreamRun 审计存储。
+    pub fn with_run_store(mut self, run_store: Arc<dyn DreamRunStorage>) -> Self {
+        self.run_store = Some(run_store);
+        self
+    }
+
+    /// 执行 Dream（不预演）。
     pub async fn execute(&self, force: bool) -> Result<DreamResult, DreamError> {
+        self.execute_ext(force, false).await
+    }
+
+    /// 执行 Dream，可选预演（dry-run 不写库、不删数据、不建边）。
+    ///
+    /// # 审计
+    ///
+    /// 无论成功、无事可做（NoOp）还是失败，只要注入了 `run_store` 均写入
+    /// 一条 DreamRun；门控拦截（force=false 时）同样落库。
+    pub async fn execute_ext(
+        &self,
+        force: bool,
+        dry_run: bool,
+    ) -> Result<DreamResult, DreamError> {
         // 当前记忆总数：锁记录与状态写入均基于该值
         let memory_count = self
             .storage
@@ -298,9 +449,7 @@ impl DreamProcessor {
             let last_state = self.lock.read_state();
 
             // P7: 新记忆门槛改为统计"距上次执行后的用户新增记忆数"
-            //（created_at > last_run_at 且非 System 来源），
-            // 不再用记忆总数相减（净增量会被用户删/加抵消而误拦截，
-            // 且 Dream 自身产物会被计入导致门槛恒满足）。
+            //（created_at > last_run_at 且非 System 来源）。
             let new_user_memories = match &last_state {
                 Some(state) => count_new_user_memories(&self.storage, state.last_run_at).await?,
                 // 首次执行（无 state）：不设新记忆门槛
@@ -310,34 +459,15 @@ impl DreamProcessor {
             let gate_result =
                 DreamGate::check(&self.config, last_state.as_ref(), new_user_memories);
 
-            match gate_result {
-                DreamGateResult::Allowed => {}
-                DreamGateResult::Disabled => {
-                    return Err(DreamError::GateFailed("Dream is disabled".to_string()));
-                }
-                DreamGateResult::LlmNotConfigured => {
-                    return Err(DreamError::GateFailed(
-                        "Dream requires LLM, but [llm] is not configured".to_string(),
-                    ));
-                }
-                DreamGateResult::TooSoon {
-                    hours_since_last,
-                    min_hours,
-                } => {
-                    return Err(DreamError::GateFailed(format!(
-                        "Too soon: {:.1}h < {:.1}h",
-                        hours_since_last, min_hours
-                    )));
-                }
-                DreamGateResult::NotEnoughNewMemories {
-                    new_memories,
-                    min_new_memories,
-                } => {
-                    return Err(DreamError::GateFailed(format!(
-                        "Not enough new memories: {} < {}",
-                        new_memories, min_new_memories
-                    )));
-                }
+            if gate_result != DreamGateResult::Allowed {
+                let (outcome, msg) = gate_outcome(&gate_result);
+                let mut run = DreamRun::running(force, dry_run);
+                run.gate_outcome = outcome;
+                run.status = DreamRunStatus::NoOp;
+                run.finish(DreamRunStatus::NoOp);
+                run.error = Some(msg.clone());
+                self.record_run(&run).await;
+                return Err(DreamError::GateFailed(msg));
             }
         }
 
@@ -354,12 +484,12 @@ impl DreamProcessor {
             ));
         }
 
-        let result = self.process_inner().await;
+        let mut run = DreamRun::running(force, dry_run);
+        let result = self.process_inner(&mut run, dry_run).await;
 
         // P2: 仅成功执行才写 state，失败（如 LLM 故障）不刷新 last_run_at，
         // 保证故障恢复后可立即重试，不浪费 24h 重试窗口。
-        // 整合数不足/无候选属于"成功执行但无事可做"，同样记录（避免空转）。
-        if result.is_ok() {
+        if result.is_ok() && !dry_run {
             let post_count = self
                 .storage
                 .count()
@@ -370,20 +500,48 @@ impl DreamProcessor {
             }
         }
 
+        // 终态：process_inner 已置 NoOp 则保留，否则 Success / Failed
+        match &result {
+            Ok(_) => {
+                if run.status == DreamRunStatus::Running {
+                    run.status = DreamRunStatus::Success;
+                }
+            }
+            Err(e) => {
+                run.status = DreamRunStatus::Failed;
+                run.error = Some(e.to_string());
+            }
+        }
+        run.finish(run.status);
+        self.record_run(&run).await;
+
         self.lock.release()?;
 
-        result
+        result.map(|mut r| {
+            r.run_id = Some(run.run_id);
+            r
+        })
     }
 
-    async fn process_inner(&self) -> Result<DreamResult, DreamError> {
-        // 先筛选符合条件的旧记忆；数量不足时直接返回，
-        // 不执行任何阶段（避免无意义的统计摘要写入，防止垃圾记忆堆积）。
+    /// 写入 DreamRun 审计（未注入 run_store 时静默跳过）。
+    async fn record_run(&self, run: &DreamRun) {
+        if let Some(store) = &self.run_store {
+            if let Err(e) = store.save_run(run).await {
+                warn!(target: "dream", "Failed to persist DreamRun {}: {}", run.run_id, e);
+            }
+        }
+    }
+
+    async fn process_inner(
+        &self,
+        run: &mut DreamRun,
+        dry_run: bool,
+    ) -> Result<DreamResult, DreamError> {
+        // 先筛选符合条件的旧记忆；数量不足时直接返回，不执行任何阶段。
         let cutoff = Utc::now() - chrono::Duration::hours(self.config.max_age_hours as i64);
         let cutoff_str = cutoff.to_rfc3339();
 
-        // 全量取回后内存筛选：list_older_than 内部 list(10000) 有扫描上限
-        // （活跃记忆超 1 万时 7 天前记忆可能漏选），且按 UUID 序无优先级。
-        // 这里改为全量扫描 + 按重要性排序选取（P1/P3）。
+        // 全量取回后内存筛选（活跃记忆超 1 万时避免漏选，并按优先级选取）。
         let all = self
             .storage
             .list(usize::MAX)
@@ -391,7 +549,6 @@ impl DreamProcessor {
             .map_err(|e| DreamError::Storage(e.to_string()))?;
 
         // P4: 排除高价值记忆（importance ≥ 阈值、命中保留标签、保留类型），
-        // 长期价值记忆（critical/高重要性/Preference/Context）不参与整合与删除。
         // 同时过滤过短内容（测试/占位垃圾记录）。
         let min_content_len = self.config.integration_min_content_len;
         let mut candidates: Vec<Memory> = all
@@ -412,8 +569,7 @@ impl DreamProcessor {
             })
             .collect();
 
-        // P5: 排除已被整合的源记忆；上次崩溃残留的已整合源记忆
-        // （写整合记忆后、删旧记忆前中断）补删，保证幂等不重复整合。
+        // P5: 排除已被整合的源记忆；上次崩溃残留的已整合源记忆补删，保证幂等。
         let seen = self.collect_integrated_source_ids().await?;
         if !seen.is_empty() {
             let mut leftover: Vec<Uuid> = Vec::new();
@@ -425,14 +581,16 @@ impl DreamProcessor {
                     true
                 }
             });
-            for id in leftover {
-                if let Err(e) = self.storage.delete(&id).await {
-                    tracing::warn!("Failed to delete leftover integrated memory {}: {}", id, e);
+            if !dry_run {
+                for id in leftover {
+                    if let Err(e) = self.storage.delete(&id).await {
+                        warn!("Failed to delete leftover integrated memory {}: {}", id, e);
+                    }
                 }
             }
         }
 
-        // P1/P3: 按重要性升序（优先整合低价值记忆），截取单次整合上限
+        // P1/P3: 按重要性升序（优先整合低价值记忆），截取单次整合上限。
         candidates.sort_by(|a, b| {
             a.importance
                 .partial_cmp(&b.importance)
@@ -440,19 +598,19 @@ impl DreamProcessor {
         });
         candidates.truncate(self.config.integration_max_memories);
 
+        run.candidate_count = candidates.len();
+
         if candidates.len() < self.config.min_memories {
             warn!(
                 "Not enough memories for Dream integration: {} < {}",
                 candidates.len(),
                 self.config.min_memories
             );
-            return Ok(DreamResult {
-                integrated_count: 0,
-                created_memory_id: None,
-                summary: "Not enough old memories for Dream integration".to_string(),
-                summary_clues: SummaryClues::default(),
-                phase_results: Vec::new(),
-            });
+            run.status = DreamRunStatus::NoOp;
+            return Ok(DreamResult::empty(
+                "Not enough old memories for Dream integration".to_string(),
+                dry_run,
+            ));
         }
 
         info!(
@@ -461,96 +619,259 @@ impl DreamProcessor {
             cutoff_str
         );
 
-        // P6: 先 LLM 整合（失败则直接返回，phases 不执行，
-        // 避免 LLM 故障时阶段副作用已生效但整合未完成的状态不一致）。
-        let summary = self.summarize_memories(&candidates).await?;
-
-        // P5: 整合记忆 metadata 记录源记忆 id，供下次执行幂等去重与追溯。
-        let source_ids: Vec<String> = candidates.iter().map(|m| m.id.to_string()).collect();
-        let source_details: Vec<String> = candidates
-            .iter()
-            .map(|m| {
-                format!(
-                    "{} [{}] {}",
-                    m.created_at.format("%Y-%m-%d"),
-                    m.memory_type,
-                    m.content.chars().take(50).collect::<String>()
-                        + if m.content.len() > 50 { "..." } else { "" }
-                )
-            })
-            .collect();
-        let mut metadata = std::collections::HashMap::new();
-        metadata.insert(
-            "source_ids".to_string(),
-            serde_json::to_string(&source_ids).unwrap_or_default(),
-        );
-        metadata.insert(
-            "source_details".to_string(),
-            serde_json::to_string(&source_details).unwrap_or_default(),
-        );
-        metadata.insert("integrated_count".to_string(), candidates.len().to_string());
-        metadata.insert(
-            "min_importance".to_string(),
-            candidates
-                .iter()
-                .map(|m| m.importance)
-                .fold(f32::INFINITY, f32::min)
-                .to_string(),
-        );
-        metadata.insert(
-            "max_importance".to_string(),
-            candidates
-                .iter()
-                .map(|m| m.importance)
-                .fold(f32::NEG_INFINITY, f32::max)
-                .to_string(),
-        );
-
-        let memory_type = match self.config.integration_type.as_str() {
-            "decision" => MemoryType::Decision,
-            "knowledge" => MemoryType::Knowledge,
-            "context" => MemoryType::Context,
-            "preference" => MemoryType::Preference,
-            _ => MemoryType::Knowledge,
+        // ---- Stage F 融合：零 LLM 聚类 ----
+        let candidate_emb = self.collect_embeddings(&candidates).await;
+        let clusters: Vec<Vec<usize>> = if self.config.fusion_cluster_enabled {
+            cluster_candidates(
+                &candidates,
+                &candidate_emb,
+                self.config.fusion_cluster_threshold,
+                self.config.fusion_cluster_max_size,
+                self.config.fusion_max_clusters,
+            )
+        } else {
+            vec![(0..candidates.len()).collect()]
         };
+        run.cluster_count = clusters.len();
 
-        let integrated_memory = Memory {
-            id: Uuid::new_v4(),
-            project_id: Some(Uuid::nil()),
-            content: summary.clone(),
-            memory_type,
-            tags: self.config.integration_tags.clone(),
-            importance: 0.8,
-            created_at: Utc::now(),
-            last_accessed: Utc::now(),
-            access_count: 1,
-            source: MemorySource::System,
-            scope: MemoryScope::Global,
-            summary: None,
-            embedding: None,
-            metadata,
-            is_deleted: false,
-            deleted_at: None,
-            chunk_group_id: None,
-            chunk_index: None,
-            chunk_total: None,
-        };
+        // 分簇提炼：先完成全部簇的提炼（LLM 故障在写入前即中止，保证一致性）。
+        let use_llm = !dry_run || self.config.dry_run_with_llm;
+        let mut extractions: Vec<(Vec<usize>, super::fusion::ClusterExtraction)> =
+            Vec::with_capacity(clusters.len());
+        for cluster in &clusters {
+            if cluster.is_empty() {
+                continue;
+            }
+            let cluster_mems: Vec<Memory> =
+                cluster.iter().map(|&i| candidates[i].clone()).collect();
+            match extract_cluster(self.llm.as_ref(), &cluster_mems, use_llm).await {
+                Ok(x) => extractions.push((cluster.clone(), x)),
+                Err(e) => return Err(DreamError::Llm(e)),
+            }
+        }
 
-        self.storage
-            .add(&integrated_memory)
-            .await
-            .map_err(|e| DreamError::Storage(e.to_string()))?;
-        let created_id = integrated_memory.id;
+        // 写入产出（dry-run 时只统计不落库）。
+        let mut integrated_ids: Vec<Uuid> = Vec::new();
+        let mut summary_ids: Vec<Uuid> = Vec::new();
+        let mut produced: Vec<Memory> = Vec::new();
+        let mut references: Vec<(Uuid, Uuid)> = Vec::new();
+        let mut contradictions: Vec<(Uuid, Uuid, String)> = Vec::new();
+        let mut summary_texts: Vec<String> = Vec::new();
 
-        // 仅软删本次整合的候选记忆（高价值记忆已在筛选中保留）
+        let mem_type = parse_memory_type(&self.config.integration_type);
+
+        for (cluster, extraction) in &extractions {
+            let source_ids: Vec<String> =
+                cluster.iter().map(|&i| candidates[i].id.to_string()).collect();
+            let mut base_meta: HashMap<String, String> = HashMap::new();
+            base_meta.insert(
+                "source_ids".to_string(),
+                serde_json::to_string(&source_ids).unwrap_or_default(),
+            );
+            base_meta.insert("dream_run_id".to_string(), run.run_id.to_string());
+            base_meta.insert("integrated_count".to_string(), cluster.len().to_string());
+
+            // 事实条
+            if self.config.fusion_emit_facts {
+                for fact in &extraction.facts {
+                    let mut meta = base_meta.clone();
+                    if !fact.source_hints.is_empty() {
+                        meta.insert(
+                            "source_hints".to_string(),
+                            serde_json::to_string(&fact.source_hints).unwrap_or_default(),
+                        );
+                    }
+                    let mut tags = self.config.integration_tags.clone();
+                    tags.push(TAG_INTEGRATED.to_string());
+                    tags.push(TAG_FACT.to_string());
+                    let m = build_produced_memory(fact.text.clone(), mem_type, tags, meta, 0.7);
+                    let mid = m.id;
+                    if !dry_run {
+                        self.storage
+                            .add(&m)
+                            .await
+                            .map_err(|e| DreamError::Storage(e.to_string()))?;
+                    }
+                    integrated_ids.push(mid);
+                    produced.push(m);
+                    // 事实条引用本簇全部源
+                    for &i in cluster {
+                        references.push((mid, candidates[i].id));
+                    }
+                }
+            }
+
+            // 主题摘要
+            if self.config.fusion_emit_summary {
+                let content = clean_summary(&extraction.summary);
+                let mut tags = self.config.integration_tags.clone();
+                tags.push(TAG_INTEGRATED.to_string());
+                tags.push(TAG_SUMMARY.to_string());
+                let m = build_produced_memory(content.clone(), mem_type, tags, base_meta.clone(), 0.8);
+                let mid = m.id;
+                if !dry_run {
+                    self.storage
+                        .add(&m)
+                        .await
+                        .map_err(|e| DreamError::Storage(e.to_string()))?;
+                }
+                summary_ids.push(mid);
+                integrated_ids.push(mid);
+                summary_texts.push(content);
+                produced.push(m);
+            }
+
+            // 矛盾对
+            if self.config.fusion_detect_contradictions {
+                for c in &extraction.contradictions {
+                    if c.a < cluster.len() && c.b < cluster.len() && c.a != c.b {
+                        contradictions.push((
+                            candidates[cluster[c.a]].id,
+                            candidates[cluster[c.b]].id,
+                            c.reason.clone(),
+                        ));
+                    }
+                }
+            }
+        }
+
+        run.integrated_memory_ids = integrated_ids.clone();
+        run.summary_memory_id = summary_ids.last().copied();
+        run.contradiction_count = contradictions.len();
+
+        let summary_joined = summary_texts.join("\n\n");
+        let summary_clues = extract_summary_clues(&summary_joined);
+        let created_memory_id = summary_ids
+            .last()
+            .copied()
+            .or_else(|| integrated_ids.first().copied());
+
+        // 预演：到此为止，不删源、不建边、不执行阶段。
+        if dry_run {
+            let metrics =
+                self.compute_metrics(&candidates, &produced, run.cluster_count, &contradictions, 0, 0, 0.0);
+            run.metrics = metrics.clone();
+            run.finish(DreamRunStatus::Success);
+            return Ok(DreamResult {
+                run_id: Some(run.run_id),
+                integrated_count: candidates.len(),
+                created_memory_id,
+                summary: summary_joined,
+                summary_clues,
+                phase_results: Vec::new(),
+                cluster_count: run.cluster_count,
+                contradiction_count: contradictions.len(),
+                edge_count: 0,
+                propagation_count: 0,
+                dry_run: true,
+                metrics,
+            });
+        }
+
+        // 软删源记忆
         for memory in &candidates {
             self.storage
                 .delete(&memory.id)
                 .await
                 .map_err(|e| DreamError::Storage(e.to_string()))?;
+            run.deleted_source_ids.push(memory.id);
         }
 
-        // 整合成功后执行阶段 1-4（LLM 失败时全部跳过）
+        // ---- Stage N 成网：零 LLM 边 ----
+        let mut edge_count = 0usize;
+        if self.config.networking_enabled {
+            if let Some(edge_store) = &self.edge_store {
+                let produced_emb = self.collect_embeddings(&produced).await;
+                let mut pool_emb = candidate_emb.clone();
+                for (k, v) in &produced_emb {
+                    pool_emb.insert(*k, v.clone());
+                }
+                let mut pool = candidates.clone();
+                pool.extend(produced.iter().cloned());
+                let builder = EdgeBuilder::new(self.config.clone());
+                match builder
+                    .build(
+                        &produced,
+                        &produced_emb,
+                        &pool,
+                        &pool_emb,
+                        &references,
+                        &contradictions,
+                        edge_store,
+                    )
+                    .await
+                {
+                    Ok(stats) => {
+                        edge_count = stats.total;
+                        run.edge_count = stats.total;
+                        run.edge_counts_by_type = stats.by_type;
+                    }
+                    Err(e) => warn!(target: "dream", "Edge build failed: {}", e),
+                }
+            }
+        }
+
+        // 传播增量
+        let mut propagation_count = 0usize;
+        if self.config.networking_propagation_enabled {
+            if let Some(engine) = &self.propagation {
+                for m in &produced {
+                    match engine.propagate(m).await {
+                        Ok(r) => propagation_count += r.delta_count,
+                        Err(e) => warn!(target: "dream", "Propagation failed for {}: {}", m.id, e),
+                    }
+                }
+            }
+        }
+        run.propagation_count = propagation_count;
+
+        // 阶段 1-4
+        let phase_results = self.run_phases().await;
+        run.phase_results = phase_results.iter().map(|p| p.to_record()).collect();
+
+        let phase_success_rate = if phase_results.is_empty() {
+            1.0
+        } else {
+            phase_results.iter().filter(|p| p.success).count() as f32 / phase_results.len() as f32
+        };
+        let metrics = self.compute_metrics(
+            &candidates,
+            &produced,
+            run.cluster_count,
+            &contradictions,
+            edge_count,
+            propagation_count,
+            phase_success_rate,
+        );
+        run.metrics = metrics.clone();
+
+        run.finish(DreamRunStatus::Success);
+
+        info!(
+            "Dream completed: {} memories integrated, {} edges, {} propagations",
+            candidates.len(),
+            edge_count,
+            propagation_count
+        );
+
+        Ok(DreamResult {
+            run_id: Some(run.run_id),
+            integrated_count: candidates.len(),
+            created_memory_id,
+            summary: summary_joined,
+            summary_clues,
+            phase_results,
+            cluster_count: run.cluster_count,
+            contradiction_count: contradictions.len(),
+            edge_count,
+            propagation_count,
+            dry_run: false,
+            metrics,
+        })
+    }
+
+    /// 执行阶段 1-4（交叉项目 / 个人摘要 / 清理 / 向量重生成）。
+    async fn run_phases(&self) -> Vec<PhaseResult> {
         let mut phase_results = Vec::new();
 
         if self.config.phase_cross_project {
@@ -559,8 +880,7 @@ impl DreamProcessor {
                 self.config.batch_size,
                 self.config.batch_interval_ms,
             );
-            let result = extractor.execute().await;
-            phase_results.push(result);
+            phase_results.push(extractor.execute().await);
         }
 
         if self.config.phase_personal_summary {
@@ -569,12 +889,10 @@ impl DreamProcessor {
                 self.config.batch_size,
                 self.config.batch_interval_ms,
             );
-            let result = summarizer.execute().await;
-            phase_results.push(result);
+            phase_results.push(summarizer.execute().await);
         }
 
         if self.config.phase_cleanup {
-            // P9: cleanup 参数配置化（inactive_days / importance_threshold）
             let cleaner = MemoryCleaner::new(
                 self.storage.clone(),
                 self.config.batch_size,
@@ -582,8 +900,7 @@ impl DreamProcessor {
                 self.config.cleanup_inactive_days,
                 self.config.cleanup_importance_threshold,
             );
-            let result = cleaner.execute().await;
-            phase_results.push(result);
+            phase_results.push(cleaner.execute().await);
         }
 
         if self.config.phase_vector_regen {
@@ -595,24 +912,92 @@ impl DreamProcessor {
                     self.config.batch_size,
                     self.config.batch_interval_ms,
                 );
-                let result = regenerator.execute().await;
-                phase_results.push(result);
+                phase_results.push(regenerator.execute().await);
             }
         }
 
-        info!(
-            "Dream completed: {} memories integrated into {}",
-            candidates.len(),
-            created_id
-        );
+        phase_results
+    }
 
-        Ok(DreamResult {
-            integrated_count: candidates.len(),
-            created_memory_id: Some(created_id),
-            summary: summary.clone(),
-            summary_clues: extract_summary_clues(&summary),
-            phase_results,
-        })
+    /// 收集记忆向量（优先级：memory.embedding → vector_store → embedder）。
+    async fn collect_embeddings(&self, mems: &[Memory]) -> HashMap<Uuid, Vec<f32>> {
+        let mut map = HashMap::new();
+        for m in mems {
+            if let Some(v) = &m.embedding {
+                if !v.is_empty() {
+                    map.insert(m.id, v.clone());
+                    continue;
+                }
+            }
+            if let Some(vs) = &self.vector_store {
+                if let Ok(Some(v)) = vs.get(&m.id).await {
+                    if !v.is_empty() {
+                        map.insert(m.id, v);
+                        continue;
+                    }
+                }
+            }
+            if let Some(e) = &self.embedder {
+                if let Ok(v) = e.embed(&m.content) {
+                    if !v.is_empty() {
+                        map.insert(m.id, v);
+                    }
+                }
+            }
+        }
+        map
+    }
+
+    /// 计算 DreamRun 质量度量。
+    #[allow(clippy::too_many_arguments)]
+    fn compute_metrics(
+        &self,
+        sources: &[Memory],
+        produced: &[Memory],
+        cluster_count: usize,
+        contradictions: &[(Uuid, Uuid, String)],
+        edge_count: usize,
+        propagation_count: usize,
+        phase_success_rate: f32,
+    ) -> QualityMetrics {
+        let input_chars: usize = sources.iter().map(|m| m.content.chars().count()).sum();
+        let output_chars: usize = produced.iter().map(|m| m.content.chars().count()).sum();
+        let input_text: String = sources
+            .iter()
+            .map(|m| m.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let output_text: String = produced
+            .iter()
+            .map(|m| m.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let in_clues = extract_summary_clues(&input_text).total();
+        let out_clues = extract_summary_clues(&output_text).total();
+        let clue_retention = if in_clues == 0 {
+            1.0
+        } else {
+            (out_clues.min(in_clues) as f32) / (in_clues as f32)
+        };
+        let compression_ratio = if output_chars == 0 {
+            0.0
+        } else {
+            input_chars as f32 / output_chars as f32
+        };
+        let avg_cluster_size = if cluster_count == 0 {
+            0.0
+        } else {
+            sources.len() as f32 / cluster_count as f32
+        };
+        QualityMetrics {
+            clue_retention,
+            compression_ratio,
+            avg_cluster_size,
+            contradiction_count: contradictions.len(),
+            edge_count,
+            propagation_count,
+            phase_success_rate,
+        }
     }
 
     /// 收集所有已写入整合记忆（`dream-integrated` 标签）记录的源记忆 id。
@@ -640,75 +1025,6 @@ impl DreamProcessor {
         Ok(seen)
     }
 
-    async fn summarize_memories(&self, memories: &[Memory]) -> Result<String, DreamError> {
-        let content_lines: Vec<String> = memories
-            .iter()
-            .map(|m| {
-                format!(
-                    "- [{}] (created: {}, importance: {}) {}: {}",
-                    m.memory_type,
-                    m.created_at.format("%Y-%m-%d %H:%M:%S"),
-                    m.importance,
-                    if m.tags.is_empty() {
-                        String::new()
-                    } else {
-                        format!("tags: [{}] ", m.tags.join(", "))
-                    },
-                    m.content
-                )
-            })
-            .collect();
-
-        let user_prompt = format!(
-            "以下是待整合的历史记忆（按重要性升序排列，优先整合低价值记忆）：\n\n{}",
-            content_lines.join("\n")
-        );
-
-        let messages = vec![
-            LlmMessage::system(SUMMARY_SYSTEM_PROMPT),
-            LlmMessage::user(user_prompt),
-        ];
-
-        match &self.llm {
-            Some(llm) => {
-                info!(
-                    target: "dream",
-                    "Dream LLM summarization: {} memories, prompt {} chars",
-                    memories.len(),
-                    messages.iter().map(|m| m.content.len()).sum::<usize>()
-                );
-                // 模板化摘要不需要推理：强制关闭 thinking，直白输出，
-                // 避免 DeepSeek 推理内容（复述指令等）污染 content。
-                let raw = llm
-                    .chat_with_think(&messages, mr_common::ThinkLevel::Off)
-                    .await
-                    .map_err(|e| DreamError::Llm(e.to_string()))?;
-                Ok(clean_summary(&raw))
-            }
-            None => {
-                // 未接入 LLM 且 requires_llm = false：退化为模板摘要（兼容旧行为）
-                warn!(
-                    target: "dream",
-                    "Dream LLM not configured, using template summary"
-                );
-                let summary = format!(
-                    "[Dream 整合摘要] 整合了 {} 条记忆，涵盖 {} 到 {} 期间的内容。",
-                    memories.len(),
-                    memories
-                        .iter()
-                        .map(|m| m.created_at)
-                        .min()
-                        .unwrap_or_else(Utc::now),
-                    memories
-                        .iter()
-                        .map(|m| m.created_at)
-                        .max()
-                        .unwrap_or_else(Utc::now),
-                );
-                Ok(summary)
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -829,11 +1145,18 @@ mod tests {
     #[test]
     fn test_dream_result_debug() {
         let result = DreamResult {
+            run_id: None,
             integrated_count: 5,
             created_memory_id: Some(Uuid::nil()),
             summary: "test summary".to_string(),
             summary_clues: SummaryClues::default(),
             phase_results: vec![],
+            cluster_count: 1,
+            contradiction_count: 0,
+            edge_count: 0,
+            propagation_count: 0,
+            dry_run: false,
+            metrics: QualityMetrics::default(),
         };
 
         let debug_str = format!("{:?}", result);
@@ -870,7 +1193,9 @@ mod tests {
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
         let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
 
-        let llm = MockLlmClient::new("LLM 整合摘要内容");
+        let llm = MockLlmClient::new(
+            r#"{"facts":[{"text":"fact from llm"}],"summary":"LLM 整合摘要内容","contradictions":[]}"#,
+        );
 
         let config = DreamConfig {
             enabled: true,

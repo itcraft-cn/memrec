@@ -94,6 +94,17 @@ impl PhaseResult {
         }
     }
 
+    /// 转换为可序列化的阶段记录（用于 DreamRun 审计）。
+    pub fn to_record(&self) -> mr_common::types::PhaseResultRecord {
+        mr_common::types::PhaseResultRecord {
+            phase: self.phase.clone(),
+            success: self.success,
+            processed_count: self.processed_count,
+            created_count: self.created_count,
+            error_message: self.error_message.clone(),
+        }
+    }
+
     pub fn err(phase: &str, message: String) -> Self {
         Self {
             phase: phase.to_string(),

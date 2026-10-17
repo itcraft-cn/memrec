@@ -264,11 +264,16 @@ pub const EXTRACT_SYSTEM_PROMPT: &str = "你是一个记忆整合引擎。给定
 /// 对单个簇做结构化提炼。
 ///
 /// `use_llm=false` 或无 LLM 时，回退为模板 Markdown 摘要（保证鲁棒）。
+///
+/// # 错误
+///
+/// 仅当 LLM 真实调用失败（网络/鉴权等）时返回 `Err`，以便调用方中止本轮
+/// Dream（避免 LLM 故障时写入半成品）；JSON 解析失败回退模板，不报错。
 pub async fn extract_cluster(
     llm: Option<&Arc<dyn LlmClient>>,
     memories: &[Memory],
     use_llm: bool,
-) -> ClusterExtraction {
+) -> Result<ClusterExtraction, String> {
     if use_llm {
         if let Some(llm) = llm {
             let user = build_extract_prompt(memories);
@@ -276,23 +281,17 @@ pub async fn extract_cluster(
                 LlmMessage::system(EXTRACT_SYSTEM_PROMPT),
                 LlmMessage::user(user),
             ];
-            match llm
+            let raw = llm
                 .chat_with_think(&messages, mr_common::ThinkLevel::Off)
                 .await
-            {
-                Ok(raw) => {
-                    if let Some(parsed) = parse_extraction(&raw) {
-                        return parsed;
-                    }
-                    warn!(target: "dream", "Fusion extraction JSON parse failed, falling back");
-                }
-                Err(e) => {
-                    warn!(target: "dream", "Fusion extraction LLM failed: {}", e);
-                }
+                .map_err(|e| format!("Fusion extraction LLM failed: {}", e))?;
+            if let Some(parsed) = parse_extraction(&raw) {
+                return Ok(parsed);
             }
+            warn!(target: "dream", "Fusion extraction JSON parse failed, falling back");
         }
     }
-    fallback_extraction(memories)
+    Ok(fallback_extraction(memories))
 }
 
 /// 构造分簇提炼的用户提示。
@@ -445,7 +444,7 @@ mod tests {
     #[tokio::test]
     async fn test_extract_fallback_without_llm() {
         let m = mem_with("hello world content", 0.5);
-        let x = extract_cluster(None, &[m], true).await;
+        let x = extract_cluster(None, &[m], true).await.unwrap();
         assert_eq!(x.facts.len(), 1);
         assert!(!x.summary.is_empty());
     }
