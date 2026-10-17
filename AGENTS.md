@@ -99,6 +99,25 @@ cargo clippy --release
 cargo fmt --check
 ```
 
+### 多步骤测试与部署
+
+每次改动后的验收流程，严格按序执行：
+
+1. **编译通过**：`cargo build --release` 成功。
+2. **停止服务**：`systemctl --user stop memrecd`。
+3. **备份正式数据**：备份 `~/.memrec`（如 `cp -a ~/.memrec ~/.memrec.bak.<时间戳>`）。
+4. **部署并启动**：将新版本部署到 **`~/.local/bin` 与 `~/.cargo/bin` 两处**（仅需 `memrec`、`memrecd` 两个二进制），随后 `systemctl --user start memrecd`。
+5. **测试判定**：
+   - 不通过：回到第 1 / 4 步继续修复与重部署，直至满足测试要求；
+   - 通过：停止测试用的 `memrecd`，并将 `~/.memrec` 还原为正式数据（用第 3 步备份覆盖）。
+6. **完成测试**：确认服务状态与数据一致性。
+
+注意事项：
+
+- 部署目标为两个目录，缺一不可；二进制仅 `memrec`、`memrecd`。
+- 备份与还原均以 `~/.memrec` 为整体单位；还原前必须确认服务已停止。
+- 本机服务为 `systemd --user` 的 `memrecd.service`。
+
 ### 编码规范
 
 授权读取：${AI_SPEC_ROOT}/lang-spec/spec.rust.md
