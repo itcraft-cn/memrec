@@ -11,9 +11,11 @@ Local memory persistence system for AI CLI tools, providing cross-session memory
 - **Project Isolation** — Auto-detect git root, .mr_pid persistence, independent memory per project
 - **Hybrid Search** — KNN vector search + BM25 full-text, MMR reranking, Chinese text support
 - **Scene Aggregation** — L2 theme-based aggregation over memory cards, heat-ranked (memory pyramid L0-L3)
-- **Dream Consolidation** — idle-triggered 4-phase memory consolidation with optional LLM summaries
-- **LLM Integration** — optional OpenAI-compatible LLM for Dream summaries
-- **Write Dedup** — ADD/UPDATE/NOOP decision on every write
+- **Dream Consolidation** — idle-triggered two-stage consolidation (Stage F fusion + Stage N networking) with optional LLM summaries; every run (incl. gate rejection, dry-run, failure) is audited as a `DreamRun`
+- **Retrieval Graph Diffusion** — 1-hop graph diffusion augments hybrid recall; graph hits carry an `EdgeHint`; `retrieval_graph_quota` reserves `top_k` slots for graph hits
+- **Offline Retrieval Evaluation** — `memrec eval` reports hit@k/recall@k/MRR/nDCG over a JSONL dataset
+- **LLM Integration** — optional OpenAI-compatible LLM for Dream summaries (and optional LLM semantic edges)
+- **Write Dedup** — ADD/UPDATE/NOOP decision on every write, with an in-place update window
 - **Plugin Ecosystem** — pi extension & DeepSeek Harness native plugin
 - **Semantic Search** — Local ONNX model — MiniLM-L6-v2 (384d) or BGE-M3 (1024d, multilingual), zero API cost
 - **Smart Scoring** — Time decay, evergreen exemption, source weighting
@@ -100,8 +102,11 @@ memrec scene create "Rust coding standards" --tag rust
 memrec scene list --sort-by-heat
 memrec scene add-memory <scene-id> <memory-id>
 
-# Dream 整合（空闲自动触发，或手动）
+# Dream consolidation (idle-triggered, or manual)
 memrec dream --force
+memrec dream --dry-run                    # dry-run: write nothing, delete nothing, build no edges
+memrec dream-report --last 5              # inspect recent DreamRun audit records
+memrec eval dataset.jsonl --k 10          # offline retrieval evaluation (JSONL)
 ```
 
 ## Project Isolation
@@ -190,12 +195,15 @@ On every `add`, MemRec searches similar memories (cosine similarity) and decides
 - `update_threshold <= score < duplicate_threshold` → **update** existing memory (merge tags, new content)
 - otherwise → **add** as new memory
 
+`update_window_mins` bounds when an update applies in place: within the window a match updates in place; outside the window MemRec adds a new record and marks the old one `superseded` (merging and soft-deletion are done only by Dream).
+
 ```toml
 [dedup]
 enabled = true
 top_k = 5
 duplicate_threshold = 0.92   # above this = duplicate, skip
 update_threshold = 0.85      # above this = update existing
+update_window_mins = 60      # in-place update window (minutes); 0 = unlimited
 ```
 
 Disable per-call with `--no-dedup` (CLI) or `"dedup": false` (protocol).
@@ -203,12 +211,16 @@ The decision layer is pluggable: rule-based today, LLM-based (true DELETE/confli
 
 ## Dream Consolidation
 
-Dream is a background job that consolidates memories like human sleep does — triggered automatically when the system is idle, or manually via `memrec dream --force`. It runs 4 phases:
+Dream is a background job that consolidates memories like human sleep does — triggered automatically when the system is idle, or manually via `memrec dream --force`.
 
-1. **CrossProjectExtract** — extract cross-project common themes
-2. **PersonalSummary** — aggregate global memories into a personal profile
-3. **Cleanup** — remove stale / low-importance memories
-4. **VectorRegen** — regenerate missing embeddings (off by default, heavy)
+Consolidation uses a **two-stage pipeline**:
+
+1. **Stage F (fusion)** — zero-LLM semantic clustering; per-cluster structured extraction of `facts`/`summary`/`contradictions` with provenance (`metadata.source_ids`, used for idempotency and cluster-scoped ratings)
+2. **Stage N (networking)** — build `Similar`/`SameProject`/`References`/`Contradicts` edges for retrieval graph diffusion; with `networking_semantic_enabled`, LLM semantic edges (`CausedBy`/`Evolves`/`References`, off by default) are appended
+
+It then runs phases 1-4: `CrossProjectExtract` (cross-project themes), `PersonalSummary` (personal profile), `Cleanup` (stale/low-importance cleanup), `VectorRegen` (missing-embedding regeneration, off by default).
+
+Every run (including gate rejection, dry-run and failure) is persisted as a `DreamRun` audit record, inspectable via `memrec dream-report`; `memrec dream --dry-run` previews without writing, deleting or building edges.
 
 Gate conditions: at least `min_memories` (20) consolidatable memories, oldest memory age ≥ `max_age_hours` (168h), `min_hours_between` (24h) since the last run, and at least `min_new_memories` (1) **user-added** memories since the last run (counted by `created_at > last_run` with non-System source). With `[llm]` configured, consolidation produces an LLM summary memory tagged `dream-integrated`.
 
@@ -238,6 +250,26 @@ integration_min_content_len = 10      # filter short content (chars)
 cleanup_inactive_days = 90  # Phase 3: inactive days threshold
 cleanup_importance_threshold = 0.1    # Phase 3: cleanup importance floor
 phase_vector_regen = false # Phase 4, resource-heavy, off by default
+
+# Retrieval graph diffusion (1 hop; graph hits carry an EdgeHint)
+retrieval_graph_enabled = true   # route retrieval through graph diffusion
+retrieval_graph_depth = 1        # diffusion hops
+retrieval_graph_decay = 0.6      # diffusion decay
+retrieval_graph_weight = 0.3     # weight of graph hits merged into candidates
+retrieval_graph_quota = 0.25     # reserved top_k share for graph hits (0 = score-only truncation)
+
+# Networking (Stage N)
+networking_enabled = true               # build edges
+networking_similar_topk = 5             # Similar-edge nearest neighbours
+networking_similar_threshold = 0.82     # Similar-edge threshold
+networking_semantic_enabled = false     # LLM semantic edges (off by default)
+networking_semantic_max_candidates = 20 # semantic-edge candidate pool capped by vector similarity
+networking_semantic_dup_threshold = 0.97 # semantic-edge near-duplicate exclusion threshold
+networking_propagation_enabled = true   # edge propagation
+
+# Upstream dedup (Stage F produced facts)
+fusion_dedup_enabled = true     # dedup near-duplicate produced facts
+fusion_dedup_threshold = 0.97   # near-duplicate threshold (cosine)
 
 [idle]
 enabled = true             # idle monitor

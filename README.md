@@ -12,7 +12,10 @@
 - **混合检索** — KNN向量搜索 + BM25全文检索，MMR重排，中文搜索支持
 - **场景聚合** — L2场景聚合层，按主题聚合记忆卡片，热度排序（记忆金字塔 L0-L3）
 - **Dream 整合** — 空闲时自动触发的四阶段记忆整合，可选 LLM 摘要
-- **LLM 接入** — 可选 OpenAI 兼容大模型，驱动 Dream 摘要
+- **Dream 两段式重构与审计** — Stage F 分簇提炼 + Stage N 成网；每次运行落库 `DreamRun`，`memrec dream-report` 可查，`--dry-run` 预演
+- **检索图扩散** — 混合检索后按 1 跳图扩散补充召回，图命中带 EdgeHint；`retrieval_graph_quota` 为图命中预留 top_k 名额
+- **离线检索评测** — `memrec eval` 以 JSONL 数据集输出 hit@k/recall@k/MRR/nDCG
+- **LLM 接入** — 可选 OpenAI 兼容大模型，驱动 Dream 摘要（可选 LLM 语义边）
 - **写入去重** — 每次写入 ADD/UPDATE/NOOP 决策
 - **插件生态** — pi 扩展与 DeepSeek Harness 原生插件
 - **语义检索** — 本地ONNX模型 — MiniLM-L6-v2（384维）或 BGE-M3（1024维，多语言），零API费用
@@ -99,6 +102,9 @@ memrec scene add-memory <scene-id> <memory-id>
 
 # Dream 整合（空闲自动触发，或手动）
 memrec dream --force
+memrec dream --dry-run                    # 预演：不写库/不删数据/不建边
+memrec dream-report --last 5              # 查看最近若干次 DreamRun 审计
+memrec eval dataset.jsonl --k 10          # 离线检索评测（JSONL）
 ```
 
 ## 项目隔离
@@ -187,12 +193,15 @@ temperature = 0.3
 - `update_threshold <= score < duplicate_threshold` → **更新**已有记忆（合并 tags、内容取新）
 - 否则 → **新增**
 
+`update_window_mins` 限定"更新"的时间窗口：窗口内命中则原地更新；窗口外命中不修改历史记录，而是新增一条并将旧记录标记为 `superseded`（合并与软删仅由 Dream 执行）。
+
 ```toml
 [dedup]
 enabled = true
 top_k = 5
 duplicate_threshold = 0.92   # 高于此值视为重复，跳过
 update_threshold = 0.85      # 高于此值合并更新已有记忆
+update_window_mins = 60      # 原地更新的时间窗口（分钟）；0 = 不限制
 ```
 
 单次调用可用 `--no-dedup`（CLI）或 `"dedup": false`（协议）关闭。
@@ -200,12 +209,16 @@ update_threshold = 0.85      # 高于此值合并更新已有记忆
 
 ## Dream 记忆整合
 
-Dream 是后台记忆整合作业，类比睡眠中的记忆巩固——系统空闲时自动触发，或通过 `memrec dream --force` 手动触发。共 4 个阶段：
+Dream 是后台记忆整合作业，类比睡眠中的记忆巩固——系统空闲时自动触发，或通过 `memrec dream --force` 手动触发。
 
-1. **CrossProjectExtract** — 提取跨项目共性主题
-2. **PersonalSummary** — 聚合全局记忆，生成个人画像
-3. **Cleanup** — 清理过期、低重要性记忆
-4. **VectorRegen** — 为缺失向量重新生成嵌入（资源消耗大，默认关闭）
+整合采用**两段式管线**：
+
+1. **Stage F（融合）** — 零 LLM 语义聚类，按簇结构化提炼 `facts`/`summary`/`contradictions` 并记录 provenance（`metadata.source_ids`，用于幂等与簇域评级）
+2. **Stage N（成网）** — 建立 `Similar`/`SameProject`/`References`/`Contradicts` 边供检索图扩散使用；`networking_semantic_enabled` 开启后追加 LLM 语义边（`CausedBy`/`Evolves`/`References`，默认关）
+
+之后执行阶段 1-4：`CrossProjectExtract`（跨项目共性主题）、`PersonalSummary`（个人画像）、`Cleanup`（过期/低重要性清理）、`VectorRegen`（缺失向量重生成，默认关闭）。
+
+每次运行（含门控拦截、dry-run、失败）落库一条 `DreamRun` 审计记录，可经 `memrec dream-report` 查看；`memrec dream --dry-run` 可预演（不写库、不删数据、不建边）。
 
 门槛条件：至少 `min_memories`（20）条可整合记忆、最老记忆年龄 ≥ `max_age_hours`（168h）、距上次执行 ≥ `min_hours_between`（24h）、且距上次执行后**用户新增**记忆 ≥ `min_new_memories`（1，新记忆门槛，按 `created_at > last_run` 且非 System 来源统计）。配置 `[llm]` 后，整合会生成 LLM 摘要记忆，标记 `dream-integrated`。
 
@@ -235,6 +248,26 @@ integration_min_content_len = 10      # 过短内容过滤（字符）
 cleanup_inactive_days = 90  # 阶段3：不活跃天数门槛
 cleanup_importance_threshold = 0.1    # 阶段3：清理重要性下限
 phase_vector_regen = false # 阶段4，资源消耗大，默认关闭
+
+# 检索图扩散（1 跳；图命中带 EdgeHint）
+retrieval_graph_enabled = true   # 检索是否走图扩散
+retrieval_graph_depth = 1        # 扩散跳数
+retrieval_graph_decay = 0.6      # 扩散衰减
+retrieval_graph_weight = 0.3     # 图命中并入候选的权重
+retrieval_graph_quota = 0.25     # 图命中在 top_k 中的保留名额比例（0=退回纯按分截断）
+
+# 成网（Stage N）
+networking_enabled = true               # 是否建边成网
+networking_similar_topk = 5             # Similar 边近邻数
+networking_similar_threshold = 0.82     # Similar 边阈值
+networking_semantic_enabled = false     # 是否启用 LLM 语义边（默认关）
+networking_semantic_max_candidates = 20 # 语义边候选池按向量相似度限幅
+networking_semantic_dup_threshold = 0.97 # 语义边候选近重复排除阈值
+networking_propagation_enabled = true   # 是否启用边传播
+
+# 上游去重（Stage F 事实条近重复）
+fusion_dedup_enabled = true     # 对融合产出事实条做近重复去重
+fusion_dedup_threshold = 0.97   # 近重复判定阈值（余弦）
 
 [idle]
 enabled = true             # 空闲监控

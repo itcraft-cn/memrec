@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > [中文](CHANGELOG.md) | English
 
+## [0.9.0-dev] - 2026-10-18
+
+### Added
+
+- **Two-stage Dream refactor**: Dream is split into Stage F (fusion: zero-LLM semantic clustering + per-cluster structured extraction of `facts`/`summary`/`contradictions` + provenance) and Stage N (networking: build `Similar`/`SameProject`/`References`/`Contradicts` edges)
+- **DreamRun audit**: every Dream run (including gate rejection, dry-run and failure) is persisted as a `DreamRun` (new RocksDB `dream_runs` column family), inspectable via `memrec dream-report`
+- **Dream dry-run**: `memrec dream --dry-run` computes only — writes nothing, deletes nothing, builds no edges
+- **Graph diffusion in retrieval**: after hybrid search, supplement recall with 1-hop graph diffusion (`Similar`/`References`/`CausedBy`/`Evolves`); graph hits carry an `EdgeHint`; soft-deleted memories are used only for connectivity, never returned
+- **Graph-hit quota**: `retrieval_graph_quota` (default 0.25) reserves slots for graph hits within `top_k`, so they are not truncated away because their score is always below the seed score (`quota=0` falls back to score-only merge/truncation)
+- **LLM semantic edges** (off by default): with `networking_semantic_enabled`, an LLM decides `CausedBy`/`Evolves`/`References`; the candidate pool is limited to the vector top-k (`networking_semantic_max_candidates`, default 20) and excludes near-duplicates and self (`networking_semantic_dup_threshold`, default 0.97)
+- **Offline retrieval evaluation**: `memrec eval <dataset>` drives read-only retrieval over a JSONL dataset and reports `hit@k`/`recall@k`/`MRR`/`nDCG`
+- **Record update window**: `[dedup] update_window_mins` (default 60) — similar writes within the window update in place; outside the window a new record is added and the old one is marked `superseded`
+- **Upstream dedup**: embedding-based near-duplicate dedup of Dream-produced facts (`fusion_dedup_enabled`/`fusion_dedup_threshold`, default 0.97)
+- **Startup full-text index self-heal**: on startup, reconcile the full-text index against the active memory count; on mismatch, rebuild from the memory store as the source of truth (clearing stale deleted, duplicate and dangling docs)
+
+### Changed
+
+- **Importance semantics**: `importance` is a global prior only; Dream ratings are cluster-scoped (topic-scoped), attached to cluster outputs and never written back to the open field
+- **Dream configuration expanded**: new `[dream]` keys `networking_*`, `retrieval_graph_*` (including `retrieval_graph_quota`) and `fusion_dedup_*`
+
+### Fixed
+
+- **Dream write path bypassed the hybrid index**: produced memories were unsearchable and soft-deleted sources appeared as "ghost" results; a new `IndexingStorage` decorator mirrors all Dream writes into the hybrid index, and the startup vector rebuild's `list(1000)` truncation was fixed to full scan
+- **Non-deterministic hybrid ranking**: added a `memory_id` tie-break for equal scores so evaluation results are reproducible
+- **LLM semantic-edge self-loops**: the new memory itself is now skipped in the candidate pool
+- **Global nil-project `SameProject` fan-out**: `SameProject` edges skip global (nil) projects, avoiding O(n²) fan-out between produced memories
+- **Gate ordering**: the `min_memories` check now precedes the `integration_max_memories` truncation, removing the spurious "not enough memories" report when `max < min`
+
+### Docs
+
+- New absorption-analysis designs: Hy Memory, MemHub/One Memory, MemOS 2.0/Mem0 (with explicit rejections)
+- New Dream refactor plan and strategy-A design: `docs/design/dream-refactor-design.md`, `docs/design/dream-refactor-strategy-a.md`
+- New graph-diffusion quantification and semantic-edge quality report: `docs/design/dream-graph-quantification.md`
+
 ## [0.8.0] - 2026-08-30
 
 ### Added

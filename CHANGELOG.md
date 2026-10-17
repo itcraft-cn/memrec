@@ -7,6 +7,40 @@
 
 > 中文版 | [English](CHANGELOG_en.md)
 
+## [0.9.0-dev] - 2026-10-18
+
+### 新增
+
+- **Dream 两段式重构**：将 Dream 拆为 Stage F（融合：零 LLM 语义聚类 + 分簇结构化提炼 `facts`/`summary`/`contradictions` + provenance）与 Stage N（成网：建 `Similar`/`SameProject`/`References`/`Contradicts` 边）
+- **DreamRun 审计**：每次 Dream（含门控拦截、dry-run、失败）落库一条 `DreamRun`（新增 RocksDB `dream_runs` 列族），可经 `memrec dream-report` 查看最近若干次运行
+- **Dream 预演**：`memrec dream --dry-run` 只计算不写库、不删数据、不建边
+- **检索接入图扩散**：混合检索后按 1 跳图扩散补充召回（`Similar`/`References`/`CausedBy`/`Evolves`），图命中带 `EdgeHint` 标注；软删记忆仅用于连通、不返回
+- **图命中保留名额**：`retrieval_graph_quota`（默认 0.25）为图命中在 `top_k` 中预留名额，避免图命中分恒低于种子分而被截断（`quota=0` 退回"纯按分合并截断"）
+- **LLM 语义边**（默认关）：`networking_semantic_enabled` 开启后由 LLM 判定 `CausedBy`/`Evolves`/`References`；候选池按向量相似度取 top-k（`networking_semantic_max_candidates`，默认 20）并排除近重复与自身（`networking_semantic_dup_threshold`，默认 0.97）
+- **离线检索评测**：`memrec eval <dataset>` 以 JSONL 数据集驱动只读检索，输出 `hit@k`/`recall@k`/`MRR`/`nDCG`
+- **记录更新窗口**：`[dedup] update_window_mins`（默认 60）——窗口内相似写入原地更新，窗口外新增并将旧记录标记 `superseded`
+- **上游去重**：Dream 融合产出的事实条做嵌入近重复去重（`fusion_dedup_enabled`/`fusion_dedup_threshold`，默认 0.97）
+- **启动全文索引自愈**：启动时对账全文索引与活跃记忆数，不一致则以记忆库为真源全量重建（清除软删残留、重复与悬空文档）
+
+### 变更
+
+- **重要性评级口径**：`importance` 仅作全局先验；Dream 评级为簇域（topic-scoped），附着于簇产出、不回写开放字段
+- **Dream 配置扩展**：新增 `[dream]` 下 `networking_*`、`retrieval_graph_*`（含 `retrieval_graph_quota`）、`fusion_dedup_*` 等项
+
+### 修复
+
+- **Dream 写路径绕过混合检索索引**：融合产出记忆不可检索、软删源记忆成"幽灵结果"；新增 `IndexingStorage` 装饰器，把 Dream 全部写操作统一镜像到混合检索索引，并修正启动向量重建的 `list(1000)` 截断为全量
+- **混合检索排序不确定**：同分结果补充 `memory_id` tie-break，保证评测结果可复现
+- **LLM 语义边自环**：跳过候选中的新记忆自身
+- **全局 nil 项目同项目泛边**：`SameProject` 边跳过全局（nil）项目，避免产出之间产生 O(n²) 泛边
+- **整合门禁次序**：`min_memories` 判定先于 `integration_max_memories` 截断，消除 `max < min` 时的"记忆不足"误报
+
+### 文档
+
+- 新增吸收分析设计：Hy Memory、MemHub/One Memory、MemOS 2.0/Mem0（含明确否决项）
+- 新增 Dream 重构方案与上策设计：`docs/design/dream-refactor-design.md`、`docs/design/dream-refactor-strategy-a.md`
+- 新增图扩散量化与语义边质量评估报告：`docs/design/dream-graph-quantification.md`
+
 ## [0.8.0] - 2026-08-30
 
 ### 新增

@@ -114,7 +114,12 @@ With BGE-M3, model loading + vector rebuild takes ~75-90 seconds before the sock
 | `memrec get` | Get a single memory |
 | `memrec list` | List memories |
 | `memrec delete` | Delete a memory |
+| `memrec restore` | Restore a soft-deleted memory (re-added to the index) |
 | `memrec stats` | Statistics |
+| `memrec scene` | L2 scene aggregation (create/list/get/add-memory/remove-memory/update-heat/delete) |
+| `memrec dream` | Trigger Dream consolidation (`--force`, `--dry-run`) |
+| `memrec dream-report` | Inspect recent DreamRun audit records |
+| `memrec eval` | Offline retrieval evaluation (JSONL dataset, hit-rate metrics) |
 | `memrec version` | Version info |
 
 ### Adding Memories
@@ -384,6 +389,26 @@ Deletion is soft — memories are marked as `is_deleted=true`.
 memrec stats
 ```
 
+### Dream Consolidation & Audit
+
+Dream is triggered automatically when the system is idle, or manually. Consolidation uses a two-stage pipeline (Stage F fusion + Stage N networking); see the README "Dream Consolidation" section. Every run (including gate rejection, dry-run and failure) is persisted as a `DreamRun` audit record.
+
+```bash
+memrec dream --force              # trigger consolidation (bypasses time/new-memory gates)
+memrec dream --dry-run            # dry-run: compute only, write nothing, delete nothing, build no edges
+memrec dream-report --last 5      # inspect recent DreamRun records (candidates/clusters/edges/propagation/status)
+```
+
+### Offline Retrieval Evaluation
+
+Drive read-only retrieval over a JSONL dataset and report `hit@k`/`recall@k`/`MRR`/`nDCG`, useful for comparing retrieval configurations (e.g. graph diffusion on/off).
+
+```bash
+memrec eval dataset.jsonl --k 10 --human
+```
+
+Dataset line format: `{"query": "...", "relevant": ["<uuid>", ...]}`.
+
 ## Project Isolation
 
 ### Auto-Detection
@@ -549,6 +574,33 @@ integration_preserve_tags = ["critical"]  # preserve matching tags
 integration_preserve_types = ["preference", "context"]  # preserved types (as-is; context details are irrecoverable)
 integration_min_content_len = 10      # filter short test/placeholder records (chars)
 
+# Retrieval graph diffusion (1 hop; graph hits carry an EdgeHint)
+retrieval_graph_enabled = true   # route retrieval through graph diffusion
+retrieval_graph_depth = 1        # diffusion hops
+retrieval_graph_decay = 0.6      # diffusion decay
+retrieval_graph_weight = 0.3     # weight of graph hits merged into candidates
+retrieval_graph_quota = 0.25     # reserved top_k share for graph hits (0 = score-only truncation)
+
+# Networking (Stage N)
+networking_enabled = true               # build edges
+networking_similar_topk = 5             # Similar-edge nearest neighbours
+networking_similar_threshold = 0.82     # Similar-edge threshold
+networking_semantic_enabled = false     # LLM semantic edges (off by default)
+networking_semantic_max_candidates = 20 # semantic-edge candidate pool capped by vector similarity
+networking_semantic_dup_threshold = 0.97 # semantic-edge near-duplicate exclusion threshold
+networking_propagation_enabled = true   # edge propagation
+
+# Upstream dedup (Stage F produced facts)
+fusion_dedup_enabled = true     # dedup near-duplicate produced facts
+fusion_dedup_threshold = 0.97   # near-duplicate threshold (cosine)
+
+[dedup]                     # write dedup (ADD/UPDATE/NOOP)
+enabled = true
+top_k = 5
+duplicate_threshold = 0.92  # above this = duplicate, skip
+update_threshold = 0.85     # above this = update existing
+update_window_mins = 60     # in-place update window (minutes); outside it a new record is added and the old one marked superseded; 0 = unlimited
+
 [log]
 enabled = true             # file logging (stdout only when false)
 level = "info"             # trace/debug/info/warn/error
@@ -628,6 +680,8 @@ memrec --mcp    # Start MCP server in stdio mode
 | `mr_list` | List memories |
 | `mr_delete` | Delete a memory |
 | `mr_stats` | Get statistics |
+| `mr_dream` | Trigger Dream consolidation (`force`, `dry_run`) |
+| `mr_dream_report` | Inspect recent DreamRun audit records |
 
 ### MCP Resources
 

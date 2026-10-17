@@ -113,7 +113,12 @@ systemctl --user restart memrecd   # 或直接：memrecd
 | `memrec get` | 获取单条记忆 |
 | `memrec list` | 列出记忆 |
 | `memrec delete` | 删除记忆 |
+| `memrec restore` | 恢复软删除记忆（重新加入检索索引） |
 | `memrec stats` | 统计信息 |
+| `memrec scene` | L2 场景聚合（create/list/get/add-memory/remove-memory/update-heat/delete） |
+| `memrec dream` | 触发 Dream 整合（`--force`、`--dry-run`） |
+| `memrec dream-report` | 查看最近若干次 DreamRun 审计报告 |
+| `memrec eval` | 离线检索评测（JSONL 数据集，输出命中率指标） |
 | `memrec version` | 版本信息 |
 
 ### 添加记忆
@@ -382,6 +387,26 @@ memrec delete <memory-id>
 memrec stats
 ```
 
+### Dream 整合与审计
+
+Dream 在系统空闲时自动触发，也可手动执行；整合采用两段式管线（Stage F 融合 + Stage N 成网），详见 README「Dream 记忆整合」。每次运行（含门控拦截、dry-run、失败）都会落库一条 `DreamRun` 审计记录。
+
+```bash
+memrec dream --force              # 手动触发整合（忽略时间/新增门槛）
+memrec dream --dry-run            # 预演：只计算不写库、不删数据、不建边
+memrec dream-report --last 5      # 查看最近 5 次 DreamRun（候选/簇/边/传播/状态）
+```
+
+### 离线检索评测
+
+以 JSONL 数据集驱动只读检索，输出 `hit@k`/`recall@k`/`MRR`/`nDCG`，用于对比不同检索配置（如开启/关闭图扩散）。
+
+```bash
+memrec eval dataset.jsonl --k 10 --human
+```
+
+数据集每行格式：`{"query": "...", "relevant": ["<uuid>", ...]}`。
+
 ## 项目隔离
 
 ### 自动检测机制
@@ -546,6 +571,33 @@ integration_preserve_tags = ["critical"]  # 命中标签保留
 integration_preserve_types = ["preference", "context"]  # 保留的记忆类型（原文，context 压缩后细节不可恢复）
 integration_min_content_len = 10      # 过滤过短测试/占位记录（字符）
 
+# 检索图扩散（1 跳；图命中带 EdgeHint）
+retrieval_graph_enabled = true   # 检索是否走图扩散
+retrieval_graph_depth = 1        # 扩散跳数
+retrieval_graph_decay = 0.6      # 扩散衰减
+retrieval_graph_weight = 0.3     # 图命中并入候选的权重
+retrieval_graph_quota = 0.25     # 图命中在 top_k 中的保留名额比例（0=退回纯按分截断）
+
+# 成网（Stage N）
+networking_enabled = true               # 是否建边成网
+networking_similar_topk = 5             # Similar 边近邻数
+networking_similar_threshold = 0.82     # Similar 边阈值
+networking_semantic_enabled = false     # 是否启用 LLM 语义边（默认关）
+networking_semantic_max_candidates = 20 # 语义边候选池按向量相似度限幅
+networking_semantic_dup_threshold = 0.97 # 语义边候选近重复排除阈值
+networking_propagation_enabled = true   # 是否启用边传播
+
+# 上游去重（Stage F 事实条近重复）
+fusion_dedup_enabled = true     # 对融合产出事实条做近重复去重
+fusion_dedup_threshold = 0.97   # 近重复判定阈值（余弦）
+
+[dedup]                     # 写入去重（ADD/UPDATE/NOOP）
+enabled = true
+top_k = 5
+duplicate_threshold = 0.92  # 高于此值视为重复，跳过
+update_threshold = 0.85     # 高于此值合并更新已有记忆
+update_window_mins = 60     # 原地更新的时间窗口（分钟）；窗口外新增并标记旧记录 superseded；0 = 不限制
+
 [log]
 enabled = true             # 文件日志（false 时仅输出 stdout）
 level = "info"             # trace/debug/info/warn/error
@@ -624,6 +676,8 @@ memrec --mcp    # 以 stdio 模式启动 MCP 服务器
 | `mr_list` | 列出记忆 |
 | `mr_delete` | 删除记忆 |
 | `mr_stats` | 获取统计信息 |
+| `mr_dream` | 触发 Dream 整合（`force`、`dry_run`） |
+| `mr_dream_report` | 查看最近若干次 DreamRun 审计报告 |
 
 ### MCP 资源
 
