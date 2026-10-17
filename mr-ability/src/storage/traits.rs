@@ -6,7 +6,8 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use mr_common::{
-    Memory, MemoryEdge, MemoryFacet, MemoryType, PropagationDelta, RetrievalRule, RuleStats, Scene,
+    DreamRun, Memory, MemoryEdge, MemoryFacet, MemoryType, PropagationDelta, RetrievalRule,
+    RuleStats, Scene,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -386,6 +387,24 @@ pub trait TieredStorage: Send + Sync {
         }
         Ok(())
     }
+}
+
+/// DreamRun 审计存储 trait。
+///
+/// 提供 DreamRun 的落库、查询与计数，用于 D2 治理（可知、可查、可回溯、可度量）。
+#[async_trait]
+pub trait DreamRunStorage: Send + Sync {
+    /// 保存（或更新）一次 DreamRun。
+    async fn save_run(&self, run: &DreamRun) -> Result<()>;
+
+    /// 按 run_id 获取。
+    async fn get_run(&self, run_id: &Uuid) -> Result<Option<DreamRun>>;
+
+    /// 按开始时间倒序列出最近若干次运行（支持分页偏移）。
+    async fn list_runs(&self, limit: usize, offset: usize) -> Result<Vec<DreamRun>>;
+
+    /// 统计运行总数。
+    async fn count_runs(&self) -> Result<usize>;
 }
 
 /// 场景存储 trait。

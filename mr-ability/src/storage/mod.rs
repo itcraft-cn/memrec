@@ -11,6 +11,7 @@
 //! 底层 RocksDB 封装见 [`RocksDBStore`]，使用列族（Column Family）隔离不同数据。
 
 pub mod edge_store;
+pub mod dream_run_store;
 pub mod facet_store;
 pub mod hybrid_store;
 pub mod memory_store;
@@ -25,6 +26,7 @@ pub mod traits;
 pub mod vector_store;
 
 pub use edge_store::EdgeStore;
+pub use dream_run_store::DreamRunStore;
 pub use facet_store::FacetStore;
 pub use hybrid_store::{HybridConfig, HybridStore};
 pub use memory_store::MemoryStore;
@@ -36,9 +38,9 @@ pub use scene_store::SceneStore;
 pub use tantivy_store::TantivyStore;
 pub use tiered_store::TieredStore;
 pub use traits::{
-    ConfigStorage, EdgeStorage, FacetSearchHit, FacetStorage, FtsPayload, FtsStorage,
-    GraphSearchHit, GraphTraversalParams, HybridSearchRequest, HybridSearchResult, HybridStorage,
-    MemoryStorage, ProjectStorage, PropagationStorage, RuleStorage, SceneStorage, SearchFilter,
-    SearchHit, TieredStorage, VectorPayload, VectorStorage,
+    ConfigStorage, DreamRunStorage, EdgeStorage, FacetSearchHit, FacetStorage, FtsPayload,
+    FtsStorage, GraphSearchHit, GraphTraversalParams, HybridSearchRequest, HybridSearchResult,
+    HybridStorage, MemoryStorage, ProjectStorage, PropagationStorage, RuleStorage, SceneStorage,
+    SearchFilter, SearchHit, TieredStorage, VectorPayload, VectorStorage,
 };
 pub use vector_store::VectorStore;

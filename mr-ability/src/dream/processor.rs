@@ -16,7 +16,9 @@ use thiserror::Error;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use mr_common::types::{DreamConfig, Memory, MemoryScope, MemorySource, MemoryType};
+use mr_common::types::{
+    DreamConfig, Memory, MemoryScope, MemorySource, MemoryType, SummaryClues,
+};
 
 use crate::embedding::EmbeddingGenerator;
 use crate::llm::{LlmClient, LlmMessage};
@@ -159,15 +161,12 @@ pub fn extract_summary_clues(summary: &str) -> SummaryClues {
             clues.numbers.push(m.as_str().to_string());
         }
 
-        // 提取文件路径（带或不带行号）
-        if lazy_regex::regex!(r"[\w/_-]+\.(rs|cpp|h|toml|json|log)\s*:\s*\d+")
-            .find(line)
-            .is_some()
-            || lazy_regex::regex!(r"[\w/_-]+\.(rs|cpp|h|toml|json|log)")
-                .find(line)
-                .is_some()
-        {
-            // 已在上面的闭包中收集
+        // 提取文件路径（带或不带行号），完整收集（修复原有空循环死代码）
+        for m in lazy_regex::regex!(r"[\w/_.-]+\.(rs|cpp|h|toml|json|log)").find_iter(line) {
+            let path = m.as_str().to_string();
+            if !clues.file_paths.contains(&path) {
+                clues.file_paths.push(path);
+            }
         }
 
         // 提取来源线索
@@ -197,23 +196,19 @@ pub fn extract_summary_clues(summary: &str) -> SummaryClues {
             }
         }
 
-        // 提取行号
-        if lazy_regex::regex!(r":\s*(\d+)").find(line).is_some() {
-            // 已在闭包中收集
+        // 提取行号（形如 :136），完整收集（修复原有空循环死代码）
+        for cap in lazy_regex::regex!(r":\s*(\d+)").captures_iter(line) {
+            if let Some(n) = cap.get(1) {
+                if let Ok(num) = n.as_str().parse::<u32>() {
+                    if !clues.line_numbers.contains(&num) {
+                        clues.line_numbers.push(num);
+                    }
+                }
+            }
         }
     }
 
     clues
-}
-
-/// Dream 摘要中的关键数据线索集合。
-#[derive(Debug, Default, Clone)]
-pub struct SummaryClues {
-    pub numbers: Vec<String>,
-    pub file_paths: Vec<String>,
-    pub line_numbers: Vec<u32>,
-    pub source_clues: std::collections::HashSet<String>,
-    pub memory_terms: std::collections::HashSet<String>,
 }
 
 /// 统计距 `since_unix`（Unix 秒）之后的用户新增记忆数。

@@ -294,6 +294,65 @@ pub struct DreamConfig {
     /// 批处理间隔（毫秒）
     #[serde(default = "default_batch_interval_ms")]
     pub batch_interval_ms: u64,
+
+    // ---- Stage F 融合（fusion）----
+    /// 是否启用语义聚类
+    #[serde(default = "default_fusion_cluster_enabled")]
+    pub fusion_cluster_enabled: bool,
+    /// 聚类相似度阈值
+    #[serde(default = "default_fusion_cluster_threshold")]
+    pub fusion_cluster_threshold: f32,
+    /// 单簇上限（超出按相似度拆分为多个子簇）
+    #[serde(default = "default_fusion_cluster_max_size")]
+    pub fusion_cluster_max_size: usize,
+    /// 单次最大簇数（超出合并最小的若干簇）
+    #[serde(default = "default_fusion_max_clusters")]
+    pub fusion_max_clusters: usize,
+    /// 是否产出事实条
+    #[serde(default = "default_fusion_emit_facts")]
+    pub fusion_emit_facts: bool,
+    /// 是否产出主题摘要
+    #[serde(default = "default_fusion_emit_summary")]
+    pub fusion_emit_summary: bool,
+    /// 是否做矛盾消解（识别矛盾对，转为 Contradicts 边）
+    #[serde(default = "default_fusion_detect_contradictions")]
+    pub fusion_detect_contradictions: bool,
+
+    // ---- Stage N 成网（networking）----
+    /// 是否启用成网段
+    #[serde(default = "default_networking_enabled")]
+    pub networking_enabled: bool,
+    /// Similar 边近邻数
+    #[serde(default = "default_networking_similar_topk")]
+    pub networking_similar_topk: usize,
+    /// Similar 边阈值
+    #[serde(default = "default_networking_similar_threshold")]
+    pub networking_similar_threshold: f32,
+    /// 是否启用 LLM 语义边（默认关，先零 LLM 跑图）
+    #[serde(default = "default_networking_semantic_enabled")]
+    pub networking_semantic_enabled: bool,
+    /// 是否启用传播
+    #[serde(default = "default_networking_propagation_enabled")]
+    pub networking_propagation_enabled: bool,
+
+    // ---- 检索图扩散（retrieval）----
+    /// 检索是否走图扩散
+    #[serde(default = "default_retrieval_graph_enabled")]
+    pub retrieval_graph_enabled: bool,
+    /// 扩散跳数
+    #[serde(default = "default_retrieval_graph_depth")]
+    pub retrieval_graph_depth: usize,
+    /// 扩散衰减
+    #[serde(default = "default_retrieval_graph_decay")]
+    pub retrieval_graph_decay: f32,
+    /// 图命中并入候选的权重
+    #[serde(default = "default_retrieval_graph_weight")]
+    pub retrieval_graph_weight: f32,
+
+    // ---- dry-run ----
+    /// dry-run 预演时是否真调 LLM（关闭时用模板占位摘要）
+    #[serde(default = "default_dry_run_with_llm")]
+    pub dry_run_with_llm: bool,
 }
 
 fn default_dream_enabled() -> bool {
@@ -361,6 +420,58 @@ fn default_batch_interval_ms() -> u64 {
     1000
 }
 
+fn default_fusion_cluster_enabled() -> bool {
+    true
+}
+fn default_fusion_cluster_threshold() -> f32 {
+    0.78
+}
+fn default_fusion_cluster_max_size() -> usize {
+    20
+}
+fn default_fusion_max_clusters() -> usize {
+    12
+}
+fn default_fusion_emit_facts() -> bool {
+    true
+}
+fn default_fusion_emit_summary() -> bool {
+    true
+}
+fn default_fusion_detect_contradictions() -> bool {
+    true
+}
+fn default_networking_enabled() -> bool {
+    true
+}
+fn default_networking_similar_topk() -> usize {
+    5
+}
+fn default_networking_similar_threshold() -> f32 {
+    0.82
+}
+fn default_networking_semantic_enabled() -> bool {
+    false
+}
+fn default_networking_propagation_enabled() -> bool {
+    true
+}
+fn default_retrieval_graph_enabled() -> bool {
+    true
+}
+fn default_retrieval_graph_depth() -> usize {
+    1
+}
+fn default_retrieval_graph_decay() -> f32 {
+    0.6
+}
+fn default_retrieval_graph_weight() -> f32 {
+    0.3
+}
+fn default_dry_run_with_llm() -> bool {
+    false
+}
+
 impl Default for DreamConfig {
     fn default() -> Self {
         Self {
@@ -385,6 +496,23 @@ impl Default for DreamConfig {
             cleanup_importance_threshold: 0.1,
             batch_size: 100,
             batch_interval_ms: 1000,
+            fusion_cluster_enabled: true,
+            fusion_cluster_threshold: 0.78,
+            fusion_cluster_max_size: 20,
+            fusion_max_clusters: 12,
+            fusion_emit_facts: true,
+            fusion_emit_summary: true,
+            fusion_detect_contradictions: true,
+            networking_enabled: true,
+            networking_similar_topk: 5,
+            networking_similar_threshold: 0.82,
+            networking_semantic_enabled: false,
+            networking_propagation_enabled: true,
+            retrieval_graph_enabled: true,
+            retrieval_graph_depth: 1,
+            retrieval_graph_decay: 0.6,
+            retrieval_graph_weight: 0.3,
+            dry_run_with_llm: false,
         }
     }
 }

@@ -17,14 +17,20 @@
 //! 5. 写入新记忆，删除旧记忆
 //! 6. 释放锁
 
+mod fusion;
 mod gate;
 mod lock;
+mod networking;
 mod phases;
 mod processor;
 
+pub use fusion::{
+    cluster_candidates, cosine, extract_cluster, ClusterExtraction, ContradictionItem, FactItem,
+};
 pub use gate::{DreamGate, DreamGateResult};
 pub use lock::{DreamLock, DreamState, LockContent};
+pub use networking::EdgeBuilder;
 pub use phases::{
     CrossProjectExtractor, MemoryCleaner, PersonalSummarizer, PhaseResult, VectorRegenerator,
 };
-pub use processor::{DreamProcessor, DreamResult};
+pub use processor::{extract_summary_clues, DreamProcessor, DreamResult};

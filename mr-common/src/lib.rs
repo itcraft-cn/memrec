@@ -5,9 +5,10 @@
 pub mod types;
 
 pub use types::{
-    BoostType, DeltaType, EdgeHint, EdgeType, Memory, MemoryEdge, MemoryFacet, MemoryScope,
-    MemorySource, MemoryType, Project, ProjectConfig, PropagationConfig, PropagationDelta,
-    RepresentationTier, RetrievalRule, RuleAction, RuleCondition, RuleStats, Scene, TierThresholds,
+    BoostType, DeltaType, DreamRun, DreamRunStatus, EdgeHint, EdgeType, GateOutcome, Memory,
+    MemoryEdge, MemoryFacet, MemoryScope, MemorySource, MemoryType, PhaseResultRecord, Project,
+    ProjectConfig, PropagationConfig, PropagationDelta, QualityMetrics, RepresentationTier,
+    RetrievalRule, RuleAction, RuleCondition, RuleStats, Scene, SummaryClues, TierThresholds,
     TieredMemory, TieredSearchResult, TimeRange,
 };
 pub use types::{

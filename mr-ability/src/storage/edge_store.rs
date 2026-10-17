@@ -15,14 +15,19 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use mr_common::{EdgeType, MemoryEdge};
 use std::collections::HashSet;
+use std::sync::Arc;
 use uuid::Uuid;
 
 pub struct EdgeStore {
-    rocksdb: RocksDBStore,
+    rocksdb: Arc<RocksDBStore>,
 }
 
 impl EdgeStore {
-    pub fn new(rocksdb: RocksDBStore) -> Self {
+    /// 创建边存储实例。
+    ///
+    /// 与 `MemoryStore`/`SceneStore`/`PropagationStore` 一致，接收
+    /// `Arc<RocksDBStore>` 以共享同一 DB 实例（避免多实例打开同一路径）。
+    pub fn new(rocksdb: Arc<RocksDBStore>) -> Self {
         Self { rocksdb }
     }
 
@@ -359,7 +364,7 @@ mod tests {
     async fn create_test_store() -> EdgeStore {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        EdgeStore::new(rocksdb)
+        EdgeStore::new(Arc::new(rocksdb))
     }
 
     #[tokio::test]

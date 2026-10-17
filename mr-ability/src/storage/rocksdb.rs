@@ -29,6 +29,7 @@
 //! | `by_scene` | 场景-记忆索引（`scene_id:memory_id` → UUID） |
 //! | `by_heat` | 热度索引（`heat:scene_id` → UUID） |
 //! | `by_theme` | 主题索引（`theme:scene_id` → UUID） |
+//! | `dream_runs` | DreamRun 审计记录（run_id → JSON） |
 
 use anyhow::{Context, Result};
 use rocksdb::{ColumnFamilyDescriptor, Options, DB};
@@ -78,6 +79,8 @@ const CF_BY_SCENE: &str = "by_scene";
 const CF_BY_HEAT: &str = "by_heat";
 /// 主题索引列族
 const CF_BY_THEME: &str = "by_theme";
+/// DreamRun 审计列族
+const CF_DREAM_RUNS: &str = "dream_runs";
 
 /// RocksDB 存储封装，提供列族访问和基础读写操作。
 pub struct RocksDBStore {
@@ -114,6 +117,7 @@ impl RocksDBStore {
             ColumnFamilyDescriptor::new(CF_BY_SCENE, Options::default()),
             ColumnFamilyDescriptor::new(CF_BY_HEAT, Options::default()),
             ColumnFamilyDescriptor::new(CF_BY_THEME, Options::default()),
+            ColumnFamilyDescriptor::new(CF_DREAM_RUNS, Options::default()),
         ];
 
         let db = DB::open_cf_descriptors(&options, path, cfs).context("Failed to open RocksDB")?;
@@ -273,6 +277,13 @@ impl RocksDBStore {
         self.db
             .cf_handle(CF_BY_THEME)
             .context("Column family 'by_theme' not found")
+    }
+
+    /// 获取 `dream_runs` 列族句柄。
+    pub fn cf_dream_runs(&self) -> Result<&rocksdb::ColumnFamily> {
+        self.db
+            .cf_handle(CF_DREAM_RUNS)
+            .context("Column family 'dream_runs' not found")
     }
 
     /// 向指定列族写入键值对。

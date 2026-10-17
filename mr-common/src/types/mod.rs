@@ -12,6 +12,7 @@
 
 mod config;
 mod dedup;
+mod dream_run;
 mod edge;
 mod facet;
 mod llm;
@@ -28,6 +29,9 @@ pub use config::{
     SearchConfig, ServerConfig, SourceWeights,
 };
 pub use dedup::{DedupConfig, SimilarMemory};
+pub use dream_run::{
+    DreamRun, DreamRunStatus, GateOutcome, PhaseResultRecord, QualityMetrics, SummaryClues,
+};
 pub use edge::{EdgeType, MemoryEdge};
 pub use facet::MemoryFacet;
 pub use llm::{LlmConfig, ThinkLevel};

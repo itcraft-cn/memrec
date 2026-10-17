@@ -228,7 +228,7 @@ mod tests {
     async fn create_test_edge_store() -> EdgeStore {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        EdgeStore::new(rocksdb)
+        EdgeStore::new(std::sync::Arc::new(rocksdb))
     }
 
     fn create_test_memory(content: &str) -> Memory {
