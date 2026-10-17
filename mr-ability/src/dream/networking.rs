@@ -138,10 +138,15 @@ impl EdgeBuilder {
         }
 
         // 2) SameProject：产出之间同项目连边
+        // 跳过 nil 项目（Dream 产出统一为全局 nil 项目，nil 之间的“同项目”无意义，
+        // 否则会在产出之间形成 O(n^2) 泛边）。
         for i in 0..produced.len() {
             let Some(pid) = produced[i].project_id else {
                 continue;
             };
+            if pid.is_nil() {
+                continue;
+            }
             for p in produced.iter().skip(i + 1) {
                 if p.project_id != Some(pid) {
                     continue;
@@ -339,6 +344,33 @@ mod tests {
             .await
             .unwrap();
         assert!(stats.by_type.contains_key("same_project"));
+    }
+
+    #[tokio::test]
+    async fn test_nil_project_no_same_project_edge() {
+        // 全局 nil 项目的产出之间不应产生同项目泛边
+        let (store, _dir, _db) = make_edge_store();
+        let builder = EdgeBuilder::new(DreamConfig::default());
+        let mut a = mem("a", None);
+        a.project_id = Some(Uuid::nil());
+        let mut b = mem("b", None);
+        b.project_id = Some(Uuid::nil());
+        let mut emb = HashMap::new();
+        emb.insert(a.id, vec![1.0, 0.0]);
+        emb.insert(b.id, vec![0.0, 1.0]);
+        let stats = builder
+            .build(
+                &[a.clone(), b.clone()],
+                &emb,
+                &[a.clone(), b.clone()],
+                &emb,
+                &[],
+                &[],
+                &store,
+            )
+            .await
+            .unwrap();
+        assert!(!stats.by_type.contains_key("same_project"));
     }
 
     #[tokio::test]
