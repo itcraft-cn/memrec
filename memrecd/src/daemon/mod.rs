@@ -319,12 +319,13 @@ impl Daemon {
         Ok(())
     }
 
-    /// 启动全文索引自愈：比对活跃记忆与全文索引文档数，增量修正不一致。
+    /// 启动全文索引自愈：比对活跃记忆与全文索引文档数，不一致则全量重建。
     ///
     /// 旧版本 Dream 写路径绕过全文索引维护，可能残留两类不一致：活跃记忆缺全文
     /// 文档（检索不到）、软删记忆残留全文文档（“幽灵结果”）。此处以全文索引文档数
-    /// 与活跃记忆数是否相等为快速判据；相等则跳过（常数代价），不等则增量修复：
-    /// 先移除软删记忆的文档，再补齐缺失的活跃记忆文档。
+    /// 与活跃记忆数是否相等为快速判据；相等则跳过（常数代价）。不一致时以记忆库为
+    /// 唯一真源**全量重建**：清空索引后按活跃记忆批量写入（仅两次提交），从而一并
+    /// 清除软删残留文档、历史重复文档与悬空文档，保证文档数精确等于活跃记忆数。
     async fn reconcile_fts_index(
         &self,
         storage: &Arc<MemoryStore>,
@@ -338,41 +339,35 @@ impl Daemon {
         }
 
         info!(
-            "FTS index inconsistent (docs: {}, active memories: {}); reconciling...",
+            "FTS index inconsistent (docs: {}, active memories: {}); rebuilding...",
             fts_count,
             active.len()
         );
 
-        // 1) 移除软删记忆残留的全文文档
-        let deleted = storage.list_deleted().await?;
-        let mut removed = 0usize;
-        for memory in &deleted {
-            if fts_store.contains(&memory.id).await? {
-                fts_store.remove(&memory.id).await?;
-                removed += 1;
-            }
-        }
-
-        // 2) 补齐活跃记忆缺失的全文文档
-        let mut added = 0usize;
-        for memory in &active {
-            if !fts_store.contains(&memory.id).await? {
-                let payload = mr_ability::storage::FtsPayload {
-                    project_id: memory.project_id,
-                    memory_type: memory.memory_type.to_string(),
-                    tags: memory.tags.clone(),
-                    importance: memory.importance,
-                };
-                fts_store.add(&memory.id, &memory.content, payload).await?;
-                added += 1;
-            }
-        }
+        // 以记忆库为唯一真源全量重建（清空 + 批量写入），避免逐条探测与提交。
+        fts_store.clear().await?;
+        let docs: Vec<(uuid::Uuid, String, mr_ability::storage::FtsPayload)> = active
+            .iter()
+            .map(|m| {
+                (
+                    m.id,
+                    m.content.clone(),
+                    mr_ability::storage::FtsPayload {
+                        project_id: m.project_id,
+                        memory_type: m.memory_type.to_string(),
+                        tags: m.tags.clone(),
+                        importance: m.importance,
+                    },
+                )
+            })
+            .collect();
+        fts_store.add_many(&docs).await?;
+        fts_store.reload()?;
 
         info!(
-            "FTS index reconciled: removed {}, added {}, now {} documents",
-            removed,
-            added,
-            fts_store.count().await?
+            "FTS index rebuilt: {} documents (was {})",
+            fts_store.count().await?,
+            fts_count
         );
         Ok(())
     }

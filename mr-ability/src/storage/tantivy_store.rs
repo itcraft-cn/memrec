@@ -164,26 +164,55 @@ impl TantivyStore {
             .context("Failed to query Tantivy by id")?;
         Ok(count > 0)
     }
+
+    /// 由记忆 id、正文与载荷构建 Tantivy 文档。
+    fn build_doc(&self, id: &Uuid, text: &str, payload: &FtsPayload) -> TantivyDocument {
+        let mut doc = TantivyDocument::new();
+        doc.add_text(self.schema.id, id.to_string());
+        doc.add_text(self.schema.content, text);
+        if let Some(pid) = payload.project_id {
+            doc.add_text(self.schema.project_id, pid.to_string());
+        }
+        doc.add_text(self.schema.memory_type, payload.memory_type.clone());
+        doc.add_text(self.schema.tags, payload.tags.join(" "));
+        doc.add_f64(self.schema.importance, payload.importance as f64);
+        doc
+    }
+
+    /// 批量写入文档，仅一次提交。用于启动自愈的全量重建，避免逐条提交的开销。
+    pub async fn add_many(&self, docs: &[(Uuid, String, FtsPayload)]) -> Result<()> {
+        if docs.is_empty() {
+            return Ok(());
+        }
+        let mut writer = self.writer.write().await;
+        for (id, text, payload) in docs {
+            writer
+                .add_document(self.build_doc(id, text, payload))
+                .context("Failed to add document to Tantivy")?;
+        }
+        writer
+            .commit()
+            .context("Failed to commit Tantivy changes")?;
+        Ok(())
+    }
+
+    /// 清空全文索引（删除全部文档），仅一次提交。用于启动自愈的全量重建。
+    pub async fn clear(&self) -> Result<()> {
+        let mut writer = self.writer.write().await;
+        writer
+            .delete_all_documents()
+            .context("Failed to clear Tantivy index")?;
+        writer.commit().context("Failed to commit Tantivy clear")?;
+        Ok(())
+    }
 }
 
 #[async_trait]
 impl FtsStorage for TantivyStore {
     async fn add(&self, id: &Uuid, text: &str, payload: FtsPayload) -> Result<()> {
         let mut writer = self.writer.write().await;
-
-        let mut doc = TantivyDocument::new();
-        doc.add_text(self.schema.id, id.to_string());
-        doc.add_text(self.schema.content, text);
-
-        if let Some(pid) = payload.project_id {
-            doc.add_text(self.schema.project_id, pid.to_string());
-        }
-        doc.add_text(self.schema.memory_type, payload.memory_type);
-        doc.add_text(self.schema.tags, payload.tags.join(" "));
-        doc.add_f64(self.schema.importance, payload.importance as f64);
-
         writer
-            .add_document(doc)
+            .add_document(self.build_doc(id, text, &payload))
             .context("Failed to add document to Tantivy")?;
         writer
             .commit()
@@ -337,5 +366,28 @@ mod tests {
         store.add(&Uuid::new_v4(), "b", payload()).await.unwrap();
         store.reload().unwrap();
         assert_eq!(store.count().await.unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_clear_and_add_many_rebuilds() {
+        let store = TantivyStore::new_test();
+        store.add(&Uuid::new_v4(), "old", payload()).await.unwrap();
+        store.add(&Uuid::new_v4(), "old2", payload()).await.unwrap();
+        store.clear().await.unwrap();
+        store.reload().unwrap();
+        assert_eq!(store.count().await.unwrap(), 0, "清空后应为 0");
+
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        store
+            .add_many(&[
+                (a, "a".to_string(), payload()),
+                (b, "b".to_string(), payload()),
+            ])
+            .await
+            .unwrap();
+        store.reload().unwrap();
+        assert_eq!(store.count().await.unwrap(), 2, "批量写入后应为 2");
+        assert!(store.contains(&a).await.unwrap());
     }
 }
