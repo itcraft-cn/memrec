@@ -229,11 +229,22 @@ impl McpServer {
                 },
                 {
                     "name": "mr_dream",
-                    "description": "Execute Dream memory integration. Consolidates and compresses older memories into summary memories. Bypasses time/session gates when force=true.",
+                    "description": "Execute Dream memory integration. Consolidates and compresses older memories into summary memories. Bypasses time/session gates when force=true. Set dry_run=true to preview without writing.",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
-                            "force": { "type": "boolean", "description": "If true, bypass gate checks (time interval, session count)", "default": false }
+                            "force": { "type": "boolean", "description": "If true, bypass gate checks (time interval, session count)", "default": false },
+                            "dry_run": { "type": "boolean", "description": "If true, preview only: no writes, no deletes, no edges", "default": false }
+                        }
+                    }
+                },
+                {
+                    "name": "mr_dream_report",
+                    "description": "Get recent Dream run audit reports (DreamRun): candidates, clusters, edges, propagations, gate outcome, status and quality metrics.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "last": { "type": "integer", "description": "Number of recent runs to return (default 10, max 100)", "default": 10 }
                         }
                     }
                 }
@@ -254,6 +265,7 @@ impl McpServer {
             "mr_delete" => self.tool_delete(&arguments).await,
             "mr_stats" => self.tool_stats().await,
             "mr_dream" => self.tool_dream(&arguments).await,
+            "mr_dream_report" => self.tool_dream_report(&arguments).await,
             _ => Err(format!("Unknown tool: {}", tool_name)),
         };
 
@@ -475,17 +487,25 @@ impl McpServer {
     /// `mr_dream` 工具实现：记忆整合。
     async fn tool_dream(&self, args: &Value) -> Result<String, String> {
         let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+        let dry_run = args.get("dry_run").and_then(|v| v.as_bool()).unwrap_or(false);
 
-        let params = json!({ "force": force });
+        let params = json!({ "force": force, "dry_run": dry_run });
         let resp = self.call_daemon("dream", params).await?;
 
         if let Some(result) = resp.get("result") {
             if let Some(d) = result.get("integrated_count") {
                 let count = d.as_u64().unwrap_or(0);
                 let summary = result.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+                let clusters = result.get("cluster_count").and_then(|v| v.as_u64()).unwrap_or(0);
+                let edges = result.get("edge_count").and_then(|v| v.as_u64()).unwrap_or(0);
+                let propagations = result
+                    .get("propagation_count")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let mode = if dry_run { "Dream dry-run" } else { "Dream completed" };
                 return Ok(format!(
-                    "Dream completed: {} memories integrated\nSummary: {}",
-                    count, summary
+                    "{}: {} memories integrated, {} clusters, {} edges, {} propagations\nSummary: {}",
+                    mode, count, clusters, edges, propagations, summary
                 ));
             }
         }
@@ -496,6 +516,29 @@ impl McpServer {
                 .and_then(|v| v.as_str())
                 .unwrap_or("Unknown error");
             return Err(format!("Dream failed: {}", msg));
+        }
+
+        Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
+    }
+
+    /// `mr_dream_report` 工具实现：返回最近的 DreamRun 审计报告。
+    async fn tool_dream_report(&self, args: &Value) -> Result<String, String> {
+        let last = args.get("last").and_then(|v| v.as_u64()).unwrap_or(10);
+        let params = json!({ "last": last });
+        let resp = self.call_daemon("dream_report", params).await?;
+
+        if let Some(result) = resp.get("result") {
+            if let Some(runs) = result.get("runs") {
+                return Ok(serde_json::to_string_pretty(runs).unwrap_or_default());
+            }
+        }
+
+        if let Some(err) = resp.get("error") {
+            let msg = err
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown error");
+            return Err(format!("Dream report failed: {}", msg));
         }
 
         Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())

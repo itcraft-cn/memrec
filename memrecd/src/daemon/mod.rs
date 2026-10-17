@@ -25,10 +25,11 @@ use mr_ability::dream::DreamProcessor;
 use mr_ability::embedding::{EmbeddingGenerator, GeneratorFactory};
 use mr_ability::idle::{DreamRequest, SystemIdleMonitor};
 use mr_ability::llm::{LlmClient, OpenAiCompatibleClient};
+use mr_ability::propagation::{MockDeltaGenerator, PropagationEngine};
 use mr_ability::search::{MmrConfig, ScorerConfig};
 use mr_ability::storage::{
-    HybridStore, MemoryStorage, MemoryStore, RocksDBStore, RocksDBVectorStore, TantivyStore,
-    VectorStorage,
+    DreamRunStore, EdgeStore, HybridStore, MemoryStorage, MemoryStore, PropagationStore,
+    RocksDBStore, RocksDBVectorStore, TantivyStore, VectorStorage,
 };
 
 /// 向量存储定时同步间隔（秒）
@@ -115,7 +116,14 @@ impl Daemon {
 
         let rocksdb = Arc::new(RocksDBStore::open(&self.config.server.data_dir)?);
         let storage = Arc::new(MemoryStore::new(rocksdb.clone()));
-        let scene_store = Arc::new(mr_ability::storage::SceneStore::new(rocksdb));
+        let scene_store = Arc::new(mr_ability::storage::SceneStore::new(rocksdb.clone()));
+        // 图机制存储：边、传播增量与 DreamRun 审计（与记忆共享同一 DB 实例）
+        let edge_store: Arc<dyn mr_ability::storage::EdgeStorage> =
+            Arc::new(EdgeStore::new(rocksdb.clone()));
+        let propagation_store: Arc<dyn mr_ability::storage::PropagationStorage> =
+            Arc::new(PropagationStore::new(rocksdb.clone()));
+        let dream_run_store: Arc<dyn mr_ability::storage::DreamRunStorage> =
+            Arc::new(DreamRunStore::new(rocksdb.clone()));
 
         let embedder = GeneratorFactory::create(self.config.model.clone())?;
         let vector_store = Arc::new(RocksDBVectorStore::open(
@@ -165,7 +173,16 @@ impl Daemon {
         let mut dream_builder =
             DreamProcessor::new(dream_cfg, &self.config.server.data_dir, storage.clone())
                 .with_vector_store(vector_store.clone())
-                .with_embedder(embedder.clone());
+                .with_embedder(embedder.clone())
+                .with_edge_store(edge_store.clone())
+                .with_run_store(dream_run_store.clone())
+                .with_propagation(Arc::new(PropagationEngine::new(
+                    mr_common::PropagationConfig::default(),
+                    storage.clone(),
+                    edge_store.clone(),
+                    propagation_store.clone(),
+                    Arc::new(MockDeltaGenerator::default()),
+                )));
         if let Some(llm) = &llm_client {
             dream_builder = dream_builder.with_llm(llm.clone());
         }
@@ -195,7 +212,7 @@ impl Daemon {
             scene_store,
             self.config.dedup.clone(),
             dedup_decider,
-        ));
+        ).with_dream_run_store(dream_run_store.clone()));
 
         let server = UnixSocketServer::bind(&self.config.server.socket_path, router).await?;
 

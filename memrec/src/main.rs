@@ -27,7 +27,8 @@ use uuid::Uuid;
 
 use client::Client;
 use commands::{
-    add, delete, dream, get, list, restore, scene, search_execute, stats, version, AddOptions,
+    add, delete, dream, dream_report, get, list, restore, scene, search_execute, stats, version,
+    AddOptions,
     ListOptions, SearchArgs,
 };
 use commands::{detect_working_dir, read_project_uuid, resolve_scope, Scope};
@@ -106,6 +107,15 @@ enum Commands {
     Dream {
         #[arg(long)]
         force: bool,
+        /// 预演：只计算不写库、不删数据、不建边
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// 查看最近若干次 Dream 运行审计报告
+    DreamReport {
+        /// 返回最近条数（默认 10）
+        #[arg(long, default_value_t = 10)]
+        last: usize,
     },
     Stats,
     Search(SearchArgs),
@@ -241,8 +251,11 @@ async fn main() -> Result<()> {
         Commands::Restore { id } => {
             restore(&client, id, human).await?;
         }
-        Commands::Dream { force } => {
-            dream(&client, force, human).await?;
+        Commands::Dream { force, dry_run } => {
+            dream(&client, force, dry_run, human).await?;
+        }
+        Commands::DreamReport { last } => {
+            dream_report(&client, last, human).await?;
         }
         Commands::Stats => {
             stats(&client, human).await?;

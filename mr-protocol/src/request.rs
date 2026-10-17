@@ -39,6 +39,7 @@ pub enum RequestAction {
     GetProjectInfo,
     GetVersion,
     Dream,
+    DreamReport,
 
     ProjectCreate,
     ProjectList,
@@ -75,6 +76,7 @@ impl std::fmt::Display for RequestAction {
             RequestAction::GetProjectInfo => write!(f, "get_project_info"),
             RequestAction::GetVersion => write!(f, "get_version"),
             RequestAction::Dream => write!(f, "dream"),
+            RequestAction::DreamReport => write!(f, "dream_report"),
             RequestAction::ProjectCreate => write!(f, "project_create"),
             RequestAction::ProjectList => write!(f, "project_list"),
             RequestAction::ProjectSwitch => write!(f, "project_switch"),
@@ -138,6 +140,7 @@ pub enum RequestParams {
     GetProjectInfo(GetProjectInfoParams),
     GetVersion(GetVersionParams),
     Dream(DreamParams),
+    DreamReport(DreamReportParams),
 
     ProjectCreate(ProjectCreateParams),
     ProjectList(ProjectListParams),
@@ -367,8 +370,23 @@ pub struct GetVersionParams;
 /// Dream 记忆整合的参数。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DreamParams {
+    /// 强制触发（跳过年/时间/新记忆门控）
     #[serde(default)]
     pub force: bool,
+    /// 预演：只计算不写库、不删数据、不建边（便于安全查看 Dream 将做什么）
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+/// 查询 Dream 运行审计报告（DreamRun）的参数。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DreamReportParams {
+    /// 返回最近若干条（默认 10，最大 100）
+    #[serde(default)]
+    pub last: Option<usize>,
+    /// 起始偏移（分页）
+    #[serde(default)]
+    pub offset: Option<usize>,
 }
 
 /// 搜索模式：精确匹配 / 语义检索 / 混合（默认）。

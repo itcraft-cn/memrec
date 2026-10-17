@@ -17,7 +17,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::error::JsonRpcError;
-use mr_common::{Memory, MemoryType, Project, Scene, SimilarMemory, TieredSearchResult};
+use mr_common::{
+    DreamRun, Memory, MemoryType, PhaseResultRecord, Project, QualityMetrics, Scene, SimilarMemory,
+    SummaryClues, TieredSearchResult,
+};
 
 /// JSON-RPC 2.0 标准响应对象。
 ///
@@ -74,6 +77,7 @@ pub enum ResponseResult {
     ProjectInfo(ProjectInfoResult),
     Version(VersionResult),
     Dream(DreamResult),
+    DreamReport(DreamReportResult),
     Config(ConfigResult),
     Stats(StatsResult),
     Success(SuccessResult),
@@ -197,11 +201,50 @@ pub struct VersionResult {
 }
 
 /// Dream 记忆整合结果。
+///
+/// 既有字段（`integrated_count` / `created_memory_id` / `summary`）保持兼容，
+/// 新增字段用于 DreamReport 治理与 dry-run 展示。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DreamResult {
     pub integrated_count: usize,
     pub created_memory_id: Option<Uuid>,
     pub summary: String,
+    /// 本次运行审计 ID
+    #[serde(default)]
+    pub run_id: Option<Uuid>,
+    /// 聚类簇数
+    #[serde(default)]
+    pub cluster_count: usize,
+    /// 矛盾对数
+    #[serde(default)]
+    pub contradiction_count: usize,
+    /// 新建边数
+    #[serde(default)]
+    pub edge_count: usize,
+    /// 传播增量数
+    #[serde(default)]
+    pub propagation_count: usize,
+    /// 是否预演
+    #[serde(default)]
+    pub dry_run: bool,
+    /// 阶段执行结果
+    #[serde(default)]
+    pub phase_results: Vec<PhaseResultRecord>,
+    /// 摘要中的关键数据线索
+    #[serde(default)]
+    pub clues: SummaryClues,
+    /// 质量度量
+    #[serde(default)]
+    pub metrics: QualityMetrics,
+}
+
+/// Dream 运行审计报告结果。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DreamReportResult {
+    /// 最近若干条 DreamRun（按开始时间倒序）
+    pub runs: Vec<DreamRun>,
+    /// 运行总数
+    pub total: usize,
 }
 
 /// 配置查询/设置结果。

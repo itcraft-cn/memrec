@@ -23,18 +23,18 @@ use mr_ability::dream::DreamProcessor;
 use mr_ability::embedding::EmbeddingGenerator;
 use mr_ability::project::{detect_project_id, find_project_root};
 use mr_ability::storage::{
-    HybridSearchRequest, HybridStorage, MemoryStorage, SceneStorage, SearchFilter, VectorPayload,
-    VectorStorage,
+    DreamRunStorage, HybridSearchRequest, HybridStorage, MemoryStorage, SceneStorage, SearchFilter,
+    VectorPayload, VectorStorage,
 };
 use mr_ability::tiered::TierAssigner;
 use mr_common::{
     DedupConfig, Memory, MemoryType, RepresentationTier, SimilarMemory, TierThresholds,
 };
 use mr_protocol::{
-    DreamResult, GetProjectInfoParams, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
-    MemoryListResult, MemoryResult, ProjectInfoResult, RequestAction, RequestParams,
-    ResponseResult, SceneListResult, SceneResult, SearchHit, SemanticSearchResult, StatsResult,
-    SuccessResult, VersionResult,
+    DreamReportResult, DreamResult, GetProjectInfoParams, JsonRpcError, JsonRpcRequest,
+    JsonRpcResponse, MemoryListResult, MemoryResult, ProjectInfoResult, RequestAction,
+    RequestParams, ResponseResult, SceneListResult, SceneResult, SearchHit, SemanticSearchResult,
+    StatsResult, SuccessResult, VersionResult,
 };
 use std::sync::Arc;
 use std::time::Instant;
@@ -57,6 +57,8 @@ pub struct Router {
     dedup_config: DedupConfig,
     /// 去重决策器（规则版；LLM 版预留）
     dedup_decider: Option<Arc<dyn DedupDecider>>,
+    /// DreamRun 审计存储（用于 dream_report）
+    dream_run_store: Option<Arc<dyn DreamRunStorage>>,
 }
 
 impl Router {
@@ -82,7 +84,14 @@ impl Router {
             scene_store,
             dedup_config,
             dedup_decider,
+            dream_run_store: None,
         }
+    }
+
+    /// 注入 DreamRun 审计存储（用于 dream_report 查询）。
+    pub fn with_dream_run_store(mut self, store: Arc<dyn DreamRunStorage>) -> Self {
+        self.dream_run_store = Some(store);
+        self
     }
 
     /// 测试用：仅注入存储，自动创建 MockEmbedder 和内存向量存储。
@@ -128,6 +137,7 @@ impl Router {
             scene_store,
             dedup_config: DedupConfig::default(),
             dedup_decider: None,
+            dream_run_store: None,
         }
     }
 
@@ -152,6 +162,7 @@ impl Router {
             }
             RequestAction::GetVersion => self.handle_version(request.id).await,
             RequestAction::Dream => self.handle_dream(request.params, request.id).await,
+            RequestAction::DreamReport => self.handle_dream_report(request.params, request.id).await,
 
             RequestAction::SceneCreate => {
                 self.handle_scene_create(request.params, request.id).await
@@ -1023,23 +1034,73 @@ impl Router {
     }
 
     async fn handle_dream(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
-        let force = match params {
-            Some(RequestParams::Dream(p)) => p.force,
-            _ => false,
+        let (force, dry_run) = match params {
+            Some(RequestParams::Dream(p)) => (p.force, p.dry_run),
+            _ => (false, false),
         };
 
-        match self.dream_processor.execute(force).await {
+        match self.dream_processor.execute_ext(force, dry_run).await {
             Ok(result) => JsonRpcResponse::success(
                 ResponseResult::Dream(DreamResult {
                     integrated_count: result.integrated_count,
                     created_memory_id: result.created_memory_id,
                     summary: result.summary,
+                    run_id: result.run_id,
+                    cluster_count: result.cluster_count,
+                    contradiction_count: result.contradiction_count,
+                    edge_count: result.edge_count,
+                    propagation_count: result.propagation_count,
+                    dry_run: result.dry_run,
+                    phase_results: result
+                        .phase_results
+                        .iter()
+                        .map(|p| p.to_record())
+                        .collect(),
+                    clues: result.summary_clues,
+                    metrics: result.metrics,
                 }),
                 id,
             ),
             Err(e) => JsonRpcResponse::error(
                 JsonRpcError {
                     code: -32006,
+                    message: e.to_string(),
+                    data: None,
+                },
+                id,
+            ),
+        }
+    }
+
+    /// 处理 DreamReport 请求：返回最近的 DreamRun 审计报告。
+    async fn handle_dream_report(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+        let (last, offset) = match params {
+            Some(RequestParams::DreamReport(p)) => (p.last.unwrap_or(10), p.offset.unwrap_or(0)),
+            _ => (10, 0),
+        };
+
+        let Some(store) = &self.dream_run_store else {
+            return JsonRpcResponse::success(
+                ResponseResult::DreamReport(DreamReportResult {
+                    runs: Vec::new(),
+                    total: 0,
+                }),
+                id,
+            );
+        };
+
+        let last = last.min(100);
+        match store.list_runs(last, offset).await {
+            Ok(runs) => {
+                let total = store.count_runs().await.unwrap_or(runs.len());
+                JsonRpcResponse::success(
+                    ResponseResult::DreamReport(DreamReportResult { runs, total }),
+                    id,
+                )
+            }
+            Err(e) => JsonRpcResponse::error(
+                JsonRpcError {
+                    code: -32007,
                     message: e.to_string(),
                     data: None,
                 },
@@ -1414,7 +1475,7 @@ mod tests {
     use mr_common::DreamConfig;
     use mr_protocol::{
         default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda, AddParams,
-        GetProjectInfoParams, ListParams, RestoreParams, SearchMemoryParams,
+        GetProjectInfoParams, ListParams, SearchMemoryParams,
     };
     use tempfile::tempdir;
 
