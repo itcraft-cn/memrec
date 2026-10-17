@@ -27,9 +27,8 @@ use uuid::Uuid;
 
 use client::Client;
 use commands::{
-    add, delete, dream, dream_report, get, list, restore, scene, search_execute, stats, version,
-    AddOptions,
-    ListOptions, SearchArgs,
+    add, delete, dream, dream_report, eval_retrieval, get, list, restore, scene, search_execute,
+    stats, version, AddOptions, ListOptions, SearchArgs,
 };
 use commands::{detect_working_dir, read_project_uuid, resolve_scope, Scope};
 
@@ -116,6 +115,14 @@ enum Commands {
         /// 返回最近条数（默认 10）
         #[arg(long, default_value_t = 10)]
         last: usize,
+    },
+    /// 离线检索评测：以 JSONL 数据集驱动只读检索并输出命中率报告
+    Eval {
+        /// 评测集路径（JSONL，每行 {\"query\":..., \"relevant\":[\"uuid\", ...]}）
+        dataset: String,
+        /// 截断位置 k
+        #[arg(long, default_value_t = 10)]
+        k: usize,
     },
     Stats,
     Search(SearchArgs),
@@ -256,6 +263,9 @@ async fn main() -> Result<()> {
         }
         Commands::DreamReport { last } => {
             dream_report(&client, last, human).await?;
+        }
+        Commands::Eval { dataset, k } => {
+            eval_retrieval(&client, std::path::Path::new(&dataset), k, human).await?;
         }
         Commands::Stats => {
             stats(&client, human).await?;

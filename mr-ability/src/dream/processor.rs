@@ -31,6 +31,7 @@ use mr_common::types::{
 };
 
 use crate::embedding::EmbeddingGenerator;
+use crate::edge::EdgeGenerator;
 use crate::llm::LlmClient;
 use crate::propagation::PropagationEngine;
 use crate::storage::{DreamRunStorage, EdgeStorage, MemoryStorage, VectorStorage};
@@ -807,6 +808,34 @@ impl DreamProcessor {
                         run.edge_counts_by_type = stats.by_type;
                     }
                     Err(e) => warn!(target: "dream", "Edge build failed: {}", e),
+                }
+
+                // Stage N 语义边（P2-8，默认关）：LLM 判断 CausedBy/Evolves/References
+                if self.config.networking_semantic_enabled {
+                    if let Some(llm) = &self.llm {
+                        let gen = crate::edge::LlmEdgeGenerator::new(
+                            llm.clone(),
+                            3,
+                            0.6,
+                        );
+                        for m in &produced {
+                            match gen.generate(m, &pool, edge_store.as_ref()).await {
+                                Ok(edges) => {
+                                    for e in edges {
+                                        if let Err(err) = edge_store.save(&e).await {
+                                            warn!(target: "dream", "Save semantic edge failed: {}", err);
+                                        } else {
+                                            edge_count += 1;
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!(target: "dream", "Semantic edge generation failed: {}", e)
+                                }
+                            }
+                        }
+                        run.edge_count = edge_count;
+                    }
                 }
             }
         }

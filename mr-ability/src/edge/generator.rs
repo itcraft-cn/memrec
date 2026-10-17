@@ -147,6 +147,186 @@ impl EdgeGenerator for MockEdgeGenerator {
     }
 }
 
+/// LLM 语义边生成器（P2-8，**默认关**）。
+///
+/// 由 LLM 判断新记忆与候选记忆之间的**有向语义关系**
+/// （`CausedBy` / `Evolves` / `References`），并给出置信度。
+///
+/// ## 默认关闭
+///
+/// 语义边成本高（每次调用 LLM）且需灰度验证，故由
+/// `DreamConfig.networking_semantic_enabled`（默认 `false`）控制是否启用；
+/// 仅在显式开启且注入 LLM 时才参与 Stage N。
+///
+/// ## 容错
+///
+/// LLM 调用失败或 JSON 解析失败时返回 `Ok(vec![])`（不产生边、不中断
+/// Dream），保证语义边是**增强项**而非单点故障源。
+pub struct LlmEdgeGenerator {
+    llm: std::sync::Arc<dyn crate::llm::LlmClient>,
+    max_edges: usize,
+    min_confidence: f32,
+}
+
+/// LLM 返回的单条关系。
+#[derive(Debug, Clone, serde::Deserialize)]
+struct LlmRelation {
+    /// 候选记忆在列表中的下标
+    target: usize,
+    /// 关系类型：caused_by / evolves / references
+    #[serde(rename = "type")]
+    relation_type: String,
+    /// 置信度 0.0~1.0
+    #[serde(default = "default_confidence")]
+    confidence: f32,
+    /// 关系依据（简述）
+    #[serde(default)]
+    reason: String,
+}
+
+fn default_confidence() -> f32 {
+    0.5
+}
+
+impl LlmEdgeGenerator {
+    /// 创建语义边生成器。
+    ///
+    /// `max_edges`：单条新记忆最多产生的语义边数；`min_confidence`：采纳阈值。
+    pub fn new(
+        llm: std::sync::Arc<dyn crate::llm::LlmClient>,
+        max_edges: usize,
+        min_confidence: f32,
+    ) -> Self {
+        Self {
+            llm,
+            max_edges,
+            min_confidence,
+        }
+    }
+
+    /// 解析关系类型字符串。
+    fn parse_type(s: &str) -> Option<EdgeType> {
+        match s.to_lowercase().as_str() {
+            "caused_by" => Some(EdgeType::CausedBy),
+            "evolves" => Some(EdgeType::Evolves),
+            "references" => Some(EdgeType::References),
+            _ => None,
+        }
+    }
+
+    /// 从 LLM 输出中提取 JSON 数组并解析（容忍 ```json 代码块包裹）。
+    fn parse_relations(raw: &str) -> Vec<LlmRelation> {
+        let cleaned = raw.trim();
+        let cleaned = cleaned
+            .strip_prefix("```json")
+            .or_else(|| cleaned.strip_prefix("```"))
+            .unwrap_or(cleaned)
+            .trim_end()
+            .strip_suffix("```")
+            .unwrap_or(cleaned)
+            .trim();
+        let start = match cleaned.find('[') {
+            Some(i) => i,
+            None => return Vec::new(),
+        };
+        let end = match cleaned.rfind(']') {
+            Some(i) if i >= start => i,
+            _ => return Vec::new(),
+        };
+        serde_json::from_str(&cleaned[start..=end]).unwrap_or_default()
+    }
+}
+
+#[async_trait]
+impl EdgeGenerator for LlmEdgeGenerator {
+    async fn generate(
+        &self,
+        new_memory: &Memory,
+        candidate_memories: &[Memory],
+        edge_store: &dyn EdgeStorage,
+    ) -> Result<Vec<MemoryEdge>> {
+        if candidate_memories.is_empty() || self.max_edges == 0 {
+            return Ok(Vec::new());
+        }
+
+        // 已存在邻居关系，避免重复建边
+        let existing = edge_store.neighbors(&new_memory.id).await?;
+        let existing_targets: std::collections::HashSet<Uuid> = existing
+            .iter()
+            .map(|e| {
+                if e.source_id == new_memory.id {
+                    e.target_id
+                } else {
+                    e.source_id
+                }
+            })
+            .collect();
+
+        let mut listing = String::new();
+        for (i, c) in candidate_memories.iter().enumerate() {
+            listing.push_str(&format!(
+                "{}. [{}]\n",
+                i,
+                c.content.chars().take(200).collect::<String>()
+            ));
+        }
+
+        let system = "你是记忆关系分析引擎。判断给定记忆与候选记忆之间的有向语义关系。\
+只输出 JSON 数组，元素形如 {\"target\":<候选下标>,\"type\":\"caused_by|evolves|references\",\"confidence\":0.0~1.0,\"reason\":\"简述\"}。\
+只保留确有关系的候选；无关系则不输出。禁止输出数组以外的任何内容。";
+        let user = format!(
+            "新记忆：\n{}\n\n候选记忆：\n{}",
+            new_memory.content.chars().take(500).collect::<String>(),
+            listing
+        );
+        let messages = vec![
+            crate::llm::LlmMessage::system(system),
+            crate::llm::LlmMessage::user(user),
+        ];
+
+        let raw = match self
+            .llm
+            .chat_with_think(&messages, mr_common::ThinkLevel::Off)
+            .await
+        {
+            Ok(r) => r,
+            Err(_) => return Ok(Vec::new()),
+        };
+
+        let relations = Self::parse_relations(&raw);
+        let mut edges = Vec::new();
+        for rel in relations {
+            if edges.len() >= self.max_edges {
+                break;
+            }
+            if rel.confidence < self.min_confidence {
+                continue;
+            }
+            let candidate = match candidate_memories.get(rel.target) {
+                Some(c) => c,
+                None => continue,
+            };
+            let Some(edge_type) = Self::parse_type(&rel.relation_type) else {
+                continue;
+            };
+            if existing_targets.contains(&candidate.id) {
+                continue;
+            }
+            let edge = MemoryEdge::new(
+                new_memory.id,
+                candidate.id,
+                edge_type,
+                rel.confidence.clamp(0.0, 1.0),
+                format!("dream:llm-semantic:{}", rel.reason),
+            )
+            .auto_generated();
+            edges.push(edge);
+        }
+
+        Ok(edges)
+    }
+}
+
 /// 项目边生成器。
 ///
 /// 基于 `project_id` 元数据自动生成 SameProject 边。
@@ -233,6 +413,57 @@ mod tests {
 
     fn create_test_memory(content: &str) -> Memory {
         Memory::new(content.to_string(), MemoryType::Knowledge)
+    }
+
+    #[tokio::test]
+    async fn test_llm_edge_generator_parses_relations() {
+        use crate::llm::MockLlmClient;
+        let edge_store = create_test_edge_store().await;
+        let llm = std::sync::Arc::new(MockLlmClient::new(
+            r#"[{"target":0,"type":"caused_by","confidence":0.9,"reason":"a caused b"}]"#,
+        ));
+        let generator = LlmEdgeGenerator::new(llm, 3, 0.6);
+
+        let a = create_test_memory("root cause of the crash");
+        let b = create_test_memory("crash observed in production");
+        let edges = generator
+            .generate(&a, &[b.clone()], &edge_store)
+            .await
+            .unwrap();
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].edge_type, EdgeType::CausedBy);
+    }
+
+    #[tokio::test]
+    async fn test_llm_edge_generator_filters_low_confidence_and_bad_type() {
+        use crate::llm::MockLlmClient;
+        let edge_store = create_test_edge_store().await;
+        let llm = std::sync::Arc::new(MockLlmClient::new(
+            r#"```json
+[{"target":0,"type":"caused_by","confidence":0.2},{"target":1,"type":"unknown","confidence":0.9}]
+```"#,
+        ));
+        let generator = LlmEdgeGenerator::new(llm, 3, 0.6);
+        let a = create_test_memory("a");
+        let edges = generator
+            .generate(&a, &[create_test_memory("b"), create_test_memory("c")], &edge_store)
+            .await
+            .unwrap();
+        assert!(edges.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_llm_edge_generator_llm_failure_is_non_fatal() {
+        use crate::llm::MockLlmClient;
+        let edge_store = create_test_edge_store().await;
+        let llm = std::sync::Arc::new(MockLlmClient::unconfigured());
+        let generator = LlmEdgeGenerator::new(llm, 3, 0.6);
+        let a = create_test_memory("a");
+        let edges = generator
+            .generate(&a, &[create_test_memory("b")], &edge_store)
+            .await
+            .unwrap();
+        assert!(edges.is_empty());
     }
 
     #[tokio::test]

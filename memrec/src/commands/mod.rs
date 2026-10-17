@@ -2,10 +2,12 @@
 //!
 //! 各子命令的具体逻辑，通过 [`Client`] 与守护进程通信。
 
+mod eval;
 mod memory;
 pub mod scene;
 mod search;
 
+pub use eval::eval_retrieval;
 pub use memory::{
     add, delete, dream, dream_report, get, list, restore, stats, version, AddOptions, ListOptions,
 };

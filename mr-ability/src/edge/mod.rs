@@ -8,4 +8,4 @@
 
 mod generator;
 
-pub use generator::{EdgeGenerator, MockEdgeGenerator, ProjectEdgeGenerator};
+pub use generator::{EdgeGenerator, LlmEdgeGenerator, MockEdgeGenerator, ProjectEdgeGenerator};
