@@ -37,7 +37,7 @@ MemHub 是**产品与治理层**，不是记忆引擎本身：它把用户授权
 | 服务管理 | `mr-install/src/systemd.rs`、`launchd.rs`、`scripts/systemd/`、`scripts/*.sh` | 已有 systemd/launchd 与启停脚本 |
 | Runtime 控制 | `scripts/memrecctl.sh`、`start/stop/restart/status.sh` | 已有，但分散 |
 | 契约 | `mr-protocol/`（JSON-RPC 请求/响应） | 等价于 MemHub 的 `packages/contracts` |
-| 宿主接入 | `memrec/src/mcp/`、`dsh-plugin/`、`pi-extension/` | 三处独立接入，无统一契约 |
+| 宿主接入 | `memrec/src/mcp/`、`dsh-plugin/`、`pi-extension/` | 均以 memrec 为唯一客户端入口，无需适配器族 |
 | 单写入者 | 所有 CLR/MCP 均经 Unix Socket 调 `memrecd` | 事实上单写入，但未显式约束与文档化 |
 | Evidence 层 | `mr-ability/src/archive/`（SQLite，按年切分，永不删除） | 等价于 MemHub 的 Evidence |
 | 派生层 | `dream/phases/personal_summary.rs`（个人画像摘要） | 部分等价于 Matters/Wiki |
@@ -66,17 +66,7 @@ MemHub 是**产品与治理层**，不是记忆引擎本身：它把用户授权
 
 ## 5. 上策（高价值，契合 memrec 治理与安全定位）
 
-### 5.1 宿主接入层家族化（Host Bridge）
-
-**问题**：memrec 现有 `memrec/src/mcp/`、`dsh-plugin/`、`pi-extension/` 三处宿主接入**彼此独立、无统一契约**，每新增一个宿主都要重做一遍。
-
-**机制**：抽象出统一的宿主接入契约与适配器家族（MCP / Skill / Hook 三形态），各宿主只实现适配层，共享同一 Runtime 与控制流。
-
-**落点**：新增 `host-bridge` 概念目录（可先作为文档与接口约定，后落代码），统一 dsh-plugin 与 pi-extension 的公共逻辑（连接、项目上下文注入、会话事件记录）。
-
-**收益**：降低新增宿主成本；与 MemHub 的 `packages/host-bridge` 理念一致，且 memrec 已有两处实现可提炼。
-
-### 5.2 授权边界模型（三级独立授权）
+### 5.1 授权边界模型（三级独立授权）
 
 **问题**：memrec 存储的是本地敏感记忆（代码、决策、偏好），但**没有授权模型**：任何能访问 socket 的进程都能读写全部记忆。
 
@@ -86,7 +76,7 @@ MemHub 是**产品与治理层**，不是记忆引擎本身：它把用户授权
 
 **收益**：这是 memrec 面向"多应用共享记忆"最欠缺、也最该有的一块；契合 AGENTS 中对安全性与可用性的要求。
 
-### 5.3 显式单写入者契约 + 治理层
+### 5.2 显式单写入者契约 + 治理层
 
 **问题**：memrec 事实上单写入，但无显式约束与文档；从 `Evidence`（archive）到 `Memory` 之后缺少 `Governance` 环节。
 
@@ -116,6 +106,7 @@ MemHub 是**产品与治理层**，不是记忆引擎本身：它把用户授权
 |---|---|---|
 | Web 管理界面（React） | 不采纳 | memrec 为 CLI/daemon，界面非核心 |
 | Electron 桌面壳 | 不采纳 | 同上 |
+| 宿主接入层家族化（Host Bridge 适配器族） | 不采纳 | memrec 是唯一客户端入口，各宿主一律经由 memrec，无需再按 MCP/Skill/Hook 形态抽象适配器族（用户裁决 2026-10-17） |
 | npm bootstrap 分发 | 不照搬 | memrec 用 cargo 分发；仅借鉴"显式 install、postinstall 无副作用"原则 |
 | 多应用聚合 Hub 本身 | 谨慎 | memrec 的"一 daemon 多项目多客户端"已具雏形，先做强再谈聚合 |
 
@@ -127,7 +118,7 @@ MemHub 是**产品与治理层**，不是记忆引擎本身：它把用户授权
 - **产品与治理侧**（授权边界、单写入者、宿主接入家族化、数据生命周期纪律）看 MemHub。
 - memrec **不应变成 MemHub**（不做 Hub/Desktop/Web），而应吸收其**纪律**：把"授权边界"与"显式契约"补上，这是当前最实质的短板。
 
-优先级建议：先做 5.2（授权边界）与 5.1（宿主接入家族化），二者共同决定 memrec 能否安全地走向多应用共享；5.3 与中策项作为配套。
+优先级建议：先做 5.1（授权边界），它决定 memrec 能否安全地走向多应用共享；5.2 与中策项作为配套。
 
 ---
 
@@ -136,7 +127,6 @@ MemHub 是**产品与治理层**，不是记忆引擎本身：它把用户授权
 - 授权模型涉及既有 `mr-protocol` 结构扩展，需保持向后兼容（新增字段带默认值）。
 - 单写入者契约的强制化需评估现有 `memrec` CLI 是否存在任何绕过 daemon 的直连路径。
 - `delete-data` 守卫需与 `archive/` 的"永不删除"语义协调：删除应覆盖存档，须明确声明。
-- 宿主接入抽象应避免过度设计，先覆盖现有两个实现即可。
 
 ---
 
