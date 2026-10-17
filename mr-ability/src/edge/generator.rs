@@ -306,6 +306,10 @@ impl EdgeGenerator for LlmEdgeGenerator {
                 Some(c) => c,
                 None => continue,
             };
+            // 跳过自环：候选池包含新记忆自身，LLM 常会返回“内容一致”的自指关系。
+            if candidate.id == new_memory.id {
+                continue;
+            }
             let Some(edge_type) = Self::parse_type(&rel.relation_type) else {
                 continue;
             };
@@ -435,6 +439,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_llm_edge_generator_skips_self_loop() {
+        use crate::llm::MockLlmClient;
+        let edge_store = create_test_edge_store().await;
+        // 候选列表同时包含新记忆自身与另一条记忆
+        let llm = std::sync::Arc::new(MockLlmClient::new(
+            r#"[{"target":0,"type":"references","confidence":0.99,"reason":"same memory"},{"target":1,"type":"evolves","confidence":0.9,"reason":"b evolves a"}]"#,
+        ));
+        let generator = LlmEdgeGenerator::new(llm, 3, 0.6);
+
+        let a = create_test_memory("memory a");
+        let b = create_test_memory("memory b");
+        let edges = generator
+            .generate(&a, &[a.clone(), b.clone()], &edge_store)
+            .await
+            .unwrap();
+        assert_eq!(edges.len(), 1, "自环应被跳过，仅保留指向 b 的边");
+        assert_eq!(edges[0].target_id, b.id);
+    }
+
+    #[tokio::test]
     async fn test_llm_edge_generator_filters_low_confidence_and_bad_type() {
         use crate::llm::MockLlmClient;
         let edge_store = create_test_edge_store().await;
@@ -446,7 +470,11 @@ mod tests {
         let generator = LlmEdgeGenerator::new(llm, 3, 0.6);
         let a = create_test_memory("a");
         let edges = generator
-            .generate(&a, &[create_test_memory("b"), create_test_memory("c")], &edge_store)
+            .generate(
+                &a,
+                &[create_test_memory("b"), create_test_memory("c")],
+                &edge_store,
+            )
             .await
             .unwrap();
         assert!(edges.is_empty());
