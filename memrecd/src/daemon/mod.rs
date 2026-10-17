@@ -212,7 +212,14 @@ impl Daemon {
             scene_store,
             self.config.dedup.clone(),
             dedup_decider,
-        ).with_dream_run_store(dream_run_store.clone()));
+        ).with_dream_run_store(dream_run_store.clone())
+        .with_edge_store(edge_store.clone())
+        .with_retrieval_graph(crate::server::RetrievalGraph {
+            enabled: self.config.dream.retrieval_graph_enabled,
+            depth: self.config.dream.retrieval_graph_depth,
+            decay: self.config.dream.retrieval_graph_decay,
+            weight: self.config.dream.retrieval_graph_weight,
+        }));
 
         let server = UnixSocketServer::bind(&self.config.server.socket_path, router).await?;
 

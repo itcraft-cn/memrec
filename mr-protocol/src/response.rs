@@ -166,6 +166,9 @@ pub struct SearchHit {
     pub chunk_index: Option<u32>,
     pub chunk_total: Option<u32>,
     pub created_at: DateTime<Utc>,
+    /// 经图扩散到达时的边提示（None 表示直接命中）
+    #[serde(default)]
+    pub edge_hint: Option<mr_common::EdgeHint>,
 }
 
 /// 单个项目操作结果。
@@ -341,6 +344,7 @@ mod tests {
                 chunk_index: None,
                 chunk_total: None,
                 created_at: Utc::now(),
+                edge_hint: None,
             }],
             total: 1,
             query_embedding_time_ms: 10,

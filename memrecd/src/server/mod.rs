@@ -9,4 +9,5 @@ mod handler;
 mod unix_socket;
 
 pub use handler::Router;
+pub use handler::RetrievalGraph;
 pub use unix_socket::UnixSocketServer;

@@ -59,6 +59,30 @@ pub struct Router {
     dedup_decider: Option<Arc<dyn DedupDecider>>,
     /// DreamRun 审计存储（用于 dream_report）
     dream_run_store: Option<Arc<dyn DreamRunStorage>>,
+    /// 边存储（用于检索图扩散）
+    edge_store: Option<Arc<dyn mr_ability::storage::EdgeStorage>>,
+    /// 检索图扩散参数
+    retrieval_graph: RetrievalGraph,
+}
+
+/// 检索图扩散参数（来自 DreamConfig 的 `retrieval_*` 项）。
+#[derive(Debug, Clone, Copy)]
+pub struct RetrievalGraph {
+    pub enabled: bool,
+    pub depth: usize,
+    pub decay: f32,
+    pub weight: f32,
+}
+
+impl Default for RetrievalGraph {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            depth: 1,
+            decay: 0.6,
+            weight: 0.3,
+        }
+    }
 }
 
 impl Router {
@@ -85,12 +109,26 @@ impl Router {
             dedup_config,
             dedup_decider,
             dream_run_store: None,
+            edge_store: None,
+            retrieval_graph: RetrievalGraph::default(),
         }
     }
 
     /// 注入 DreamRun 审计存储（用于 dream_report 查询）。
     pub fn with_dream_run_store(mut self, store: Arc<dyn DreamRunStorage>) -> Self {
         self.dream_run_store = Some(store);
+        self
+    }
+
+    /// 注入边存储（用于检索图扩散）。
+    pub fn with_edge_store(mut self, store: Arc<dyn mr_ability::storage::EdgeStorage>) -> Self {
+        self.edge_store = Some(store);
+        self
+    }
+
+    /// 配置检索图扩散参数。
+    pub fn with_retrieval_graph(mut self, graph: RetrievalGraph) -> Self {
+        self.retrieval_graph = graph;
         self
     }
 
@@ -138,6 +176,8 @@ impl Router {
             dedup_config: DedupConfig::default(),
             dedup_decider: None,
             dream_run_store: None,
+            edge_store: None,
+            retrieval_graph: RetrievalGraph::default(),
         }
     }
 
@@ -860,7 +900,7 @@ impl Router {
                 let search_time = search_start.elapsed().as_millis() as u64;
 
                 let mut results: Vec<SearchHit> = vec![];
-                for h in result.hits {
+                for h in &result.hits {
                     let memory = self.storage.get(&h.memory_id).await.ok().flatten();
                     let memory_type = memory
                         .as_ref()
@@ -879,8 +919,99 @@ impl Router {
                         chunk_index: h.payload.chunk_index,
                         chunk_total: h.payload.chunk_total,
                         created_at,
+                        edge_hint: None,
                     });
                 }
+
+                // 图扩散（P1-6）：seed 命中经图扩散补充召回。
+                // 图命中分 = seed_score × graph_score × retrieval_graph_weight；
+                // 经图到达的条目带 EdgeHint 标注；软删记忆不返回（仅用于连通）。
+                if self.retrieval_graph.enabled {
+                    if let Some(edge_store) = &self.edge_store {
+                        let seed_ids: Vec<Uuid> =
+                            result.hits.iter().map(|h| h.memory_id).collect();
+                        let seed_score: std::collections::HashMap<Uuid, f32> = result
+                            .hits
+                            .iter()
+                            .map(|h| (h.memory_id, h.score))
+                            .collect();
+                        let params = mr_ability::storage::GraphTraversalParams {
+                            // traverse 的 max_depth 含种子层，故“跳数”= depth 时取 depth+1
+                            max_depth: self.retrieval_graph.depth + 1,
+                            decay: self.retrieval_graph.decay,
+                            min_score: 0.0,
+                            max_results: p.top_k.max(1) * 3,
+                            edge_types: Some(vec![
+                                mr_common::EdgeType::Similar,
+                                mr_common::EdgeType::References,
+                                mr_common::EdgeType::CausedBy,
+                                mr_common::EdgeType::Evolves,
+                            ]),
+                        };
+                        if let Ok(graph_hits) = edge_store.traverse(&seed_ids, params).await {
+                            let existing: std::collections::HashSet<Uuid> =
+                                results.iter().map(|r| r.memory_id).collect();
+                            for gh in graph_hits {
+                                if existing.contains(&gh.memory_id) {
+                                    continue;
+                                }
+                                let seed = gh.path.first().copied().unwrap_or(gh.memory_id);
+                                let base = seed_score.get(&seed).copied().unwrap_or(0.0);
+                                let score = base * gh.score * self.retrieval_graph.weight;
+                                if score <= 0.0 {
+                                    continue;
+                                }
+                                let memory = match self.storage.get(&gh.memory_id).await {
+                                    Ok(Some(m)) => m,
+                                    _ => continue,
+                                };
+                                if memory.is_deleted {
+                                    continue;
+                                }
+                                let edge_type = gh
+                                    .path_types
+                                    .last()
+                                    .copied()
+                                    .unwrap_or(mr_common::EdgeType::Similar);
+                                results.push(SearchHit {
+                                    memory_id: memory.id,
+                                    score,
+                                    memory_type: memory.memory_type,
+                                    content_preview: memory
+                                        .content
+                                        .chars()
+                                        .take(200)
+                                        .collect::<String>(),
+                                    project_id: memory.project_id,
+                                    tags: memory.tags.clone(),
+                                    is_chunked: memory.chunk_group_id.is_some(),
+                                    chunk_group_id: memory.chunk_group_id,
+                                    chunk_index: memory.chunk_index,
+                                    chunk_total: memory.chunk_total,
+                                    created_at: memory.created_at,
+                                    edge_hint: Some(mr_common::EdgeHint {
+                                        edge_type,
+                                        target_summary: gh
+                                            .path
+                                            .iter()
+                                            .map(|u| u.to_string())
+                                            .collect::<Vec<_>>()
+                                            .join(" -> "),
+                                        weight: gh.score,
+                                    }),
+                                });
+                            }
+                        }
+                    }
+                }
+
+                // 图命中并入后统一按分重排并截断
+                results.sort_by(|a, b| {
+                    b.score
+                        .partial_cmp(&a.score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                results.truncate(p.top_k.max(1));
 
                 let total = results.len();
 
@@ -1513,7 +1644,9 @@ mod tests {
     use mr_ability::embedding::MockEmbedder;
     use mr_ability::search::{MmrConfig, ScorerConfig};
     use mr_ability::storage::rocksdb::RocksDBStore;
-    use mr_ability::storage::{HybridStore, MemoryStore, SceneStore, TantivyStore, VectorStore};
+    use mr_ability::storage::{
+        EdgeStore, HybridStore, MemoryStore, SceneStore, TantivyStore, VectorStore,
+    };
     use mr_common::DreamConfig;
     use mr_protocol::{
         default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda, AddParams,
@@ -1606,6 +1739,51 @@ mod tests {
         )
     }
 
+    /// 构建注入了边存储的 Router，用于检索图扩散测试。
+    ///
+    /// 返回 `(Router, EdgeStore)`：测试可手动建边后验证扩散召回。
+    fn router_with_graph() -> (Router, Arc<dyn mr_ability::storage::EdgeStorage>) {
+        let dir = tempdir().unwrap();
+        let data_dir = dir.path().to_path_buf();
+        std::mem::forget(dir);
+        let rocksdb = Arc::new(RocksDBStore::open(&data_dir).unwrap());
+        let storage = Arc::new(MemoryStore::new(rocksdb.clone()));
+        let embedder = Arc::new(TestEmbedder);
+        let vector_store = Arc::new(VectorStore::new(embedder.dimension()));
+        let fts_store = Arc::new(TantivyStore::new_test());
+        let hybrid_store = Arc::new(HybridStore::new(
+            vector_store.clone(),
+            fts_store,
+            MmrConfig::default(),
+            ScorerConfig::default(),
+        ));
+
+        let dream_config = DreamConfig::default();
+        let dream_processor = Arc::new(DreamProcessor::new(
+            dream_config,
+            &data_dir,
+            storage.clone(),
+        ));
+        let archive_manager = ArchiveManager::new(data_dir.clone(), true);
+        let edge_store: Arc<dyn mr_ability::storage::EdgeStorage> =
+            Arc::new(EdgeStore::new(rocksdb.clone()));
+        let scene_store = Arc::new(SceneStore::new(rocksdb));
+
+        let router = Router::new(
+            storage,
+            vector_store,
+            hybrid_store,
+            embedder,
+            dream_processor,
+            archive_manager,
+            scene_store,
+            DedupConfig::default(),
+            None,
+        )
+        .with_edge_store(edge_store.clone());
+        (router, edge_store)
+    }
+
     fn add_request(content: &str, id: u64) -> JsonRpcRequest {
         JsonRpcRequest::new(
             RequestAction::Add,
@@ -1637,6 +1815,72 @@ mod tests {
             Some(ResponseResult::Memory(m)) => m.action.clone(),
             _ => String::new(),
         }
+    }
+
+    #[tokio::test]
+    async fn test_search_graph_diffusion_brings_neighbor() {
+        // P1-6：seed 命中经图扩散补充召回，邻居带 EdgeHint 标注返回
+        let (router, edge_store) = router_with_graph();
+
+        let a = router
+            .route(add_request_dedup_off("rust ownership and borrowing rules", 1))
+            .await;
+        let a_id = match &a.result {
+            Some(ResponseResult::Memory(m)) => m.memory.id,
+            _ => panic!("expected memory"),
+        };
+
+        // B 只写入记忆库、不进入索引，保证只能经图扩散到达（排除 seed 干扰）
+        let b_mem = mr_common::Memory::new(
+            "cargo workspace dependency layout".to_string(),
+            MemoryType::Knowledge,
+        );
+        let b_id = b_mem.id;
+        router.storage.add(&b_mem).await.unwrap();
+
+        // A → B 建 References 边
+        let edge = mr_common::MemoryEdge::new(
+            a_id,
+            b_id,
+            mr_common::EdgeType::References,
+            0.9,
+            "test".to_string(),
+        );
+        edge_store.save(&edge).await.unwrap();
+
+        // 仅查询 A 的内容
+        let req = JsonRpcRequest::new(
+            RequestAction::SearchMemory,
+            Some(RequestParams::SearchMemory(SearchMemoryParams {
+                query: "rust ownership and borrowing rules".to_string(),
+                project_id: None,
+                include_global: true,
+                project_only: false,
+                global_only: false,
+                cross_project: false,
+                memory_type: None,
+                top_k: 5,
+                min_score: 0.0,
+                working_dir: None,
+                hybrid_alpha: default_hybrid_alpha(),
+                mmr_enabled: false,
+                mmr_lambda: default_mmr_lambda(),
+            })),
+            3,
+        );
+        let resp = router.route(req).await;
+        let results = match resp.result {
+            Some(ResponseResult::SemanticSearchResult(r)) => r.results,
+            _ => panic!("expected semantic search result"),
+        };
+
+        let a_hit = results.iter().find(|r| r.memory_id == a_id).expect("A 应命中");
+        assert!(a_hit.edge_hint.is_none(), "seed 命中不应带 EdgeHint");
+        let b_hit = results
+            .iter()
+            .find(|r| r.memory_id == b_id)
+            .expect("邻居 B 应经图扩散进入结果");
+        assert!(b_hit.edge_hint.is_some(), "图命中应带 EdgeHint");
     }
 
     #[tokio::test]
