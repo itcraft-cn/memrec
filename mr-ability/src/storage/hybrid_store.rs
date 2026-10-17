@@ -122,10 +122,13 @@ impl HybridStore {
         }
 
         let mut result: Vec<SearchHit> = merged.into_values().collect();
+        // 确定性排序：分数降序，同分按 memory_id 升序，避免 HashMap 迭代顺序导致
+        // 同分命中排名在多次运行间漂移（影响 MRR/nDCG 的可复现性）。
         result.sort_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.memory_id.cmp(&b.memory_id))
         });
         result
     }
@@ -174,6 +177,7 @@ impl HybridStorage for HybridStore {
             b.score
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.memory_id.cmp(&b.memory_id))
         });
         // 融合分数过滤：min_score 语义为"最终相似度下限"，向量侧的原始
         // 过滤无法覆盖 BM25 融合后的归一化分数，这里对融合结果统一过滤，

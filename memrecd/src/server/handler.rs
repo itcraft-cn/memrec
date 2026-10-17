@@ -202,7 +202,9 @@ impl Router {
             }
             RequestAction::GetVersion => self.handle_version(request.id).await,
             RequestAction::Dream => self.handle_dream(request.params, request.id).await,
-            RequestAction::DreamReport => self.handle_dream_report(request.params, request.id).await,
+            RequestAction::DreamReport => {
+                self.handle_dream_report(request.params, request.id).await
+            }
 
             RequestAction::SceneCreate => {
                 self.handle_scene_create(request.params, request.id).await
@@ -354,11 +356,7 @@ impl Router {
                                     } else {
                                         // 窗口外：标记旧记录为被取代（保留历史，不覆盖、不删除）
                                         let mut superseded = old.clone();
-                                        if !superseded
-                                            .tags
-                                            .iter()
-                                            .any(|t| t == "superseded")
-                                        {
+                                        if !superseded.tags.iter().any(|t| t == "superseded") {
                                             superseded.tags.push("superseded".to_string());
                                         }
                                         superseded.metadata.insert(
@@ -927,14 +925,15 @@ impl Router {
                 // 图命中分 = seed_score × graph_score × retrieval_graph_weight；
                 // 经图到达的条目带 EdgeHint 标注；软删记忆不返回（仅用于连通）。
                 if self.retrieval_graph.enabled {
+                    tracing::debug!(
+                        target: "recall",
+                        "retrieval graph enabled: edge_store={}",
+                        self.edge_store.is_some()
+                    );
                     if let Some(edge_store) = &self.edge_store {
-                        let seed_ids: Vec<Uuid> =
-                            result.hits.iter().map(|h| h.memory_id).collect();
-                        let seed_score: std::collections::HashMap<Uuid, f32> = result
-                            .hits
-                            .iter()
-                            .map(|h| (h.memory_id, h.score))
-                            .collect();
+                        let seed_ids: Vec<Uuid> = result.hits.iter().map(|h| h.memory_id).collect();
+                        let seed_score: std::collections::HashMap<Uuid, f32> =
+                            result.hits.iter().map(|h| (h.memory_id, h.score)).collect();
                         let params = mr_ability::storage::GraphTraversalParams {
                             // traverse 的 max_depth 含种子层，故“跳数”= depth 时取 depth+1
                             max_depth: self.retrieval_graph.depth + 1,
@@ -949,25 +948,39 @@ impl Router {
                             ]),
                         };
                         if let Ok(graph_hits) = edge_store.traverse(&seed_ids, params).await {
+                            tracing::debug!(
+                                target: "recall",
+                                "graph traversal: seeds={} graph_hits={}",
+                                seed_ids.len(),
+                                graph_hits.len()
+                            );
                             let existing: std::collections::HashSet<Uuid> =
                                 results.iter().map(|r| r.memory_id).collect();
+                            let mut pushed = 0usize;
                             for gh in graph_hits {
                                 if existing.contains(&gh.memory_id) {
+                                    tracing::debug!(target:"recall","gh {} skip: already in seeds", gh.memory_id);
                                     continue;
                                 }
                                 let seed = gh.path.first().copied().unwrap_or(gh.memory_id);
                                 let base = seed_score.get(&seed).copied().unwrap_or(0.0);
                                 let score = base * gh.score * self.retrieval_graph.weight;
                                 if score <= 0.0 {
+                                    tracing::debug!(target:"recall","gh {} skip: score<=0", gh.memory_id);
                                     continue;
                                 }
                                 let memory = match self.storage.get(&gh.memory_id).await {
                                     Ok(Some(m)) => m,
-                                    _ => continue,
+                                    _ => {
+                                        tracing::debug!(target:"recall","gh {} skip: memory missing", gh.memory_id);
+                                        continue;
+                                    }
                                 };
                                 if memory.is_deleted {
+                                    tracing::debug!(target:"recall","gh {} skip: deleted", gh.memory_id);
                                     continue;
                                 }
+                                pushed += 1;
                                 let edge_type = gh
                                     .path_types
                                     .last()
@@ -1001,6 +1014,7 @@ impl Router {
                                     }),
                                 });
                             }
+                            tracing::debug!(target:"recall","graph hits pushed={}", pushed);
                         }
                     }
                 }
@@ -1010,6 +1024,7 @@ impl Router {
                     b.score
                         .partial_cmp(&a.score)
                         .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| a.memory_id.cmp(&b.memory_id))
                 });
                 results.truncate(p.top_k.max(1));
 
@@ -1224,11 +1239,7 @@ impl Router {
                     edge_count: result.edge_count,
                     propagation_count: result.propagation_count,
                     dry_run: result.dry_run,
-                    phase_results: result
-                        .phase_results
-                        .iter()
-                        .map(|p| p.to_record())
-                        .collect(),
+                    phase_results: result.phase_results.iter().map(|p| p.to_record()).collect(),
                     clues: result.summary_clues,
                     metrics: result.metrics,
                 }),
@@ -1823,7 +1834,10 @@ mod tests {
         let (router, edge_store) = router_with_graph();
 
         let a = router
-            .route(add_request_dedup_off("rust ownership and borrowing rules", 1))
+            .route(add_request_dedup_off(
+                "rust ownership and borrowing rules",
+                1,
+            ))
             .await;
         let a_id = match &a.result {
             Some(ResponseResult::Memory(m)) => m.memory.id,
@@ -1874,7 +1888,10 @@ mod tests {
             _ => panic!("expected semantic search result"),
         };
 
-        let a_hit = results.iter().find(|r| r.memory_id == a_id).expect("A 应命中");
+        let a_hit = results
+            .iter()
+            .find(|r| r.memory_id == a_id)
+            .expect("A 应命中");
         assert!(a_hit.edge_hint.is_none(), "seed 命中不应带 EdgeHint");
         let b_hit = results
             .iter()

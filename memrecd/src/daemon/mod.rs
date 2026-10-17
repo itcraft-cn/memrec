@@ -28,8 +28,8 @@ use mr_ability::llm::{LlmClient, OpenAiCompatibleClient};
 use mr_ability::propagation::{MockDeltaGenerator, PropagationEngine};
 use mr_ability::search::{MmrConfig, ScorerConfig};
 use mr_ability::storage::{
-    DreamRunStore, EdgeStore, HybridStore, MemoryStorage, MemoryStore, PropagationStore,
-    RocksDBStore, RocksDBVectorStore, TantivyStore, VectorStorage,
+    DreamRunStore, EdgeStore, HybridStore, IndexingStorage, MemoryStorage, MemoryStore,
+    PropagationStore, RocksDBStore, RocksDBVectorStore, TantivyStore, VectorStorage,
 };
 
 /// 向量存储定时同步间隔（秒）
@@ -150,6 +150,15 @@ impl Daemon {
         self.rebuild_missing_embeddings(&storage, &vector_store, &embedder)
             .await?;
 
+        // 索引一致型存储：Dream 链路的全部写操作（融合产出、软删源、阶段清理/摘要）
+        // 统一经此装饰器同步到混合检索索引，避免产出不可检索、软删源仍被返回。
+        let hybrid_index: Arc<dyn mr_ability::storage::HybridStorage> = hybrid_store.clone();
+        let indexing_storage: Arc<dyn MemoryStorage> = Arc::new(IndexingStorage::new(
+            storage.clone(),
+            hybrid_index,
+            embedder.clone(),
+        ));
+
         // LLM 装配：未启用时强制 Dream 视为不启用
         let llm_client: Option<Arc<dyn LlmClient>> = if self.config.llm.enabled {
             let client = Arc::new(OpenAiCompatibleClient::new(self.config.llm.clone()));
@@ -170,19 +179,22 @@ impl Daemon {
         if llm_client.is_none() {
             dream_cfg.enabled = false;
         }
-        let mut dream_builder =
-            DreamProcessor::new(dream_cfg, &self.config.server.data_dir, storage.clone())
-                .with_vector_store(vector_store.clone())
-                .with_embedder(embedder.clone())
-                .with_edge_store(edge_store.clone())
-                .with_run_store(dream_run_store.clone())
-                .with_propagation(Arc::new(PropagationEngine::new(
-                    mr_common::PropagationConfig::default(),
-                    storage.clone(),
-                    edge_store.clone(),
-                    propagation_store.clone(),
-                    Arc::new(MockDeltaGenerator::default()),
-                )));
+        let mut dream_builder = DreamProcessor::new(
+            dream_cfg,
+            &self.config.server.data_dir,
+            indexing_storage.clone(),
+        )
+        .with_vector_store(vector_store.clone())
+        .with_embedder(embedder.clone())
+        .with_edge_store(edge_store.clone())
+        .with_run_store(dream_run_store.clone())
+        .with_propagation(Arc::new(PropagationEngine::new(
+            mr_common::PropagationConfig::default(),
+            storage.clone(),
+            edge_store.clone(),
+            propagation_store.clone(),
+            Arc::new(MockDeltaGenerator::default()),
+        )));
         if let Some(llm) = &llm_client {
             dream_builder = dream_builder.with_llm(llm.clone());
         }
@@ -202,24 +214,27 @@ impl Daemon {
             self.config.archive.enabled,
         );
 
-        let router = Arc::new(Router::new(
-            storage.clone(),
-            vector_store.clone(),
-            hybrid_store,
-            embedder,
-            dream_processor.clone(),
-            archive_manager,
-            scene_store,
-            self.config.dedup.clone(),
-            dedup_decider,
-        ).with_dream_run_store(dream_run_store.clone())
-        .with_edge_store(edge_store.clone())
-        .with_retrieval_graph(crate::server::RetrievalGraph {
-            enabled: self.config.dream.retrieval_graph_enabled,
-            depth: self.config.dream.retrieval_graph_depth,
-            decay: self.config.dream.retrieval_graph_decay,
-            weight: self.config.dream.retrieval_graph_weight,
-        }));
+        let router = Arc::new(
+            Router::new(
+                storage.clone(),
+                vector_store.clone(),
+                hybrid_store,
+                embedder,
+                dream_processor.clone(),
+                archive_manager,
+                scene_store,
+                self.config.dedup.clone(),
+                dedup_decider,
+            )
+            .with_dream_run_store(dream_run_store.clone())
+            .with_edge_store(edge_store.clone())
+            .with_retrieval_graph(crate::server::RetrievalGraph {
+                enabled: self.config.dream.retrieval_graph_enabled,
+                depth: self.config.dream.retrieval_graph_depth,
+                decay: self.config.dream.retrieval_graph_decay,
+                weight: self.config.dream.retrieval_graph_weight,
+            }),
+        );
 
         let server = UnixSocketServer::bind(&self.config.server.socket_path, router).await?;
 
@@ -259,7 +274,7 @@ impl Daemon {
         vector_store: &Arc<RocksDBVectorStore>,
         embedder: &Arc<dyn EmbeddingGenerator>,
     ) -> Result<()> {
-        let memories = storage.list(1000).await?;
+        let memories = storage.list(usize::MAX).await?;
         let existing_count = vector_store.count_cached();
 
         if existing_count >= memories.len() {
