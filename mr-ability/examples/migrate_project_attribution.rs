@@ -192,10 +192,13 @@ async fn main() -> anyhow::Result<()> {
     let rocksdb = Arc::new(RocksDBStore::open(Path::new(&args.data_dir))?);
     let memory_store: Arc<dyn MemoryStorage> = Arc::new(MemoryStore::new(rocksdb.clone()));
 
-    let vector_store: Arc<dyn VectorStorage> = Arc::new(RocksDBVectorStore::open(
+    // 关键：RocksDBVectorStore 的 add 仅更新内存缓存并置 dirty，remove 却直接
+    // 删除 RocksDB；若不显式 save 刷盘，被 remove 的向量将永久丢失。
+    let vector_store_impl = Arc::new(RocksDBVectorStore::open(
         Path::new(&args.vectors_dir),
         args.dimension,
     )?);
+    let vector_store: Arc<dyn VectorStorage> = vector_store_impl.clone();
     let fts_store = Arc::new(TantivyStore::open(Path::new(&args.fts_dir)).await?);
     let hybrid: Arc<dyn HybridStorage> = Arc::new(HybridStore::new(
         vector_store.clone(),
@@ -235,14 +238,18 @@ async fn main() -> anyhow::Result<()> {
             Some(target) if target != source => {
                 let mut migrated = m.clone();
                 let embedding = vector_store.get(&m.id).await.ok().flatten();
-                if embedding.is_none() {
+                let has_embedding = embedding.is_some();
+                if !has_embedding {
                     report.missing_embedding += 1;
                 }
                 migrated.embedding = embedding;
                 migrated.project_id = Some(target);
 
                 if args.apply {
-                    if m.is_deleted {
+                    // 缺向量时避免走重建索引：reindex 会先摘除旧 FTS 文档，若其后
+                    // 无法重写向量将丢失全文索引。此类记忆仅用底层存储回迁归属，
+                    // FTS 载荷由守护进程启动时的对账重建归一。
+                    if m.is_deleted || !has_embedding {
                         memory_store.save(&migrated).await?;
                     } else {
                         indexing.save(&migrated).await?;
@@ -272,6 +279,11 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
+    }
+
+    // 落盘向量缓存：add 只改内存，必须显式 save 才能持久化迁移后的向量与载荷。
+    if args.apply {
+        vector_store_impl.save()?;
     }
 
     // 摘要输出。
