@@ -262,7 +262,19 @@ impl FtsStorage for TantivyStore {
 
             let id = Uuid::parse_str(id_str).unwrap_or_default();
 
-            if let Some(filter_pid) = &filter.project_id {
+            // T4: global_only 仅收全局文档（project_id 字段缺失 == None；
+            // 历史 nil uuid 文档等价处理）。
+            if filter.global_only {
+                let is_global_doc = doc
+                    .get_first(self.schema.project_id)
+                    .and_then(|v| v.as_str())
+                    .map_or(true, |s| {
+                        s.is_empty() || Uuid::parse_str(s).map(|p| p.is_nil()).unwrap_or(false)
+                    });
+                if !is_global_doc {
+                    continue;
+                }
+            } else if let Some(filter_pid) = &filter.project_id {
                 let doc_pid = doc
                     .get_first(self.schema.project_id)
                     .and_then(|v| v.as_str())

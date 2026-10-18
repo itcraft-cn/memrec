@@ -63,12 +63,19 @@
   save 索引结构不变。集成测试验证"preview 相同、全文相反"不再被判同簇。
   - 验收：415 测试全绿（新增 test_mmr_uses_full_text_via_text_provider）；
     实机部署后检索链路 CLI 复验正常。
-- [ ] T4 全局语义统一：将"全局"收敛到 scope（MemoryScope::Global / Project /
-  Workspace），project_id 仅表归属；Dream 产出迁移为 project_id = None +
-  scope = Global，附带历史数据迁移（现网 Some(nil) 记录改写）。
-  过渡期内禁止新代码以 `project_id.is_none()` 或 `Some(nil)` 单独判断全局。
-  - 验收：list_by_project(nil) 调用点归零；个人摘要、rocksdb_vector 过滤、
-    CLI Scope::Global 三处行为一致。
+- [x] T4 全局语义统一（2026-10-18 完成）：全局唯一判据 = `project_id: None`。
+  SearchFilter 新增 `global_only` 显式过滤（向量/FTS 两侧落地，顺带修复 FTS 侧
+  global 检索放行全部文档的存量缺陷）；写入侧（handle_add、Dream 产出、
+  personal_summary、CLI Scope::Global）归一为 None；MemoryScope::Workspace 标记
+  deprecated（枚举保留仅为 serde 兼容），启动期 `migrate_global_semantics` 将
+  `Some(nil)` 与 Workspace 记录（含软删）归一为 None/Global。
+  - 途中发现并修复 save() 批内缺陷：put 在前 delete 在后，nil→None 同键迁移时
+    delete 抹掉新索引值，已改为先清理旧项再写入。
+  - 验收：实测部署迁移 97 条遗留记录；还原前 nil 数据重启后自愈再迁移，幂等；
+    list -g 记录 project_id 全 None、检索/列表链路 CLI 复验正常；4 类测试全绿
+    （新增 test_migrate_global_semantics、test_global_only_filter）。
+  - 遗留观察项：向量/FTS payload 快照中的 pid 需待记忆更新或重建索引时归一
+    （过滤逻辑已对 nil 等价容忍，不阻塞）。
 - [ ] T5 错误链保留：DreamError（及同模式错误）改 thiserror #[from] 保留原始类型，
   日志/审计以 {:#} 输出完整错误链；String 化仅允许在协议边界。
 

@@ -297,7 +297,7 @@ fn parse_memory_type(s: &str) -> MemoryType {
 
 /// 构建一条 Dream 产出记忆（事实条 / 主题摘要）。
 ///
-/// 产出统一为 System 来源、Global 范围、`Uuid::nil()` 项目（与历史 Dream 产出保持一致），
+/// 产出统一为 System 来源、Global 范围、project_id = None（T4 全局语义统一），
 /// 以便检索来源权重与可见范围稳定。
 fn build_produced_memory(
     content: String,
@@ -308,7 +308,7 @@ fn build_produced_memory(
 ) -> Memory {
     Memory {
         id: Uuid::new_v4(),
-        project_id: Some(Uuid::nil()),
+        project_id: None,
         content,
         memory_type,
         tags,

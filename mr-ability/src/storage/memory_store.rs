@@ -20,7 +20,7 @@ use super::traits::{MemoryStorage, TextProvider};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::Utc;
-use mr_common::{Memory, MemoryType};
+use mr_common::{Memory, MemoryScope, MemoryType};
 use std::collections::HashMap;
 use tracing::info;
 use uuid::Uuid;
@@ -129,6 +129,24 @@ impl MemoryStorage for MemoryStore {
         let cf_by_project = self.rocksdb.cf_by_project()?;
 
         let mut batch = rocksdb::WriteBatch::default();
+
+        // 批内顺序约束：先执行旧索引项清理，再写入新值。WriteBatch 严格按
+        // 提交顺序生效，若同 key 先 put 后 delete（如 nil 与 None 同桶迁移），
+        // 收尾的 delete 会抹掉刚写入的新值。
+        if let Some(old) = old {
+            for tag in &old.tags {
+                if !memory.tags.contains(tag) {
+                    batch.delete_cf(cf_by_tag, Self::tag_key(tag, &memory.id));
+                }
+            }
+            if old.project_id != memory.project_id {
+                batch.delete_cf(
+                    cf_by_project,
+                    Self::project_index_key(old.project_id.as_ref(), &memory.id),
+                );
+            }
+        }
+
         batch.put_cf(cf_memories, &id_key, &data);
         batch.put_cf(
             cf_importance,
@@ -145,20 +163,6 @@ impl MemoryStorage for MemoryStore {
             Self::project_index_key(memory.project_id.as_ref(), &memory.id),
             memory.id.as_bytes(),
         );
-
-        if let Some(old) = old {
-            for tag in &old.tags {
-                if !memory.tags.contains(tag) {
-                    batch.delete_cf(cf_by_tag, Self::tag_key(tag, &memory.id));
-                }
-            }
-            if old.project_id != memory.project_id {
-                batch.delete_cf(
-                    cf_by_project,
-                    Self::project_index_key(old.project_id.as_ref(), &memory.id),
-                );
-            }
-        }
 
         for tag in &memory.tags {
             batch.put_cf(cf_by_tag, Self::tag_key(tag, &memory.id), &id_key);
@@ -502,6 +506,39 @@ impl MemoryStore {
 }
 
 impl MemoryStore {
+    /// 启动期语义迁移（T4）：历史记忆的 `Some(nil)` 项目归一为 None，
+    /// `Workspace` scope 归一为 Global（"全局"唯一判据 = project_id None）。
+    ///
+    /// 活跃与软删记忆均迁移；save 会同步维护 by_created/by_project 索引。
+    /// 返回迁移条数（用于日志与测试断言）。
+    pub async fn migrate_global_semantics(&self) -> Result<usize> {
+        let active = self.list(usize::MAX).await?;
+        let deleted = self.list_deleted().await?;
+
+        let mut migrated = 0usize;
+        for m in active.into_iter().chain(deleted) {
+            let mut memory = m;
+            let mut changed = false;
+
+            if memory.project_id == Some(Uuid::nil()) {
+                memory.project_id = None;
+                changed = true;
+            }
+            // T4: Workspace 已废弃，迁移中显式读取该历史值
+            #[allow(deprecated)]
+            if memory.scope == MemoryScope::Workspace {
+                memory.scope = MemoryScope::Global;
+                changed = true;
+            }
+
+            if changed {
+                self.save(&memory).await?;
+                migrated += 1;
+            }
+        }
+        Ok(migrated)
+    }
+
     /// 启动期自愈：为缺少 by_created / by_project 二级索引的记忆补写索引项。
     ///
     /// 仅在启动时全量扫描一次（与 reconcile_fts_index 同理），服务运行期索引由
@@ -700,6 +737,68 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result.len(), 1);
+    }
+
+    /// T4 验证：Some(nil) 项目与 Workspace scope 在启动迁移中归一为 None / Global，
+    /// 且活跃与软删记录一并处理，save 同步维护 by_project 索引。
+    #[tokio::test]
+    async fn test_migrate_global_semantics() {
+        use mr_common::{MemoryScope, MemoryType};
+
+        let dir = tempdir().unwrap();
+        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let store = MemoryStore::new(std::sync::Arc::new(rocksdb));
+
+        let mut legacy_nil = Memory::new("legacy nil".to_string(), MemoryType::Knowledge);
+        legacy_nil.project_id = Some(Uuid::nil());
+
+        let mut legacy_ws = Memory::new("legacy workspace".to_string(), MemoryType::Knowledge);
+        legacy_ws.project_id = Some(Uuid::nil());
+        #[allow(deprecated)]
+        {
+            legacy_ws.scope = MemoryScope::Workspace;
+        }
+
+        let mut normal = Memory::new("normal".to_string(), MemoryType::Knowledge);
+        normal.project_id = None;
+
+        let mut project = Memory::new("in project".to_string(), MemoryType::Knowledge);
+        project.project_id = Some(Uuid::new_v4());
+
+        let mut deleted_nil = Memory::new("deleted nil".to_string(), MemoryType::Knowledge);
+        deleted_nil.project_id = Some(Uuid::nil());
+
+        store.save(&legacy_nil).await.unwrap();
+        store.save(&legacy_ws).await.unwrap();
+        store.save(&normal).await.unwrap();
+        store.save(&project).await.unwrap();
+        store.save(&deleted_nil).await.unwrap();
+        store.delete(&deleted_nil.id).await.unwrap();
+
+        // 3 条需迁移：legacy_nil、legacy_ws、deleted_nil（normal/project 原样）
+        let migrated = store.migrate_global_semantics().await.unwrap();
+        assert_eq!(migrated, 3);
+
+        // 另一种载体验证：nil 记忆归一后进入全局桶（None ∪ nil 判据），with_project 索引同步
+        let global_after = store.list_global(usize::MAX).await.unwrap();
+        assert_eq!(global_after.len(), 3);
+        assert!(global_after.iter().any(|m| m.id == legacy_nil.id));
+        assert!(global_after.iter().any(|m| m.id == legacy_ws.id));
+
+        // 具体项目记忆不受迁移影响
+        let in_project = store
+            .list_by_project(&project.project_id.unwrap())
+            .await
+            .unwrap();
+        assert_eq!(in_project.len(), 1);
+
+        // 软删的 nil 记忆同样迁移
+        let restored = store.restore(&deleted_nil.id).await.unwrap().unwrap();
+        assert_eq!(restored.project_id, None);
+
+        // 幂等：再次迁移无变化
+        let migrated_again = store.migrate_global_semantics().await.unwrap();
+        assert_eq!(migrated_again, 0);
     }
 
     #[tokio::test]

@@ -170,6 +170,7 @@ impl FacetStorage for FacetStore {
             include_global: true,
             memory_type: Some("facet".to_string()),
             min_score,
+            ..Default::default()
         };
 
         let hits = self

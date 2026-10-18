@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use tracing::info;
-use uuid::Uuid;
 
 use crate::storage::MemoryStorage;
 
@@ -34,7 +33,8 @@ impl PersonalSummarizer {
     pub async fn execute(&self) -> PhaseResult {
         info!(target: "dream", "Dream Phase 2 started: PersonalSummary");
 
-        let global_memories = match self.storage.list_by_project(&Uuid::nil()).await {
+        // T4: 全局记忆判据为 project_id None（含迁移前的 nil 遗留），走全零桶下推
+        let global_memories = match self.storage.list_global(usize::MAX).await {
             Ok(memories) => memories,
             Err(e) => return PhaseResult::err("PersonalSummary", e.to_string()),
         };
@@ -124,13 +124,11 @@ mod tests {
         let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
 
         let mut m1 = Memory::new("global memory 1".to_string(), MemoryType::Knowledge)
-            .with_project(Uuid::nil())
             .with_scope(MemoryScope::Global);
         m1.tags = vec!["rust".to_string()];
         storage.save(&m1).await.unwrap();
 
         let mut m2 = Memory::new("global memory 2".to_string(), MemoryType::Decision)
-            .with_project(Uuid::nil())
             .with_scope(MemoryScope::Global);
         m2.tags = vec!["rust".to_string()];
         storage.save(&m2).await.unwrap();

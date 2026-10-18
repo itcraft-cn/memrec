@@ -99,8 +99,9 @@ impl std::str::FromStr for MemorySource {
 ///
 /// 控制记忆的可见范围和时间衰减行为：
 /// - `Project`: 项目隔离，受时间衰减影响
-/// - `Global`: 全局共享，豁免时间衰减
-/// - `Workspace`: 工作区共享（预留），豁免时间衰减
+/// - `Global`: 全局共享，豁免时间衰减（全局唯一判据 = `project_id: None`）
+/// - `Workspace`: 已废弃的预留值（T4 起不再使用；历史数据在启动迁移中归一为
+///   `Global`。枚举保留仅为持久化 serde 兼容，禁止新代码写入）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
@@ -108,6 +109,10 @@ pub enum MemoryScope {
     #[default]
     Project,
     Global,
+    #[deprecated(
+        since = "0.9.0",
+        note = "workspace scope is reserved-only; treat as Global (T4)"
+    )]
     Workspace,
 }
 
@@ -116,6 +121,8 @@ impl std::fmt::Display for MemoryScope {
         match self {
             MemoryScope::Project => write!(f, "project"),
             MemoryScope::Global => write!(f, "global"),
+            // T4: 已废弃，仅为持久化兼容保留
+            #[allow(deprecated)]
             MemoryScope::Workspace => write!(f, "workspace"),
         }
     }
@@ -128,7 +135,8 @@ impl std::str::FromStr for MemoryScope {
         match s {
             "project" => Ok(MemoryScope::Project),
             "global" => Ok(MemoryScope::Global),
-            "workspace" => Ok(MemoryScope::Workspace),
+            // T4: workspace 已废弃，入侧归一为 Global（持久化仍兼容旧数据）
+            "workspace" => Ok(MemoryScope::Global),
             _ => Err(format!("unknown memory scope: {}", s)),
         }
     }
@@ -368,6 +376,8 @@ mod tests {
         let scopes = [
             MemoryScope::Project,
             MemoryScope::Global,
+            // 已废弃变体的 serde 兼容必须持续成立（历史持久化数据依赖）
+            #[allow(deprecated)]
             MemoryScope::Workspace,
         ];
 

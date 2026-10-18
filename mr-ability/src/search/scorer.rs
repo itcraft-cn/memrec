@@ -20,7 +20,8 @@ impl Default for ScorerConfig {
     fn default() -> Self {
         Self {
             decay_half_life_hours: 336.0,
-            evergreen_scopes: vec![MemoryScope::Global, MemoryScope::Workspace],
+            // T4: Workspace 已废弃（迁移归一为 Global），豁免集合仅保留 Global
+            evergreen_scopes: vec![MemoryScope::Global],
             source_weights: SourceWeights::default(),
         }
     }

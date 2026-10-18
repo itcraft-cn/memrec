@@ -4,8 +4,8 @@
 
 use mr_ability::search::{apply_scoring, MmrConfig, ScorerConfig, SourceWeights};
 use mr_ability::storage::{
-    FtsPayload, FtsStorage, HybridSearchRequest, HybridStorage, HybridStore, SearchFilter,
-    TantivyStore, VectorPayload, VectorStorage, VectorStore,
+    FtsPayload, FtsStorage, HybridSearchRequest, HybridStorage, HybridStore, RocksDBVectorStore,
+    SearchFilter, TantivyStore, VectorPayload, VectorStorage, VectorStore,
 };
 use mr_common::MemoryScope;
 use std::sync::Arc;
@@ -550,7 +550,8 @@ fn test_mmr_single_candidate() {
 fn test_scorer_time_decay() {
     let config = ScorerConfig {
         decay_half_life_hours: 336.0,
-        evergreen_scopes: vec![MemoryScope::Global, MemoryScope::Workspace],
+        // T4 起 Workspace 已废弃并归一为 Global，时间衰减豁免集合仅需 Global
+        evergreen_scopes: vec![MemoryScope::Global],
         source_weights: SourceWeights::default(),
     };
 
@@ -813,4 +814,88 @@ async fn test_mmr_uses_full_text_via_text_provider() {
     assert_eq!(hits[0].memory_id, id_a);
     assert_eq!(hits[1].memory_id, id_b, "preview 相同应按 id 顺序选 B");
     assert_eq!(hits[2].memory_id, id_c);
+}
+
+/// T4 验证：SearchFilter.global_only 只命中全局记忆（project_id None，
+/// 历史 Some(nil) 等价处理），向量与全文两侧一致。
+#[tokio::test]
+async fn test_global_only_filter() {
+    let global_id = Uuid::parse_str("00000000-0000-0000-0000-0000000000a0").unwrap();
+    let legacy_nil_id = Uuid::parse_str("00000000-0000-0000-0000-0000000000a1").unwrap();
+    let project_id = Uuid::parse_str("00000000-0000-0000-0000-0000000000a2").unwrap();
+    let project_mem_id = Uuid::parse_str("00000000-0000-0000-0000-0000000000a3").unwrap();
+
+    let temp_dir = TempDir::new().unwrap();
+    let fts_store = Arc::new(TantivyStore::open(temp_dir.path()).await.unwrap());
+    // 向量侧用 RocksDB 实现（生产语义：按 payload 过滤；内存版 VectorStore 不承载 payload 过滤）
+    let temp_vec = TempDir::new().unwrap();
+    let vector_store = Arc::new(RocksDBVectorStore::open(temp_vec.path(), 2).unwrap());
+
+    let hybrid = HybridStore::new(
+        vector_store.clone(),
+        fts_store.clone(),
+        MmrConfig::default(),
+        ScorerConfig::default(),
+    );
+
+    // 全局：None / 历史 nil / 具体项目，各一条；查询词统一命中
+    for (id, pid) in [
+        (&global_id, None),
+        (&legacy_nil_id, Some(Uuid::nil())),
+        (&project_mem_id, Some(project_id)),
+    ] {
+        hybrid
+            .add(
+                id,
+                &[1.0, 0.0],
+                "alpha beta searchable",
+                VectorPayload {
+                    project_id: pid,
+                    content_preview: "alpha beta searchable".to_string(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+    }
+    hybrid.reload().unwrap();
+
+    let filter = |global_only: bool| SearchFilter {
+        global_only,
+        include_global: !global_only,
+        ..Default::default()
+    };
+
+    // global_only：仅 None + 历史 nil 两条（向量侧）
+    let vec_hits = vector_store
+        .search(&[1.0, 0.0], filter(true), 10)
+        .await
+        .unwrap();
+    assert_eq!(vec_hits.len(), 2);
+    assert!(!vec_hits.iter().any(|h| h.memory_id == project_mem_id));
+
+    // 全文侧：global_only 同样只留全局（不因 include_global 放行所有文档）
+    let fts_hits = fts_store
+        .search("searchable", filter(true), 10)
+        .await
+        .unwrap();
+    assert_eq!(fts_hits.len(), 2);
+    assert!(!fts_hits.iter().any(|h| h.memory_id == project_mem_id));
+
+    // 混合层 global_only：只返回全局命中
+    let hybrid_hits = hybrid
+        .search(HybridSearchRequest {
+            query: "searchable".to_string(),
+            query_embedding: vec![1.0, 0.0],
+            filter: filter(true),
+            top_k: 10,
+            hybrid_alpha: 0.5,
+            mmr_lambda: 0.5,
+            mmr_enabled: false,
+        })
+        .await
+        .unwrap()
+        .hits;
+    assert_eq!(hybrid_hits.len(), 2);
+    assert!(!hybrid_hits.iter().any(|h| h.memory_id == project_mem_id));
 }

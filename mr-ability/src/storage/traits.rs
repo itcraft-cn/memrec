@@ -104,8 +104,15 @@ pub struct VectorPayload {
 pub struct SearchFilter {
     pub project_id: Option<Uuid>,
     pub include_global: bool,
+    /// 仅检索全局记忆（project_id 为 None；nil 视为历史遗留的全局）。
+    pub global_only: bool,
     pub memory_type: Option<String>,
     pub min_score: f32,
+}
+
+/// 全局记忆判据：project_id 为 None；`Some(nil)` 是历史遗留写法，检索侧等价处理。
+pub fn is_global_project(project_id: &Option<Uuid>) -> bool {
+    project_id.map_or(true, |pid| pid.is_nil())
 }
 
 /// 语义搜索命中结果。

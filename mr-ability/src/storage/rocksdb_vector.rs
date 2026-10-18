@@ -188,9 +188,15 @@ impl VectorStorage for RocksDBVectorStore {
         let mut similarities: Vec<(Uuid, f32, &StoredVector)> = cache
             .iter()
             .filter_map(|(id, stored)| {
-                if filter.project_id.is_some()
+                // T4: global_only 直接命中全局桶（None；历史 Some(nil) 等价处理）。
+                if filter.global_only {
+                    if !super::traits::is_global_project(&stored.payload.project_id) {
+                        return None;
+                    }
+                } else if filter.project_id.is_some()
                     && stored.payload.project_id != filter.project_id
-                    && (!filter.include_global || stored.payload.project_id != Some(Uuid::nil()))
+                    && (!filter.include_global
+                        || !super::traits::is_global_project(&stored.payload.project_id))
                 {
                     return None;
                 }

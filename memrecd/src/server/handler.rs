@@ -251,8 +251,9 @@ impl Router {
     async fn handle_add(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
         match params {
             Some(RequestParams::Add(p)) => {
+                // T4: 全局记忆 = project_id None（历史 Some(nil) 语义在启动迁移中归一）
                 let project_id = if p.is_global {
-                    Some(Uuid::nil())
+                    None
                 } else {
                     p.project_id
                         .or_else(|| detect_project_id(p.working_dir.as_deref()).ok())
@@ -476,6 +477,7 @@ impl Router {
             include_global: true,
             memory_type: None,
             min_score: 0.0,
+            ..Default::default()
         };
         let hits = self
             .vector_store
@@ -868,10 +870,9 @@ impl Router {
                 };
                 let embed_time = start.elapsed().as_millis() as u64;
 
-                let project_id = if p.cross_project {
+                let project_id = if p.cross_project || p.global_only {
+                    // T4: 全局语义统一为 None；global_only 由 SearchFilter.global_only 承载
                     None
-                } else if p.global_only {
-                    Some(Uuid::nil())
                 } else if p.project_only {
                     p.project_id
                         .or_else(|| detect_project_id(p.working_dir.as_deref()).ok())
@@ -880,11 +881,12 @@ impl Router {
                         .or_else(|| detect_project_id(p.working_dir.as_deref()).ok())
                 };
 
-                let include_global = !p.project_only && !p.cross_project;
+                let include_global = !p.project_only && !p.cross_project && !p.global_only;
 
                 let filter = SearchFilter {
                     project_id,
                     include_global,
+                    global_only: p.global_only,
                     memory_type: p.memory_type.map(|t| t.to_string()),
                     min_score: p.min_score,
                 };
@@ -1120,10 +1122,9 @@ impl Router {
                 };
                 let _embed_time = start.elapsed().as_millis() as u64;
 
-                let project_id = if p.cross_project {
+                let project_id = if p.cross_project || p.global_only {
+                    // T4: 全局语义统一为 None；global_only 由 SearchFilter.global_only 承载
                     None
-                } else if p.global_only {
-                    Some(Uuid::nil())
                 } else if p.project_only {
                     p.project_id
                         .or_else(|| detect_project_id(p.working_dir.as_deref()).ok())
@@ -1132,11 +1133,12 @@ impl Router {
                         .or_else(|| detect_project_id(p.working_dir.as_deref()).ok())
                 };
 
-                let include_global = !p.project_only && !p.cross_project;
+                let include_global = !p.project_only && !p.cross_project && !p.global_only;
 
                 let filter = SearchFilter {
                     project_id,
                     include_global,
+                    global_only: p.global_only,
                     memory_type: p.memory_type.map(|t| t.to_string()),
                     min_score: p.min_score,
                 };
@@ -2172,6 +2174,7 @@ mod tests {
                     include_global: true,
                     memory_type: None,
                     min_score: 0.5,
+                    ..Default::default()
                 },
                 5,
             )
@@ -2201,6 +2204,7 @@ mod tests {
                     include_global: true,
                     memory_type: None,
                     min_score: 0.5,
+                    ..Default::default()
                 },
                 5,
             )
@@ -2404,6 +2408,7 @@ mod tests {
                     include_global: true,
                     memory_type: None,
                     min_score: 0.5,
+                    ..Default::default()
                 },
                 5,
             )

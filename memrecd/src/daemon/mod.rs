@@ -142,6 +142,14 @@ impl Daemon {
 
         // 启动全文索引自愈：修正历史遗留的“活跃记忆缺全文文档 / 软删记忆残留全文
         // 文档”不一致（旧版本 Dream 写路径曾绕过全文索引维护）。
+        // T4 语义迁移在其前：nil→None 的记录还需要被 FTS/向量以同一判据检索。
+        let migrated = storage.migrate_global_semantics().await?;
+        if migrated > 0 {
+            info!(
+                "Global semantics migrated: {} memories (nil→None, workspace→Global)",
+                migrated
+            );
+        }
         self.reconcile_fts_index(&storage, &fts_store).await?;
 
         // 启动二级索引自愈：历史记忆可能缺 by_created / by_project 索引项，

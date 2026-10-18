@@ -10,7 +10,6 @@ use mr_protocol::{
     default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda, JsonRpcRequest, RequestAction,
     RequestParams, SearchMemoryParams,
 };
-use uuid::Uuid;
 
 /// 搜索命令参数
 ///
@@ -72,7 +71,7 @@ pub async fn search_execute(
 
     let (project_only, global_only, cross_project, project_id) = match scope {
         Scope::Project => (true, false, false, None),
-        Scope::Global => (false, true, false, Some(Uuid::nil())),
+        Scope::Global => (false, true, false, None),
         Scope::All => (false, false, true, None),
     };
 
