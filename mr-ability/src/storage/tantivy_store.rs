@@ -343,7 +343,18 @@ impl FtsStorage for TantivyStore {
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
 
-            let id = Uuid::parse_str(id_str).unwrap_or_default();
+            let id = match Uuid::parse_str(id_str) {
+                Ok(id) => id,
+                Err(_) => {
+                    // 索引中残留非 UUID 文档（脏数据）时记录并退化为 nil，避免静默。
+                    tracing::debug!(
+                        target: "fts",
+                        "search: 文档 id 非合法 UUID，退化为 nil: {:?}",
+                        id_str
+                    );
+                    Uuid::nil()
+                }
+            };
 
             // T4: global_only 仅收全局文档（project_id 字段缺失 == None；
             // 历史 nil uuid 文档等价处理）。

@@ -258,15 +258,15 @@ pub struct ConfigResult {
 }
 
 /// 统计信息结果，由 Stats 操作返回。
+///
+/// 仅保留可被真实统计的计数项。曾有的 `storage_usage`、`avg_importance` 因缺乏可靠
+/// 数据来源（无容量配额映射、需全量扫描）而长期硬编码为 0.0，属虚假精度，已移除；
+/// 如后续需要，应基于真实数据源（RocksDB live data size、重要性二级索引）再引入。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatsResult {
     pub total_memories: usize,
     pub active_memories: usize,
     pub deleted_memories: usize,
-    /// 存储使用率（0.0~1.0）
-    pub storage_usage: f32,
-    /// 全部活跃记忆的平均重要性
-    pub avg_importance: f32,
 }
 
 /// 通用成功/失败结果。

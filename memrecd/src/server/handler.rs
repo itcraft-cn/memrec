@@ -36,6 +36,7 @@ use mr_protocol::{
     RequestParams, ResponseResult, SceneListResult, SceneResult, SearchHit, SemanticSearchResult,
     StatsResult, SuccessResult, VersionResult,
 };
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 use uuid::Uuid;
@@ -866,8 +867,6 @@ impl Router {
                     total_memories: total + deleted,
                     active_memories: total,
                     deleted_memories: deleted,
-                    storage_usage: 0.0,
-                    avg_importance: 0.0,
                 }),
                 id,
             ),
@@ -958,8 +957,14 @@ impl Router {
                 let search_time = search_start.elapsed().as_millis() as u64;
 
                 let mut results: Vec<SearchHit> = vec![];
-                for h in &result.hits {
-                    let memory = self.storage.get(&h.memory_id).await.ok().flatten();
+                // 批量回表，消除逐条 storage.get 的 N+1（M-1）。取数失败时退化为缺省元数据。
+                let hit_ids: Vec<Uuid> = result.hits.iter().map(|h| h.memory_id).collect();
+                let fetched = self
+                    .storage
+                    .get_many(&hit_ids)
+                    .await
+                    .unwrap_or_else(|_| vec![None; hit_ids.len()]);
+                for (h, memory) in result.hits.iter().zip(fetched) {
                     let memory_type = memory
                         .as_ref()
                         .map(|m| m.memory_type)
@@ -992,7 +997,7 @@ impl Router {
                     );
                     if let Some(edge_store) = &self.edge_store {
                         let seed_ids: Vec<Uuid> = result.hits.iter().map(|h| h.memory_id).collect();
-                        let seed_score: std::collections::HashMap<Uuid, f32> =
+                        let seed_score: HashMap<Uuid, f32> =
                             result.hits.iter().map(|h| (h.memory_id, h.score)).collect();
                         let params = mr_ability::storage::GraphTraversalParams {
                             // traverse 的 max_depth 含种子层，故“跳数”= depth 时取 depth+1
@@ -1014,8 +1019,22 @@ impl Router {
                                 seed_ids.len(),
                                 graph_hits.len()
                             );
-                            let existing: std::collections::HashSet<Uuid> =
+                            let existing: HashSet<Uuid> =
                                 results.iter().map(|r| r.memory_id).collect();
+                            // 批量预取图命中记忆，消除循环内逐条回表（M-2）。
+                            let graph_ids: Vec<Uuid> =
+                                graph_hits.iter().map(|gh| gh.memory_id).collect();
+                            let graph_fetched = self
+                                .storage
+                                .get_many(&graph_ids)
+                                .await
+                                .unwrap_or_else(|_| vec![None; graph_ids.len()]);
+                            let mut graph_mem: HashMap<Uuid, Memory> = graph_ids
+                                .iter()
+                                .copied()
+                                .zip(graph_fetched)
+                                .filter_map(|(id, m)| m.map(|m| (id, m)))
+                                .collect();
                             let mut pushed = 0usize;
                             for gh in graph_hits {
                                 if existing.contains(&gh.memory_id) {
@@ -1029,9 +1048,9 @@ impl Router {
                                     tracing::debug!(target:"recall","gh {} skip: score<=0", gh.memory_id);
                                     continue;
                                 }
-                                let memory = match self.storage.get(&gh.memory_id).await {
-                                    Ok(Some(m)) => m,
-                                    _ => {
+                                let memory = match graph_mem.remove(&gh.memory_id) {
+                                    Some(m) => m,
+                                    None => {
                                         tracing::debug!(target:"recall","gh {} skip: memory missing", gh.memory_id);
                                         continue;
                                     }

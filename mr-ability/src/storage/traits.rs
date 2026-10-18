@@ -25,6 +25,18 @@ pub trait MemoryStorage: Send + Sync {
 
     async fn save(&self, memory: &Memory) -> Result<()>;
     async fn get(&self, id: &Uuid) -> Result<Option<Memory>>;
+
+    /// 批量获取记忆，返回与 `ids` 等长、逐项对齐的结果。
+    ///
+    /// 默认实现逐条回退到 [`get`](Self::get)；存储实现应覆写为多路批量读取
+    /// （如 RocksDB `multi_get_cf`），以消除调用方的 N+1 查询。
+    async fn get_many(&self, ids: &[Uuid]) -> Result<Vec<Option<Memory>>> {
+        let mut out = Vec::with_capacity(ids.len());
+        for id in ids {
+            out.push(self.get(id).await?);
+        }
+        Ok(out)
+    }
     async fn update(&self, memory: &Memory) -> Result<()>;
     async fn delete(&self, id: &Uuid) -> Result<bool>;
 

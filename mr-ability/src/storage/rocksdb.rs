@@ -327,6 +327,24 @@ impl RocksDBStore {
         self.db.get_cf(cf, key).context("Failed to get value")
     }
 
+    /// 批量读取指定列族的多个 key，单次多路读取以减少往返。
+    ///
+    /// 返回结果与传入 key 顺序一一对应；单项错误以 `Err` 承载，不中断其余项。
+    pub fn multi_get_cf<'a, I>(
+        &self,
+        cf: &rocksdb::ColumnFamily,
+        keys: I,
+    ) -> Vec<Result<Option<Vec<u8>>>>
+    where
+        I: IntoIterator<Item = &'a [u8]>,
+    {
+        self.db
+            .multi_get_cf(keys.into_iter().map(|k| (cf, k)))
+            .into_iter()
+            .map(|r| r.context("Failed to multi_get value"))
+            .collect()
+    }
+
     /// 从指定列族删除键。
     pub fn delete_cf(&self, cf: &rocksdb::ColumnFamily, key: &[u8]) -> Result<()> {
         self.db.delete_cf(cf, key).context("Failed to delete value")

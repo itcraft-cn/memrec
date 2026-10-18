@@ -184,6 +184,27 @@ impl MemoryStorage for MemoryStore {
         }
     }
 
+    /// 覆写默认逐条回退：改用 `multi_get_cf` 一次性多路读取，消除 N+1 查询。
+    async fn get_many(&self, ids: &[Uuid]) -> Result<Vec<Option<Memory>>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let cf_memories = self.rocksdb.cf_memories()?;
+        let keys: Vec<Vec<u8>> = ids.iter().map(Self::memory_key).collect();
+        let raw = self
+            .rocksdb
+            .multi_get_cf(cf_memories, keys.iter().map(|k| k.as_slice()));
+
+        let mut out = Vec::with_capacity(ids.len());
+        for item in raw {
+            match item? {
+                Some(bytes) => out.push(Some(Self::deserialize_memory(&bytes)?)),
+                None => out.push(None),
+            }
+        }
+        Ok(out)
+    }
+
     async fn update(&self, memory: &Memory) -> Result<()> {
         self.save(memory).await
     }

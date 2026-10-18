@@ -312,9 +312,12 @@ impl Daemon {
             existing_count
         );
 
+        // 先收集缺嵌入的记忆及其向量载荷，再一次性批量嵌入：利用后端批处理能力，
+        // 避免逐条 embed 在大量缺失时拖慢启动（M-3）。批量接口 `embed_batch` 已在
+        // EmbeddingGenerator trait 中提供。
+        let mut pending = Vec::new();
         for memory in &memories {
             if vector_store.get(&memory.id).await?.is_none() {
-                let embedding = embedder.embed(&memory.content)?;
                 let payload = mr_ability::storage::VectorPayload {
                     project_id: memory.project_id,
                     memory_type: memory.memory_type.to_string(),
@@ -325,6 +328,14 @@ impl Daemon {
                     chunk_index: memory.chunk_index,
                     chunk_total: memory.chunk_total,
                 };
+                pending.push((memory, payload));
+            }
+        }
+
+        if !pending.is_empty() {
+            let texts: Vec<String> = pending.iter().map(|(m, _)| m.content.clone()).collect();
+            let embeddings = embedder.embed_batch(&texts)?;
+            for ((memory, payload), embedding) in pending.into_iter().zip(embeddings) {
                 vector_store.add(&memory.id, &embedding, payload).await?;
             }
         }

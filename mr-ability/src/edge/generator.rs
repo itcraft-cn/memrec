@@ -225,15 +225,26 @@ impl LlmEdgeGenerator {
             .strip_suffix("```")
             .unwrap_or(cleaned)
             .trim();
-        let start = match cleaned.find('[') {
-            Some(i) => i,
-            None => return Vec::new(),
-        };
-        let end = match cleaned.rfind(']') {
-            Some(i) if i >= start => i,
+        let (start, end) = match (cleaned.find('['), cleaned.rfind(']')) {
+            (Some(s), Some(e)) if e >= s => (s, e),
             _ => return Vec::new(),
         };
-        serde_json::from_str(&cleaned[start..=end]).unwrap_or_default()
+        // LLM 输出格式异常时不再静默返回空数组：记录原始片段便于排查
+        // （此前 `unwrap_or_default()` 会让语义边生成静默失效）。
+        match serde_json::from_str(&cleaned[start..=end]) {
+            Ok(relations) => relations,
+            Err(e) => {
+                // 按字符截断，避免在 UTF-8 多字节边界上切片导致 panic。
+                let snippet: String = cleaned[start..].chars().take(200).collect();
+                tracing::warn!(
+                    target: "edge",
+                    "parse_relations: LLM 输出 JSON 解析失败，返回空边集: {}; raw={:?}",
+                    e,
+                    snippet
+                );
+                Vec::new()
+            }
+        }
     }
 }
 

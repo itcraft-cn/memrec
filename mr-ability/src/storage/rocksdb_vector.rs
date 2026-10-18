@@ -183,48 +183,61 @@ impl VectorStorage for RocksDBVectorStore {
             ));
         }
 
-        let cache = self.cache.lock().unwrap();
-
-        let mut similarities: Vec<(Uuid, f32, &StoredVector)> = cache
-            .iter()
-            .filter_map(|(id, stored)| {
-                // T4: global_only 直接命中全局桶（None；历史 Some(nil) 等价处理）。
-                if filter.global_only {
-                    if !super::traits::is_global_project(&stored.payload.project_id) {
+        // 第一段：持锁仅完成相似度计算与过滤，不做排序（M-5：排序移出锁外，缩短持锁范围，
+        // 降低对并发写入的阻塞）。
+        let mut scored: Vec<(Uuid, f32)> = {
+            let cache = self.cache.lock().unwrap();
+            cache
+                .iter()
+                .filter_map(|(id, stored)| {
+                    // T4: global_only 直接命中全局桶（None；历史 Some(nil) 等价处理）。
+                    if filter.global_only {
+                        if !super::traits::is_global_project(&stored.payload.project_id) {
+                            return None;
+                        }
+                    } else if filter.project_id.is_some()
+                        && stored.payload.project_id != filter.project_id
+                        && (!filter.include_global
+                            || !super::traits::is_global_project(&stored.payload.project_id))
+                    {
                         return None;
                     }
-                } else if filter.project_id.is_some()
-                    && stored.payload.project_id != filter.project_id
-                    && (!filter.include_global
-                        || !super::traits::is_global_project(&stored.payload.project_id))
-                {
-                    return None;
-                }
 
-                if filter.memory_type.is_some()
-                    && Some(stored.payload.memory_type.as_str()) != filter.memory_type.as_deref()
-                {
-                    return None;
-                }
+                    if filter.memory_type.is_some()
+                        && Some(stored.payload.memory_type.as_str()) != filter.memory_type.as_deref()
+                    {
+                        return None;
+                    }
 
-                let sim = Self::cosine_similarity(query, &stored.embedding);
-                if sim < filter.min_score {
-                    return None;
-                }
+                    let sim = Self::cosine_similarity(query, &stored.embedding);
+                    if sim < filter.min_score {
+                        return None;
+                    }
 
-                Some((*id, sim, stored))
-            })
-            .collect();
+                    Some((*id, sim))
+                })
+                .collect()
+        };
 
-        similarities.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-        similarities.truncate(top_k);
+        // 分数降序；同分按 id 升序，保证多次运行结果确定。
+        scored.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
+        scored.truncate(top_k);
 
-        let hits = similarities
+        // 第二段：短暂持锁回填 payload。持锁窗口极小；期间若发生并发移除，缺失项跳过
+        // （最终一致，可接受的窄竞态）。
+        let cache = self.cache.lock().unwrap();
+        let hits = scored
             .into_iter()
-            .map(|(id, score, stored)| SearchHit {
-                memory_id: id,
-                score,
-                payload: stored.payload.clone(),
+            .filter_map(|(id, score)| {
+                cache.get(&id).map(|stored| SearchHit {
+                    memory_id: id,
+                    score,
+                    payload: stored.payload.clone(),
+                })
             })
             .collect();
 

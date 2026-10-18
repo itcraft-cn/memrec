@@ -61,7 +61,7 @@ pub fn mmr_rerank<H: MmrHit>(candidates: Vec<H>, config: &MmrConfig) -> Vec<H> {
             let max_sim = selected_tokens
                 .iter()
                 .map(|s_tokens| jaccard(&token_sets[i], s_tokens))
-                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                 .unwrap_or(0.0);
 
             let mmr = config.lambda * relevance - (1.0 - config.lambda) * max_sim;
