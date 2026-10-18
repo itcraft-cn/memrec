@@ -152,6 +152,77 @@ use super::*;
     }
 
     #[tokio::test]
+    async fn test_search_graph_excludes_soft_deleted_neighbor() {
+        // 图扩散仅用于连通，但软删记忆不得作为结果返回。
+        let (router, edge_store) = router_with_graph();
+
+        let a = router
+            .route(add_request_dedup_off(
+                "rust ownership and borrowing rules",
+                1,
+            ))
+            .await;
+        let a_id = match &a.result {
+            Some(ResponseResult::Memory(m)) => m.memory.id,
+            _ => panic!("expected memory"),
+        };
+
+        // B 仅入记忆库（不进索引），随后软删；经 A→B 边扩散到达但应被过滤。
+        let b_mem = mr_common::Memory::new(
+            "cargo workspace dependency layout".to_string(),
+            MemoryType::Knowledge,
+        );
+        let b_id = b_mem.id;
+        router.storage.add(&b_mem).await.unwrap();
+        // 新建记忆在恢复窗口内，删除为软删（is_deleted=true，记录仍在库）。
+        router.storage.delete(&b_id).await.unwrap();
+        let after = router.storage.get(&b_id).await.unwrap();
+        assert!(
+            after.map(|m| m.is_deleted).unwrap_or(false),
+            "B 应为软删状态（记录保留、标记删除）"
+        );
+
+        let edge = mr_common::MemoryEdge::new(
+            a_id,
+            b_id,
+            mr_common::EdgeType::References,
+            0.9,
+            "test".to_string(),
+        );
+        edge_store.save(&edge).await.unwrap();
+
+        let resp = router
+            .route(JsonRpcRequest::new(
+                RequestAction::SearchMemory,
+                Some(RequestParams::SearchMemory(SearchMemoryParams {
+                    query: "rust ownership and borrowing rules".to_string(),
+                    project_id: None,
+                    include_global: true,
+                    project_only: false,
+                    global_only: false,
+                    cross_project: false,
+                    memory_type: None,
+                    top_k: 5,
+                    min_score: 0.0,
+                    working_dir: None,
+                    hybrid_alpha: default_hybrid_alpha(),
+                    mmr_enabled: false,
+                    mmr_lambda: default_mmr_lambda(),
+                })),
+                5,
+            ))
+            .await;
+        let results = match resp.result {
+            Some(ResponseResult::SemanticSearchResult(r)) => r.results,
+            _ => panic!("expected semantic search result"),
+        };
+        assert!(
+            !results.iter().any(|r| r.memory_id == b_id),
+            "软删的图邻居不应返回"
+        );
+    }
+
+    #[tokio::test]
     async fn test_router_search_memory() {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();

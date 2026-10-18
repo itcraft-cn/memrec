@@ -219,8 +219,40 @@ graph TD
 
 ---
 
-## 七、结论
+## 七、执行结果（2026-10-18 完成）
+
+全部 TODO 已执行完毕，逐项状态如下：
+
+| 任务 | 状态 | 说明 |
+|------|------|------|
+| T-01 stats 去虚假精度 | 完成 | 移除 `storage_usage`/`avg_importance` 字段 |
+| T-02 parse_relations 日志 | 完成 | 解析失败 `tracing::warn!`（含字符安全截断） |
+| T-03 NaN 比较 | 完成 | `mmr.rs`/`rocksdb_vector.rs` 消除 `partial_cmp().unwrap()` panic |
+| T-04 UUID 解析日志 | 完成 | `tantivy_store` 退化为 nil 前记录 debug |
+| T-05 get_many 批量 | 完成 | 新增 `MemoryStorage::get_many` + `RocksDBStore::multi_get_cf`；搜索与图扩散消除 N+1 |
+| T-06 embed_batch | 完成 | `rebuild_missing_embeddings` 改用 `embed_batch` |
+| T-07 收窄向量搜索锁 | 完成 | 排序移出锁外，两段式持锁 |
+| T-08 拆 handler.rs | 完成 | → `handler/{mod,memory_write,memory_read,search,dream,scene}` + `tests/` |
+| T-09 拆 processor.rs + process_inner | 完成 | → `processor/{mod,helpers,pipeline,metrics,network,tests}`；`process_inner` 拆为 4 阶段方法 |
+| T-10 拆 config/request/mcp/memory_store/commands | 完成 | 全部转为目录模块 |
+| T-11 抽离内联测试 | 完成 | tantivy_store/generator/tiered engine + 集成测试拆分 |
+| T-12 clippy 归零 | 完成 | `cargo clippy --release --all-targets` 0 告警 |
+| T-13 移除 expect | 完成 | `client.rs` 返回 `Result`；`config.rs` 回退日志；`rocksdb_vector` 用 `context` |
+| T-14 注释修正 | 完成 | `traits.rs` `///////` → `///` |
+| T-15 FQN 修正 | 完成 | 全部内联 `std::collections::` 改为 `use` 短名 |
+| T-16 图扩散测试补强 | 完成 | 新增软删邻居过滤测试；`edge_hint` 已有覆盖 |
+| T-17 tantivy 写入批量评估 | 完成（不改动） | 结论见下 |
+
+**T-17 评估结论**：`TantivyStore` 已提供 `add_many`（单次提交）并用于全文索引全量重建；单条记忆写入走 `add`（每次一提交）。结合 M-4 已降级（`search` 不持写锁，写不阻塞读者），当前写入量级（单次用户写入 + Dream 少量产出）不构成瓶颈，无需引入通道式写入。仅当写吞吐成为瓶颈时再复议。
+
+**文件规模**：拆分后全部 `.rs` 文件生产代码 ≤ 500 行（`fd -e rs | xargs wc -l` 无 >500 项）。
+
+**回归验证**：`cargo build --release`、`cargo test --release --workspace`、`cargo clippy --release --all-targets` 全部通过。
+
+---
+
+## 八、结论
 
 报告整体方向正确，7 项中等问题中 5 项完全属实、1 项建议过时（M-3）、1 项结论夸大（M-4）；低等级问题存在 2 处位置错误（L-5、L-7）、1 处重复（L-11）、1 处描述失真（L-12）、1 处严重低估（L-10）。报告的“clippy 全绿”“图扩散测试缺失”等基线判断与实测不符，需以本核实为准。
 
-最主要的工作量为**大文件拆分**：2 个文件必须拆（`handler.rs` 2679、`processor.rs` 1635），另有 6 个文件应拆、3 个文件仅需抽离测试。建议按 P0 → P1 → P2 → P3 → P4 推进，拆分任务与检索质量门禁绑定验收。
+最主要的工作量为**大文件拆分**：2 个文件必须拆（`handler.rs` 2679、`processor.rs` 1635），另有 6 个文件应拆、3 个文件仅需抽离测试。上述工作已按 P0 → P4 全部完成，拆分任务与检索质量门禁绑定验收。
