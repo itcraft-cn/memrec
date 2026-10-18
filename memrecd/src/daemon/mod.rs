@@ -148,12 +148,19 @@ impl Daemon {
         // 补齐后按创建时间区间与项目范围的查询才能保持下推语义。
         storage.reconcile_secondary_indexes().await?;
 
-        let hybrid_store = Arc::new(HybridStore::new(
-            vector_store.clone(),
-            fts_store,
-            MmrConfig::default(),
-            ScorerConfig::default(),
-        ));
+        let hybrid_store = Arc::new(
+            HybridStore::new(
+                vector_store.clone(),
+                fts_store,
+                MmrConfig::default(),
+                ScorerConfig::default(),
+            )
+            // T3: MMR 重排用全文而非 200 字符 preview，避免"开头相同、结论相反"
+            // 的记忆被误判相似。
+            .with_text_provider(
+                storage.clone() as std::sync::Arc<dyn mr_ability::storage::TextProvider>
+            ),
+        );
 
         self.rebuild_missing_embeddings(&storage, &vector_store, &embedder)
             .await?;

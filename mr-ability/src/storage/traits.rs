@@ -10,6 +10,7 @@ use mr_common::{
     RuleStats, Scene,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 /// 记忆存储 trait。
@@ -192,9 +193,17 @@ pub struct HybridSearchResult {
     pub fts_count: usize,
 }
 
-/// 混合搜索存储 trait。
+/// 重排文本提供者：按 id 批量取记忆全文，供 MMR 相似度计算使用。
 ///
-/// 整合向量检索和全文检索，提供统一的搜索接口。
+/// T3 语义：MMR 若用 200 字符 `content_preview` 计算相似度，"开头相同、结论
+/// 相反"的记忆会被误判为高度相似。实现方应保证批量获取（候选池 ≤50 条）。
+#[async_trait]
+pub trait TextProvider: Send + Sync {
+    async fn texts(&self, ids: &[Uuid]) -> Result<HashMap<Uuid, String>>;
+}
+
+/// 混合搜索存储 trait。
+////// 整合向量检索和全文检索，提供统一的搜索接口。
 #[async_trait]
 pub trait HybridStorage: Send + Sync {
     /// 混合搜索（KNN + BM25）。

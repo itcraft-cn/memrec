@@ -43,6 +43,6 @@ pub use traits::{
     ConfigStorage, DreamRunStorage, EdgeStorage, FacetSearchHit, FacetStorage, FtsPayload,
     FtsStorage, GraphSearchHit, GraphTraversalParams, HybridSearchRequest, HybridSearchResult,
     HybridStorage, MemoryStorage, ProjectStorage, PropagationStorage, RuleStorage, SceneStorage,
-    SearchFilter, SearchHit, TieredStorage, VectorPayload, VectorStorage,
+    SearchFilter, SearchHit, TextProvider, TieredStorage, VectorPayload, VectorStorage,
 };
 pub use vector_store::VectorStore;

@@ -57,9 +57,12 @@
 
 ### P1 语义正确性
 
-- [ ] T3 MMR 相似度输入：SearchHit 在 rerank 阶段携带全文 token（或全文哈希），
-  content_preview 仅用于展示；若确认保留 preview 粗排，须在评分链文档中明确标注。
-  - 验收：构造"开头相同、结论相反"两条记忆，MMR 判定不再高度相似。
+- [x] T3 MMR 相似度输入（2026-10-18 完成）：新增 TextProvider trait，
+  HybridStore 以 builder 注入（daemon 装配 MemoryStore 实现），MMR 重排前批量
+  取全文覆盖 content_preview（缺失/未注入 provider 时回退旧行为）；
+  save 索引结构不变。集成测试验证"preview 相同、全文相反"不再被判同簇。
+  - 验收：415 测试全绿（新增 test_mmr_uses_full_text_via_text_provider）；
+    实机部署后检索链路 CLI 复验正常。
 - [ ] T4 全局语义统一：将"全局"收敛到 scope（MemoryScope::Global / Project /
   Workspace），project_id 仅表归属；Dream 产出迁移为 project_id = None +
   scope = Global，附带历史数据迁移（现网 Some(nil) 记录改写）。

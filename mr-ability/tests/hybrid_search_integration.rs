@@ -726,3 +726,91 @@ async fn test_vector_store_search() {
     assert_eq!(results[0].memory_id, id1);
     assert!(results[0].score > 0.99);
 }
+
+/// T3 验证：MMR 相似度以全文（TextProvider）而非 200 字符 content_preview 计算。
+///
+/// 构造三条向量分相同（同 embedding）、preview 完全相同的候选 A/B/C：
+/// - 全文世界：A、B 全文相同（真重复），C 全文不同 → MMR 第二选应为 C 以保证多样性；
+/// - preview 世界（旧行为）：A/B/C 判为完全相似 → 第二选按 id 顺序落到 B。
+#[tokio::test]
+async fn test_mmr_uses_full_text_via_text_provider() {
+    use async_trait::async_trait;
+    use mr_ability::storage::TextProvider;
+    use std::collections::HashMap;
+
+    // 确定性 id：00000000-...-0001/0002/0003，保证同分排序可预期。
+    let id_a = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+    let id_b = Uuid::parse_str("00000000-0000-0000-0000-000000000002").unwrap();
+    let id_c = Uuid::parse_str("00000000-0000-0000-0000-000000000003").unwrap();
+
+    // 模拟 provider：A/B 全文相同，C 全文不同（preview 三者相同）。
+    struct FakeProvider(HashMap<Uuid, String>);
+    #[async_trait]
+    impl TextProvider for FakeProvider {
+        async fn texts(&self, ids: &[Uuid]) -> anyhow::Result<HashMap<Uuid, String>> {
+            Ok(ids
+                .iter()
+                .filter_map(|id| self.0.get(id).map(|t| (*id, t.clone())))
+                .collect())
+        }
+    }
+
+    let mut fulls = HashMap::new();
+    fulls.insert(id_a, "shared full text".to_string());
+    fulls.insert(id_b, "shared full text".to_string());
+    fulls.insert(id_c, "different conclusion entirely".to_string());
+
+    let temp_dir = TempDir::new().unwrap();
+    let fts_store = Arc::new(TantivyStore::open(temp_dir.path()).await.unwrap());
+    let vector_store = Arc::new(VectorStore::new(3));
+    for id in [&id_a, &id_b, &id_c] {
+        vector_store
+            .add(
+                id,
+                &[1.0, 0.0, 0.0],
+                VectorPayload {
+                    content_preview: "shared preview".to_string(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+    }
+
+    let request = || HybridSearchRequest {
+        query: "irrelevant-no-doc".to_string(),
+        query_embedding: vec![1.0, 0.0, 0.0],
+        filter: SearchFilter::default(),
+        top_k: 3,
+        hybrid_alpha: 0.5,
+        mmr_lambda: 0.5,
+        mmr_enabled: true,
+    };
+
+    // 有 provider：A/B 全文相同被判同簇，C 以差异文本胜出第二。
+    let hybrid_full = HybridStore::new(
+        vector_store.clone(),
+        fts_store.clone(),
+        MmrConfig::default(),
+        ScorerConfig::default(),
+    )
+    .with_text_provider(Arc::new(FakeProvider(fulls)));
+    let hits = hybrid_full.search(request()).await.unwrap().hits;
+    assert_eq!(hits.len(), 3);
+    assert_eq!(hits[0].memory_id, id_a);
+    assert_eq!(hits[1].memory_id, id_c, "全文不同应第二选 C");
+    assert_eq!(hits[2].memory_id, id_b);
+
+    // 无 provider：三条 preview 完全相同 → 同簇按 id 顺序 A、B、C（旧行为）。
+    let hybrid_prev = HybridStore::new(
+        vector_store,
+        fts_store,
+        MmrConfig::default(),
+        ScorerConfig::default(),
+    );
+    let hits = hybrid_prev.search(request()).await.unwrap().hits;
+    assert_eq!(hits.len(), 3);
+    assert_eq!(hits[0].memory_id, id_a);
+    assert_eq!(hits[1].memory_id, id_b, "preview 相同应按 id 顺序选 B");
+    assert_eq!(hits[2].memory_id, id_c);
+}

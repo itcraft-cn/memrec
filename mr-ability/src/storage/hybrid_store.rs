@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use super::traits::{
     FtsPayload, FtsStorage, HybridSearchRequest, HybridSearchResult, HybridStorage, SearchHit,
-    VectorPayload, VectorStorage,
+    TextProvider, VectorPayload, VectorStorage,
 };
 use crate::search::mmr::{mmr_rerank, MmrConfig, MmrHit};
 
@@ -39,6 +39,9 @@ pub struct HybridStore {
     fts_store: Arc<dyn FtsStorage>,
     mmr_config: MmrConfig,
     scorer_config: ScorerConfig,
+    /// 重排文本提供者：MMR 相似度用全文而非 200 字符 content_preview，
+    /// 避免"开头相同、结论相反"的记忆被误判相似（与多样性目标相反）。
+    text_provider: Option<Arc<dyn TextProvider>>,
 }
 
 impl HybridStore {
@@ -54,7 +57,14 @@ impl HybridStore {
             fts_store,
             mmr_config,
             scorer_config,
+            text_provider: None,
         }
+    }
+
+    /// 附加重排文本提供者（builder 风格，不破坏既有构造签名）。
+    pub fn with_text_provider(mut self, provider: Arc<dyn TextProvider>) -> Self {
+        self.text_provider = Some(provider);
+        self
     }
 
     /// 重载全文索引读取器，用于测试场景。
@@ -138,6 +148,8 @@ impl HybridStore {
 #[derive(Clone)]
 struct MmrSearchHit {
     inner: SearchHit,
+    /// 重排用全文：TextProvider 提供；缺失时回退 content_preview。
+    rerank_text: String,
 }
 
 impl MmrHit for MmrSearchHit {
@@ -145,7 +157,7 @@ impl MmrHit for MmrSearchHit {
         self.inner.score as f64
     }
     fn text(&self) -> &str {
-        &self.inner.payload.content_preview
+        &self.rerank_text
     }
 }
 
@@ -186,10 +198,25 @@ impl HybridStorage for HybridStore {
         sorted.truncate(req.top_k);
 
         let final_hits = if req.mmr_enabled {
-            let mmr_hits: Vec<MmrSearchHit> = sorted
+            let mut mmr_hits: Vec<MmrSearchHit> = sorted
                 .into_iter()
-                .map(|h| MmrSearchHit { inner: h })
+                .map(|h| MmrSearchHit {
+                    rerank_text: h.payload.content_preview.clone(),
+                    inner: h,
+                })
                 .collect();
+
+            // T3: 重排前批量取全文，覆盖 preview（provider 缺失时保持旧行为）。
+            if let Some(provider) = &self.text_provider {
+                let ids: Vec<Uuid> = mmr_hits.iter().map(|h| h.inner.memory_id).collect();
+                if let Ok(texts) = provider.texts(&ids).await {
+                    for hit in &mut mmr_hits {
+                        if let Some(full) = texts.get(&hit.inner.memory_id) {
+                            hit.rerank_text = full.clone();
+                        }
+                    }
+                }
+            }
 
             let mut config = self.mmr_config.clone();
             config.lambda = req.mmr_lambda as f64;

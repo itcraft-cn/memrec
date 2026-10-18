@@ -16,11 +16,12 @@
 //! 第二次删除（硬删除）才真正从存储中移除。
 
 use super::rocksdb::RocksDBStore;
-use super::traits::MemoryStorage;
+use super::traits::{MemoryStorage, TextProvider};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::Utc;
 use mr_common::{Memory, MemoryType};
+use std::collections::HashMap;
 use tracing::info;
 use uuid::Uuid;
 
@@ -473,7 +474,7 @@ impl MemoryStore {
         let mut iter = self.rocksdb.iter_cf(cf_by_created);
         let mut memories = Vec::new();
 
-        iter.seek(&lower);
+        iter.seek(lower);
         while iter.valid() && memories.len() < limit {
             if let Some(key) = iter.key() {
                 if key.len() < 24 {
@@ -537,6 +538,20 @@ impl MemoryStore {
             );
         }
         Ok(fixed)
+    }
+}
+
+#[async_trait]
+impl TextProvider for MemoryStore {
+    /// 批量取记忆全文（调用侧候选池 ≤50，逐条 get 成本可忽略）。
+    async fn texts(&self, ids: &[Uuid]) -> Result<HashMap<Uuid, String>> {
+        let mut map = HashMap::with_capacity(ids.len());
+        for id in ids {
+            if let Some(memory) = self.get(id).await? {
+                map.insert(*id, memory.content);
+            }
+        }
+        Ok(map)
     }
 }
 
