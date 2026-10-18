@@ -1,0 +1,30 @@
+# 检索质量金标集（golden set）：每条为「改写的自然语言查询 → 应命中的记忆 UUID」。
+# 用途：scripts/retrieval_gate.sh 的多步骤测试门禁，防止检索排序回归（尤其向量
+# 归一化方向、中文分词、MMR 重排）。
+# 说明：UUID 绑定本机记忆库；若金标记忆被删除或被 Dream 整合，需重新采样并人工
+# 改写刷新（格式同本文件）。以 `#` 开头的行会被评测器忽略。
+{"id":"capacity","query":"做系统容量规划时该考虑哪些数量关系，有没有分阶段的建设思路","relevant":["205a65bc-f579-45ac-b089-56663c7e42f5"]}
+{"id":"speedboat-lock","query":"并发场景下synchronized修饰多个方法导致锁竞争，怎么改","relevant":["4bdfc456-8d05-48cd-a1ea-cbf9d1ac5d01"]}
+{"id":"dream-thinking","query":"集成摘要时模型把指令原样复述出来，是什么原因","relevant":["34ea81c6-fcc6-4940-95d9-813d61433a5f"]}
+{"id":"bbg-o","query":"报价行情某模块带下划线O后缀的设计说明","relevant":["241ef1cb-b104-4188-b195-656d6bc9f8b0"]}
+{"id":"cluster-sync","query":"集群之间数据同步的周期和触发方式怎么定的","relevant":["28a92607-3afe-4efd-aac7-ae404d9f468d"]}
+{"id":"svspotdbhk-cov","query":"某个银行子模块分支覆盖率翻倍的任务记录","relevant":["6fa4ba9b-9b99-4d72-aa7d-b3f6536b37d7"]}
+{"id":"gasket-check","query":"上线前的资源配置检查工具是怎么设计的","relevant":["622270e0-4df0-44a6-bcef-923091f4868d"]}
+{"id":"lock-transfer","query":"主节点故障后分布式锁迁移的集成测试为什么失败","relevant":["5a15702c-7bd9-45e1-96cd-9ab987e72d5b"]}
+{"id":"trace","query":"C++服务如何实现请求全链路追踪和流水号透传","relevant":["5cb0a6e6-935b-485d-ac9b-a1850136ea55"]}
+{"id":"speedboat-security","query":"某项目定性评估指出严重缺乏身份认证机制","relevant":["2f88e46a-d0d3-4487-9dbd-4f5f62e3b0f8"]}
+{"id":"giant-class","query":"代码审查发现大量超长文件和大类的拆分建议","relevant":["1e20cc58-8c32-4c50-b400-2bf463651023"]}
+{"id":"dead-import","query":"清理源码中未被引用的时间处理类导入","relevant":["52ec822c-10f3-41a8-b0a7-abd495e0bc3d"]}
+{"id":"jrdb-perf","query":"ORM框架性能比对手册宣称与实测差很多，排查结论","relevant":["18aae40c-9fc0-4cf8-822e-6bb77d6df783"]}
+{"id":"kalman","query":"状态空间模型滤波计算过程的性能优化手段","relevant":["4f97ad16-19b7-4451-a3a1-5dee1a93b9a9"]}
+{"id":"jcustpck-api","query":"对外的接口表面不允许出现受保护的实现类型，这个约束怎么理解","relevant":["721cd6c3-a2a0-4bce-bf28-1c30fe28fae6"]}
+{"id":"docs-layout","query":"文档中文英文版本的命名与互相引用约定","relevant":["71fd8d26-7fbc-4579-b486-2f8307b6bad6"]}
+{"id":"pnl-metric","query":"期权组合损益线性近似的误差应该用什么口径衡量才不会失真","relevant":["0da4f30c-62c7-48bf-9763-b9d6c95a1eea"]}
+{"id":"db-exception-test","query":"给数据库异常捕获分支补单元测试的经验","relevant":["6a6f3257-eb4f-49f5-9d09-3b9febdb5cd6"]}
+{"id":"cross-net","query":"两台机器跨网段的时延测试怎么搭","relevant":["70ad0e70-2b0f-4c0a-9e18-7b80ae4cbd6e"]}
+{"id":"bpe-assess","query":"某Rust项目从原型升级为可试点内核的定性评估结论","relevant":["170cc7db-08ad-452d-89ec-e9d391c942ac"]}
+{"id":"kapt","query":"安卓构建时kapt弃用告警的根因定位","relevant":["1bb608bf-d9e2-4950-b502-9ac77b626389"]}
+{"id":"cltspothk-cov","query":"给某个交易模块补测试把分支覆盖率提上去","relevant":["14267f53-7cbc-45ff-b8a7-38cb96721c39"]}
+{"id":"bpe-bench","query":"Rust项目补齐基准测试并配置链接特定版本LLVM","relevant":["4990cbf5-6255-471e-96e2-29836732468b"]}
+{"id":"agents-merge","query":"把仓库的AGENTS.md合并成纯Rust模板并去掉Java内容","relevant":["03e19d7a-49b4-477d-a73c-31e1e76c49ab"]}
+{"id":"memrec-restore","query":"从被删除的记录里把有价值的记忆抢救回来","relevant":["02f13875-e93f-4513-b098-de0cd953ca41"]}

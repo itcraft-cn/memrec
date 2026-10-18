@@ -103,20 +103,25 @@ cargo fmt --check
 
 每次改动后的验收流程，严格按序执行：
 
-1. **编译通过**：`cargo build --release` 成功。
+1. **编译与单测通过**：`cargo build --release` 与 `cargo test --release` 均成功。
 2. **停止服务**：`systemctl --user stop memrecd`。
 3. **备份正式数据**：备份 `~/.memrec`（如 `cp -a ~/.memrec ~/.memrec.bak.<时间戳>`）。
-4. **部署并启动**：将新版本部署到 **`~/.local/bin` 与 `~/.cargo/bin` 两处**（仅需 `memrec`、`memrecd` 两个二进制），随后 `systemctl --user start memrecd`。
-5. **测试判定**：
-   - 不通过：回到第 1 / 4 步继续修复与重部署，直至满足测试要求；
-   - 通过：停止测试用的 `memrecd`，并将 `~/.memrec` 还原为正式数据（用第 3 步备份覆盖）。
-6. **完成测试**：确认服务状态与数据一致性。
+4. **部署并启动**：将新版本部署到 **`~/.local/bin` 与 `~/.cargo/bin` 两处**（仅需 `memrec`、`memrecd` 两个二进制），随后 `systemctl --user start memrecd`；等待守护进程加载模型、FTS 索引自愈完成（约数秒至数十秒，观察 `~/.memrec/logs/`）。
+5. **检索质量门禁（强制）**：运行 `bash scripts/retrieval_gate.sh`，必须退出码为 0。
+   - 该门禁包含两项：**自检索**（纯向量、关闭 MMR，抽样记忆以正文为查询须命中自身，锁定“最相似者优先”不变量）与**语义金标集**（`eval/retrieval_golden.jsonl` 改写查询的 hit@5 与 MRR）。任一项不达标即失败。
+   - 阈值可用环境变量覆盖（`RETRIEVAL_GATE_K`、`RETRIEVAL_GATE_MIN_HIT`、`RETRIEVAL_GATE_MIN_MRR`、`RETRIEVAL_GATE_MIN_SELF_RECALL`、`RETRIEVAL_GATE_SELF_SAMPLE`）。
+   - 门禁为只读评测，不写入任何记忆；金标记忆若被删除或被 Dream 整合，需重新采样并人工改写刷新 `eval/retrieval_golden.jsonl`。
+6. **测试判定**：
+   - 不通过（编译/单测/门禁任一失败）：回到第 1 / 4 步继续修复与重部署，直至满足测试要求；
+   - 通过：如需以测试数据回归，停止测试用的 `memrecd` 并将 `~/.memrec` 还原为正式数据（用第 3 步备份覆盖）；若本次验证为只读、未产生测试写入，则可保留新版本与当前数据继续运行。
+7. **完成测试**：确认服务状态（`systemctl --user status memrecd`）与数据一致性（`memrec stats`）。
 
 注意事项：
 
 - 部署目标为两个目录，缺一不可；二进制仅 `memrec`、`memrecd`。
 - 备份与还原均以 `~/.memrec` 为整体单位；还原前必须确认服务已停止。
 - 本机服务为 `systemd --user` 的 `memrecd.service`。
+- 检索质量门禁不可跳过；任何涉及检索、分词、向量、MMR、排序或存储索引的改动都必须以门禁通过为验收条件。
 
 ### 编码规范
 
