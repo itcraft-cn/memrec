@@ -11,8 +11,11 @@ use tokio::net::UnixStream;
 
 /// 初始缓冲区大小
 const INITIAL_BUFFER_SIZE: usize = 8192;
-/// 最大响应大小（1MB）
-const MAX_BUFFER_SIZE: usize = 1024 * 1024;
+/// 最大响应大小。
+///
+/// 列表类响应会随记忆数量与正文长度增长（实测 `list -a -l 400` 约 3.7MB），
+/// 上限过小会误伤合法的批量查询。此处放宽到 64MB，仍保留上界以防异常巨大响应耗尽内存。
+const MAX_BUFFER_SIZE: usize = 64 * 1024 * 1024;
 
 /// memrecd 客户端，通过 Unix Socket 发送 JSON-RPC 请求。
 pub struct Client {
@@ -71,7 +74,10 @@ impl Client {
             buffer.extend_from_slice(&chunk[..n]);
 
             if buffer.len() >= MAX_BUFFER_SIZE {
-                return Err(anyhow::anyhow!("Response too large (exceeds 1MB)"));
+                return Err(anyhow::anyhow!(
+                    "Response too large (exceeds {}MB)",
+                    MAX_BUFFER_SIZE / (1024 * 1024)
+                ));
             }
         }
 

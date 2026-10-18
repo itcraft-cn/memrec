@@ -708,7 +708,9 @@ impl McpServer {
                 break;
             }
             buffer.extend_from_slice(&chunk[..n]);
-            if buffer.len() > 1024 * 1024 {
+            // 响应上限与 CLI 客户端一致（64MB）：列表类响应可随记忆数量增长，
+            // 上限仅用于兜底防御异常巨大响应。
+            if buffer.len() > 64 * 1024 * 1024 {
                 return Err("Response too large".to_string());
             }
         }
