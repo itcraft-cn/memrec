@@ -144,6 +144,10 @@ impl Daemon {
         // 文档”不一致（旧版本 Dream 写路径曾绕过全文索引维护）。
         self.reconcile_fts_index(&storage, &fts_store).await?;
 
+        // 启动二级索引自愈：历史记忆可能缺 by_created / by_project 索引项，
+        // 补齐后按创建时间区间与项目范围的查询才能保持下推语义。
+        storage.reconcile_secondary_indexes().await?;
+
         let hybrid_store = Arc::new(HybridStore::new(
             vector_store.clone(),
             fts_store,

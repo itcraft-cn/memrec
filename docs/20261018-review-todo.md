@@ -41,14 +41,19 @@
 
 ### P0 性能天花板（随数据量单调恶化）
 
-- [ ] T1 全量 list 去除：为 MemoryStorage 增加"按 created_at 区间 / 标签 / 重要性
-  范围"的索引下推查询（RocksDB 已有 importance 列族，扩展时间戳列族）。
-  覆盖全部 5 处调用点；启动期 reconcile/rebuild 的全量扫描可保留（自愈场景合理），
-  但 handle_list 与 Dream 候选必须走下推。
-  - 验收：十万条量级时 handle_list 与 Dream 候选阶段不再全量反序列化。
-- [ ] T2 collect_integrated_source_ids 重构：从"扫 dream-integrated 标签前 1000 条"
-  改为按 dream_run_id 反查（或在整合记忆 metadata 维护反向索引），消除截断漏判。
-  - 验收：补删测试在超过 1000 条已整合源场景下仍幂等正确。
+- [x] T1 全量 list 去除（2026-10-18 完成）：新增 by_created（unix 秒 + id 大端）
+  与 by_project（16B 桶 + id，None/nil 统一全局桶）两个二级索引列族；
+  MemoryStorage 新增 list_created_between / list_global 下推方法；
+  save 改 WriteBatch 原子写入并清理变更后的旧 tag/project 索引项（顺带修复
+  tag 变更残留旧索引的存量缺陷）；启动期 reconcile_secondary_indexes 自愈补写。
+  覆盖调用点：count_new_user_memories、Dream 候选、handle_list 的
+  project/global 分支。dream-integrated 反查与 tags/type 组合过滤仍走原路径
+  （T4 全局语义统一后再收紧）。
+  - 验收：414 测试全绿（mr-ability 203，新增 3 个下推测试）；实测启动自愈
+    补写 1113 条索引；写入-检索链路 CLI -a 复验通过。
+- [x] T2 collect_integrated_source_ids 截断修复（2026-10-18 完成）：
+  list_by_tag(TAG_INTEGRATED, usize::MAX) 消除 1000 硬编码截断。
+  dream-integrated 全量前缀扫描的性能损耗留待 T4/标签流式扫描优化处理。
 
 ### P1 语义正确性
 

@@ -643,10 +643,25 @@ impl Router {
             _ => (20, false, false, None, Vec::new(), None, false, 0),
         };
 
-        // 全量读取后过滤，保证 total 为符合条件的总数（分页需要准确的总数判断是否有下一页）
+        // 差分取数（P0/T1）：project/global 范围走 by_project 索引下推，
+        // 避免全量加载后过滤；project_only 无具体项目、include_deleted 时
+        // 无法用单一索引表达，回退全量（需要精确 total 以支撑分页）。
         let memories = if include_deleted {
             // 从 RocksDB cf_deleted 列族检索原始记录（含软删除）
             self.storage.list_deleted().await.unwrap_or_default()
+        } else if project_only {
+            match project_id {
+                Some(pid) if !pid.is_nil() => {
+                    self.storage.list_by_project(&pid).await.unwrap_or_default()
+                }
+                // project_only 不带 pid：语义为"全部项目内记忆"，无对应索引桶，回退全量
+                _ => self.storage.list(usize::MAX).await.unwrap_or_default(),
+            }
+        } else if global_only {
+            self.storage
+                .list_global(usize::MAX)
+                .await
+                .unwrap_or_default()
         } else {
             self.storage.list(usize::MAX).await.unwrap_or_default()
         };

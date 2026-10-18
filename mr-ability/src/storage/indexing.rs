@@ -200,6 +200,21 @@ impl MemoryStorage for IndexingStorage {
         self.inner.list_by_project(project_id).await
     }
 
+    async fn list_global(&self, limit: usize) -> Result<Vec<Memory>> {
+        self.inner.list_global(limit).await
+    }
+
+    async fn list_created_between(
+        &self,
+        after_unix: i64,
+        before_unix: i64,
+        limit: usize,
+    ) -> Result<Vec<Memory>> {
+        self.inner
+            .list_created_between(after_unix, before_unix, limit)
+            .await
+    }
+
     async fn get_chunks_by_group(&self, chunk_group_id: &Uuid) -> Result<Vec<Memory>> {
         self.inner.get_chunks_by_group(chunk_group_id).await
     }

@@ -21,6 +21,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::Utc;
 use mr_common::{Memory, MemoryType};
+use tracing::info;
 use uuid::Uuid;
 
 /// 基于 RocksDB 的记忆存储实现。
@@ -52,6 +53,35 @@ impl MemoryStore {
     /// JSON 反序列化记忆。
     fn deserialize_memory(data: &[u8]) -> Result<Memory> {
         serde_json::from_slice(data).context("Failed to deserialize memory")
+    }
+
+    /// 项目二级索引桶：None 与 nil 项目统一为 16 字节全零（全局桶），
+    /// 保证"全局"两种历史语义在索引层一致。
+    fn project_bucket(project_id: Option<&Uuid>) -> [u8; 16] {
+        match project_id {
+            Some(id) if !id.is_nil() => *id.as_bytes(),
+            _ => [0u8; 16],
+        }
+    }
+
+    /// 项目二级索引 key：桶（16B）+ 记忆 id（16B），桶内以 id 保证唯一。
+    fn project_index_key(project_id: Option<&Uuid>, id: &Uuid) -> Vec<u8> {
+        let mut key = Vec::with_capacity(32);
+        key.extend_from_slice(&Self::project_bucket(project_id));
+        key.extend_from_slice(id.as_bytes());
+        key
+    }
+
+    /// 创建时间二级索引 key：unix 秒大端（保证全库按时间递增）+ 记忆 id（16B）。
+    ///
+    /// created_at 校准为非负秒：负时间戳（1970 前）钳为 0，同时靠桶内 id 保证多
+    /// 条同秒记录 key 唯一。秒级精度下区间边界允许少差，调用侧需对边界做二次过滤。
+    fn created_index_key(created_at: &chrono::DateTime<Utc>, id: &Uuid) -> Vec<u8> {
+        let secs = created_at.timestamp().max(0) as u64;
+        let mut key = Vec::with_capacity(24);
+        key.extend_from_slice(&secs.to_be_bytes());
+        key.extend_from_slice(id.as_bytes());
+        key
     }
 
     /// 从迭代器中收集记忆，支持跳过已删除项。
@@ -86,22 +116,54 @@ impl MemoryStorage for MemoryStore {
         let id_key = Self::memory_key(&memory.id);
         let data = Self::serialize_memory(memory)?;
 
-        let cf_memories = self.rocksdb.cf_memories()?;
-        self.rocksdb.put_cf(cf_memories, &id_key, &data)?;
+        // 写前读旧记录：清理变更后被移除的 tag / project 旧索引项，
+        // 避免索引残留导致按旧标签/旧项目命中到已迁移的记忆。
+        // 先 await 完成读取，再创建 WriteBatch（含裸指针，不允许跨 await 存活）。
+        let old = self.get(&memory.id).await?;
 
-        for tag in &memory.tags {
-            let tag_key = Self::tag_key(tag, &memory.id);
-            let cf_by_tag = self.rocksdb.cf_by_tag()?;
-            self.rocksdb.put_cf(cf_by_tag, &tag_key, &id_key)?;
+        let cf_memories = self.rocksdb.cf_memories()?;
+        let cf_by_tag = self.rocksdb.cf_by_tag()?;
+        let cf_importance = self.rocksdb.cf_importance()?;
+        let cf_by_created = self.rocksdb.cf_by_created()?;
+        let cf_by_project = self.rocksdb.cf_by_project()?;
+
+        let mut batch = rocksdb::WriteBatch::default();
+        batch.put_cf(cf_memories, &id_key, &data);
+        batch.put_cf(
+            cf_importance,
+            &id_key,
+            memory.importance.to_string().into_bytes(),
+        );
+        batch.put_cf(
+            cf_by_created,
+            Self::created_index_key(&memory.created_at, &memory.id),
+            memory.id.as_bytes(),
+        );
+        batch.put_cf(
+            cf_by_project,
+            Self::project_index_key(memory.project_id.as_ref(), &memory.id),
+            memory.id.as_bytes(),
+        );
+
+        if let Some(old) = old {
+            for tag in &old.tags {
+                if !memory.tags.contains(tag) {
+                    batch.delete_cf(cf_by_tag, Self::tag_key(tag, &memory.id));
+                }
+            }
+            if old.project_id != memory.project_id {
+                batch.delete_cf(
+                    cf_by_project,
+                    Self::project_index_key(old.project_id.as_ref(), &memory.id),
+                );
+            }
         }
 
-        let importance_key = Self::memory_key(&memory.id);
-        let importance_data = memory.importance.to_string().into_bytes();
-        let cf_importance = self.rocksdb.cf_importance()?;
-        self.rocksdb
-            .put_cf(cf_importance, &importance_key, &importance_data)?;
+        for tag in &memory.tags {
+            batch.put_cf(cf_by_tag, Self::tag_key(tag, &memory.id), &id_key);
+        }
 
-        Ok(())
+        self.rocksdb.write_batch(batch)
     }
 
     async fn get(&self, id: &Uuid) -> Result<Option<Memory>> {
@@ -296,10 +358,52 @@ impl MemoryStorage for MemoryStore {
     }
 
     async fn list_by_project(&self, project_id: &Uuid) -> Result<Vec<Memory>> {
-        let all = self.list(10000).await?;
-        Ok(all
+        // 由 by_project 列族按桶前缀定位，不再全量扫描。
+        // 具体项目桶不含 None/nil 记忆，与原"project_id 精确匹配"语义一致。
+        if project_id.is_nil() {
+            // nil 项目桶实际不存在（None/nil 统一落全局桶），回退全量过滤保持语义。
+            let all = self.list(10000).await?;
+            Ok(all
+                .into_iter()
+                .filter(|m| m.project_id == Some(*project_id))
+                .collect())
+        } else {
+            let memories = self
+                .list_by_project_bucket(&Self::project_bucket(Some(project_id)), usize::MAX)
+                .await?;
+            Ok(memories
+                .into_iter()
+                .filter(|m| m.project_id == Some(*project_id))
+                .collect())
+        }
+    }
+
+    /// 按项目桶列出未删除记忆：全局桶（全零）同时覆盖 None 与 `Some(nil)`。
+    async fn list_global(&self, limit: usize) -> Result<Vec<Memory>> {
+        self.list_by_project_bucket(&Self::project_bucket(None), limit)
+            .await
+    }
+
+    /// 按创建时间区间 `(after_unix, before_unix]` 列出未删除记忆。
+    ///
+    /// 秒级索引允许边界少差，此处对边界记忆做精确二次过滤，保证与
+    /// `created_at > after && created_at <= before` 语义一致。
+    async fn list_created_between(
+        &self,
+        after_unix: i64,
+        before_unix: i64,
+        limit: usize,
+    ) -> Result<Vec<Memory>> {
+        let after = chrono::DateTime::<Utc>::from_timestamp(after_unix, 0)
+            .unwrap_or(chrono::DateTime::<Utc>::UNIX_EPOCH);
+        let before = chrono::DateTime::<Utc>::from_timestamp(before_unix, 0)
+            .unwrap_or(chrono::DateTime::<Utc>::UNIX_EPOCH);
+        let memories = self
+            .list_by_created_bucket(after.timestamp(), before.timestamp(), limit)
+            .await?;
+        Ok(memories
             .into_iter()
-            .filter(|m| m.project_id == Some(*project_id))
+            .filter(|m| m.created_at > after && m.created_at <= before)
             .collect())
     }
 
@@ -322,6 +426,117 @@ impl MemoryStorage for MemoryStore {
             .filter(|m| m.created_at < cutoff_time)
             .take(limit)
             .collect())
+    }
+}
+
+impl MemoryStore {
+    /// 项目桶前缀扫描的共享实现：桶 key 恰为 id，逐 id 回表并过滤软删。
+    async fn list_by_project_bucket(&self, bucket: &[u8; 16], limit: usize) -> Result<Vec<Memory>> {
+        let cf_by_project = self.rocksdb.cf_by_project()?;
+        let mut iter = self.rocksdb.iter_cf(cf_by_project);
+        let mut memories = Vec::new();
+
+        iter.seek(bucket);
+        while iter.valid() && memories.len() < limit {
+            if let Some(key) = iter.key() {
+                if key.len() < 16 || key[..16] != *bucket {
+                    break;
+                }
+                if let Some(value) = iter.value() {
+                    if let Ok(id) = Uuid::from_slice(value) {
+                        if let Some(memory) = self.get(&id).await? {
+                            if !memory.is_deleted {
+                                memories.push(memory);
+                            }
+                        }
+                    }
+                }
+            }
+            iter.next();
+        }
+
+        Ok(memories)
+    }
+
+    /// 创建时间区间前缀扫描的共享实现：key 前 8 字节为 unix 秒大端，天然有序。
+    ///
+    /// 边界取整到秒（下界含，上界含都允许），调用侧需再按精确时间过滤。
+    async fn list_by_created_bucket(
+        &self,
+        after_secs: i64,
+        before_secs: i64,
+        limit: usize,
+    ) -> Result<Vec<Memory>> {
+        let lower = (after_secs.max(0) as u64).to_be_bytes();
+        let upper = (before_secs.max(0) as u64).to_be_bytes();
+        let cf_by_created = self.rocksdb.cf_by_created()?;
+        let mut iter = self.rocksdb.iter_cf(cf_by_created);
+        let mut memories = Vec::new();
+
+        iter.seek(&lower);
+        while iter.valid() && memories.len() < limit {
+            if let Some(key) = iter.key() {
+                if key.len() < 24 {
+                    iter.next();
+                    continue;
+                }
+                if key[..8] > upper[..] {
+                    break;
+                }
+                if let Some(value) = iter.value() {
+                    if let Ok(id) = Uuid::from_slice(value) {
+                        if let Some(memory) = self.get(&id).await? {
+                            if !memory.is_deleted {
+                                memories.push(memory);
+                            }
+                        }
+                    }
+                }
+            }
+            iter.next();
+        }
+
+        Ok(memories)
+    }
+}
+
+impl MemoryStore {
+    /// 启动期自愈：为缺少 by_created / by_project 二级索引的记忆补写索引项。
+    ///
+    /// 仅在启动时全量扫描一次（与 reconcile_fts_index 同理），服务运行期索引由
+    /// save 维护。返回补写索引的记忆条数（用于日志）。
+    pub async fn reconcile_secondary_indexes(&self) -> Result<usize> {
+        let all = self.list(usize::MAX).await?;
+        let cf_by_created = self.rocksdb.cf_by_created()?;
+        let cf_by_project = self.rocksdb.cf_by_project()?;
+
+        let mut batch = rocksdb::WriteBatch::default();
+        let mut fixed = 0usize;
+        for m in &all {
+            let created_key = Self::created_index_key(&m.created_at, &m.id);
+            let project_key = Self::project_index_key(m.project_id.as_ref(), &m.id);
+            let mut need = false;
+            if self.rocksdb.get_cf(cf_by_created, &created_key)?.is_none() {
+                batch.put_cf(cf_by_created, &created_key, m.id.as_bytes());
+                need = true;
+            }
+            if self.rocksdb.get_cf(cf_by_project, &project_key)?.is_none() {
+                batch.put_cf(cf_by_project, &project_key, m.id.as_bytes());
+                need = true;
+            }
+            if need {
+                fixed += 1;
+            }
+        }
+
+        if fixed > 0 {
+            self.rocksdb.write_batch(batch)?;
+            info!(
+                "Secondary indexes reconciled: {} memories were missing by_created/by_project entries",
+                fixed
+            );
+        }
+        Ok(fixed)
     }
 }
 
@@ -359,6 +574,117 @@ mod tests {
 
         let memories = store.list(10).await.unwrap();
         assert_eq!(memories.len(), 5);
+    }
+
+    /// 构造指定创建时间与项目的记忆（created_at 直接覆写，用于下推查询测试）。
+    fn backdated_memory(content: &str, hours_ago: i64, project_id: Option<uuid::Uuid>) -> Memory {
+        let mut memory = Memory::new(content.to_string(), MemoryType::Knowledge);
+        memory.created_at = Utc::now() - chrono::Duration::hours(hours_ago);
+        memory.project_id = project_id;
+        memory
+    }
+
+    #[tokio::test]
+    async fn test_created_between_index_pushdown() {
+        let dir = tempdir().unwrap();
+        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let store = MemoryStore::new(std::sync::Arc::new(rocksdb));
+
+        let old = backdated_memory("old", 48, None);
+        let mid = backdated_memory("mid", 26, Some(uuid::Uuid::new_v4()));
+        // recent 显式回溯 2 小时，避免与 before 的秒级截断产生同秒歧义
+        let recent = backdated_memory("recent", 2, None);
+
+        store.save(&old).await.unwrap();
+        store.save(&mid).await.unwrap();
+        store.save(&recent).await.unwrap();
+
+        // 区间 (30h 前, 20h 前]：只含 mid
+        let after = (Utc::now() - chrono::Duration::hours(30)).timestamp();
+        let before = (Utc::now() - chrono::Duration::hours(20)).timestamp();
+        let result = store.list_created_between(after, before, 10).await.unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, mid.id);
+
+        // 下界之前：只含 old（recent 不落区间）
+        let result = store.list_created_between(0, before, 10).await.unwrap();
+        assert_eq!(result.iter().filter(|m| m.id == old.id).count(), 1);
+        assert_eq!(result.iter().filter(|m| m.id == recent.id).count(), 0);
+
+        // 上界之后：只含 recent
+        let now = Utc::now().timestamp();
+        let result = store.list_created_between(before, now, 10).await.unwrap();
+        assert_eq!(result.iter().filter(|m| m.id == recent.id).count(), 1);
+
+        // 软删除记录不进入查询结果
+        store.delete(&mid.id).await.unwrap();
+        let result = store.list_created_between(after, before, 10).await.unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_project_index_pushdown_and_migration() {
+        let dir = tempdir().unwrap();
+        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let store = MemoryStore::new(std::sync::Arc::new(rocksdb));
+
+        let pid = uuid::Uuid::new_v4();
+        let proj = backdated_memory("proj", 48, Some(pid));
+        let global_long_ago = backdated_memory("global", 40, None);
+        // 历史 Dream 产出语义：Some(nil) 记全局桶
+        let legacy = backdated_memory("legacy", 30, Some(uuid::Uuid::nil()));
+
+        store.save(&proj).await.unwrap();
+        store.save(&global_long_ago).await.unwrap();
+        store.save(&legacy).await.unwrap();
+
+        // 全局桶同时覆盖 None 与 Some(nil)
+        let globals = store.list_global(10).await.unwrap();
+        assert_eq!(globals.len(), 2);
+        assert!(globals.iter().any(|m| m.id == global_long_ago.id));
+        assert!(globals.iter().any(|m| m.id == legacy.id));
+
+        // 具体项目桶精确命中
+        let in_project = store.list_by_project(&pid).await.unwrap();
+        assert_eq!(in_project.len(), 1);
+        assert_eq!(in_project[0].id, proj.id);
+
+        // 迁移：项目记忆改为全局后，旧项目索引项必须清理
+        let mut migrated = proj.clone();
+        migrated.project_id = None;
+        store.save(&migrated).await.unwrap();
+        assert!(store.list_by_project(&pid).await.unwrap().is_empty());
+        let globals_after = store.list_global(10).await.unwrap();
+        assert!(globals_after.iter().any(|m| m.id == migrated.id));
+    }
+
+    #[tokio::test]
+    async fn test_reconcile_secondary_indexes_backfills() {
+        let dir = tempdir().unwrap();
+        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let store = MemoryStore::new(std::sync::Arc::new(rocksdb));
+
+        // 模拟历史数据：先写记忆库（老版本路径无二级索引），
+        // save 现已维护索引，此处手工破坏一条的索引项来验证补写。
+        let m = backdated_memory("legacy", 48, None);
+        store.save(&m).await.unwrap();
+        let rocksdb2 = store.rocksdb.clone();
+        let cf_created = rocksdb2.cf_by_created().unwrap();
+        let key = MemoryStore::created_index_key(&m.created_at, &m.id);
+        rocksdb2.delete_cf(&cf_created, &key).unwrap();
+
+        let fixed = store.reconcile_secondary_indexes().await.unwrap();
+        assert_eq!(fixed, 1);
+
+        let result = store
+            .list_created_between(
+                (Utc::now() - chrono::Duration::hours(50)).timestamp(),
+                (Utc::now() - chrono::Duration::hours(20)).timestamp(),
+                10,
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.len(), 1);
     }
 
     #[tokio::test]

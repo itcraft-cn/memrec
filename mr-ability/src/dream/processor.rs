@@ -30,8 +30,8 @@ use mr_common::types::{
     MemoryType, QualityMetrics, SummaryClues,
 };
 
-use crate::embedding::EmbeddingGenerator;
 use crate::edge::EdgeGenerator;
+use crate::embedding::EmbeddingGenerator;
 use crate::llm::LlmClient;
 use crate::propagation::PropagationEngine;
 use crate::storage::{DreamRunStorage, EdgeStorage, MemoryStorage, VectorStorage};
@@ -244,13 +244,14 @@ async fn count_new_user_memories(
 ) -> Result<usize, DreamError> {
     let since =
         DateTime::<Utc>::from_timestamp(since_unix, 0).unwrap_or(DateTime::<Utc>::UNIX_EPOCH);
-    let all = storage
-        .list(usize::MAX)
+    // P0/T1: 按创建时间区间下推查询，避免全量加载后计数。
+    let recent = storage
+        .list_created_between(since.timestamp(), Utc::now().timestamp(), usize::MAX)
         .await
         .map_err(|e| DreamError::Storage(e.to_string()))?;
-    Ok(all
+    Ok(recent
         .into_iter()
-        .filter(|m| !m.is_deleted && m.created_at > since && m.source != MemorySource::System)
+        .filter(|m| m.source != MemorySource::System)
         .count())
 }
 
@@ -455,11 +456,7 @@ impl DreamProcessor {
     ///
     /// 无论成功、无事可做（NoOp）还是失败，只要注入了 `run_store` 均写入
     /// 一条 DreamRun；门控拦截（force=false 时）同样落库。
-    pub async fn execute_ext(
-        &self,
-        force: bool,
-        dry_run: bool,
-    ) -> Result<DreamResult, DreamError> {
+    pub async fn execute_ext(&self, force: bool, dry_run: bool) -> Result<DreamResult, DreamError> {
         // 当前记忆总数：锁记录与状态写入均基于该值
         let memory_count = self
             .storage
@@ -565,10 +562,10 @@ impl DreamProcessor {
         let cutoff = Utc::now() - chrono::Duration::hours(self.config.max_age_hours as i64);
         let cutoff_str = cutoff.to_rfc3339();
 
-        // 全量取回后内存筛选（活跃记忆超 1 万时避免漏选，并按优先级选取）。
+        // P0/T1: 候选必然早于 cutoff，用时间区间下推替代全量加载。
         let all = self
             .storage
-            .list(usize::MAX)
+            .list_created_between(0, cutoff.timestamp(), usize::MAX)
             .await
             .map_err(|e| DreamError::Storage(e.to_string()))?;
 
@@ -690,8 +687,10 @@ impl DreamProcessor {
         let mut dedup_dropped = 0usize;
 
         for (cluster, extraction) in &extractions {
-            let source_ids: Vec<String> =
-                cluster.iter().map(|&i| candidates[i].id.to_string()).collect();
+            let source_ids: Vec<String> = cluster
+                .iter()
+                .map(|&i| candidates[i].id.to_string())
+                .collect();
             let mut base_meta: HashMap<String, String> = HashMap::new();
             base_meta.insert(
                 "source_ids".to_string(),
@@ -756,7 +755,8 @@ impl DreamProcessor {
                 let mut tags = self.config.integration_tags.clone();
                 tags.push(TAG_INTEGRATED.to_string());
                 tags.push(TAG_SUMMARY.to_string());
-                let m = build_produced_memory(content.clone(), mem_type, tags, base_meta.clone(), 0.8);
+                let m =
+                    build_produced_memory(content.clone(), mem_type, tags, base_meta.clone(), 0.8);
                 let mid = m.id;
                 if !dry_run {
                     self.storage
@@ -805,8 +805,15 @@ impl DreamProcessor {
 
         // 预演：到此为止，不删源、不建边、不执行阶段。
         if dry_run {
-            let metrics =
-                self.compute_metrics(&candidates, &produced, run.cluster_count, &contradictions, 0, 0, 0.0);
+            let metrics = self.compute_metrics(
+                &candidates,
+                &produced,
+                run.cluster_count,
+                &contradictions,
+                0,
+                0,
+                0.0,
+            );
             run.metrics = metrics.clone();
             run.finish(DreamRunStatus::Success);
             return Ok(DreamResult {
@@ -869,11 +876,7 @@ impl DreamProcessor {
                 // Stage N 语义边（P2-8，默认关）：LLM 判断 CausedBy/Evolves/References
                 if self.config.networking_semantic_enabled {
                     if let Some(llm) = &self.llm {
-                        let gen = crate::edge::LlmEdgeGenerator::new(
-                            llm.clone(),
-                            3,
-                            0.6,
-                        );
+                        let gen = crate::edge::LlmEdgeGenerator::new(llm.clone(), 3, 0.6);
                         let max_candidates = self.config.networking_semantic_max_candidates;
                         for m in &produced {
                             // 语义边候选池限幅：按向量相似度取最相近的 top-N，排除自身与
@@ -1128,9 +1131,11 @@ impl DreamProcessor {
     /// 下次执行据此排除已整合的源记忆，崩溃残留（写后未删）也可识别补删。
     async fn collect_integrated_source_ids(&self) -> Result<HashSet<Uuid>, DreamError> {
         let mut seen = HashSet::new();
+        // P0/T2: 空 limit 表示不截断。原硬编码 1000 会在整合记忆超限时漏判源记忆，
+        // 破坏幂等补删语义。
         let summaries = self
             .storage
-            .list_by_tag("dream-integrated", 1000)
+            .list_by_tag(TAG_INTEGRATED, usize::MAX)
             .await
             .map_err(|e| DreamError::Storage(e.to_string()))?;
         for m in summaries {
@@ -1146,7 +1151,6 @@ impl DreamProcessor {
         }
         Ok(seen)
     }
-
 }
 
 #[cfg(test)]

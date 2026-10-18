@@ -44,6 +44,23 @@ pub trait MemoryStorage: Send + Sync {
     async fn count_deleted(&self) -> Result<usize>;
 
     async fn list_by_project(&self, project_id: &Uuid) -> Result<Vec<Memory>>;
+
+    /// 列出全局记忆（project_id 为 None 或 nil）。
+    ///
+    /// 由 `by_project` 列族的全零桶下推查询，避免全量扫描。
+    async fn list_global(&self, limit: usize) -> Result<Vec<Memory>>;
+
+    /// 列出创建时间位于 `(after_unix, before_unix]` 区间内的未删除记忆。
+    ///
+    /// 由 `by_created` 列族下推查询，用于 Dream 候选筛选与新记忆计数，
+    /// 替代全量 `list(usize::MAX)` 后内存过滤。
+    async fn list_created_between(
+        &self,
+        after_unix: i64,
+        before_unix: i64,
+        limit: usize,
+    ) -> Result<Vec<Memory>>;
+
     async fn get_chunks_by_group(&self, chunk_group_id: &Uuid) -> Result<Vec<Memory>>;
 
     /// 列出创建时间早于指定时间的记忆（用于 Dream 整合）。

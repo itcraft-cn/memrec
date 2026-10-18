@@ -300,6 +300,17 @@ mod tests {
         async fn list_by_project(&self, _project_id: &Uuid) -> Result<Vec<Memory>> {
             self.list(100).await
         }
+        async fn list_global(&self, limit: usize) -> Result<Vec<Memory>> {
+            self.list(limit).await
+        }
+        async fn list_created_between(
+            &self,
+            _after_unix: i64,
+            _before_unix: i64,
+            limit: usize,
+        ) -> Result<Vec<Memory>> {
+            self.list(limit).await
+        }
         async fn get_chunks_by_group(&self, _chunk_group_id: &Uuid) -> Result<Vec<Memory>> {
             Ok(vec![])
         }

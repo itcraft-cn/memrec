@@ -43,6 +43,12 @@ const CF_BY_TAG: &str = "by_tag";
 const CF_DELETED: &str = "deleted";
 /// 重要性索引列族
 const CF_IMPORTANCE: &str = "importance";
+/// 创建时间二级索引列族（key: unix 秒大端 8B | 记忆 id 16B，value 空）。
+/// 使得按创建时间区间筛选无需全量扫描（Dream 候选、新记忆计数）。
+const CF_BY_CREATED: &str = "by_created";
+/// 项目二级索引列族（key: 项目 id 16B，None/nil 项目统一落 16B 全零桶，value: 记忆 id 16B）。
+/// None 与 `Some(Uuid::nil())` 同桶，保证两种全局语义一致可查。
+const CF_BY_PROJECT: &str = "by_project";
 /// 项目信息列族
 const CF_PROJECTS: &str = "projects";
 /// 配置键值对列族
@@ -99,6 +105,8 @@ impl RocksDBStore {
             ColumnFamilyDescriptor::new(CF_BY_TAG, Options::default()),
             ColumnFamilyDescriptor::new(CF_DELETED, Options::default()),
             ColumnFamilyDescriptor::new(CF_IMPORTANCE, Options::default()),
+            ColumnFamilyDescriptor::new(CF_BY_CREATED, Options::default()),
+            ColumnFamilyDescriptor::new(CF_BY_PROJECT, Options::default()),
             ColumnFamilyDescriptor::new(CF_PROJECTS, Options::default()),
             ColumnFamilyDescriptor::new(CF_CONFIG, Options::default()),
             ColumnFamilyDescriptor::new(CF_FACETS, Options::default()),
@@ -153,11 +161,32 @@ impl RocksDBStore {
             .context("Column family 'importance' not found")
     }
 
+    /// 获取 `by_created` 列族句柄。
+    pub fn cf_by_created(&self) -> Result<&rocksdb::ColumnFamily> {
+        self.db
+            .cf_handle(CF_BY_CREATED)
+            .context("Column family 'by_created' not found")
+    }
+
+    /// 获取 `by_project` 列族句柄。
+    pub fn cf_by_project(&self) -> Result<&rocksdb::ColumnFamily> {
+        self.db
+            .cf_handle(CF_BY_PROJECT)
+            .context("Column family 'by_project' not found")
+    }
+
     /// 获取 `projects` 列族句柄。
     pub fn cf_projects(&self) -> Result<&rocksdb::ColumnFamily> {
         self.db
             .cf_handle(CF_PROJECTS)
             .context("Column family 'projects' not found")
+    }
+
+    /// 批量提交写操作（列族级原子写入）。
+    ///
+    /// 用于 save 这类一次写多列族的场景，避免中途崩溃留下部分索引。
+    pub fn write_batch(&self, batch: rocksdb::WriteBatch) -> Result<()> {
+        self.db.write(batch).context("Failed to write batch")
     }
 
     /// 获取 `config` 列族句柄。
