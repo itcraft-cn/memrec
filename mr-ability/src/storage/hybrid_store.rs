@@ -194,10 +194,12 @@ impl HybridStorage for HybridStore {
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| a.memory_id.cmp(&b.memory_id))
         });
-        // 融合分数过滤：min_score 语义为"最终相似度下限"，向量侧的原始
-        // 过滤无法覆盖 BM25 融合后的归一化分数，这里对融合结果统一过滤，
-        // 避免低于阈值的低相关条目混入结果（影响 CLI/MCP/DSH 插件）。
-        sorted.retain(|h| h.score >= filter.min_score);
+        // 量纲分离：`min_score` 只约束"原始向量余弦相似度"，由向量存储在 KNN 阶段
+        // 过滤（[`VectorStorage::search`]）。融合分是 min-max 归一化后再按 alpha 加权的
+        // **相对量**，与原始相似度不可比；此前对融合结果再套同一阈值做绝对截断，会产生
+        // 两个后果：纯向量命中的顶项恒等于 alpha（默认 0.5），恰与默认 min_score 相等，
+        // 于是结果被过度裁剪到仅剩顶项（表现为分数"钉在 0.5"、区分度丧失）。
+        // 因此这里不再做绝对阈值截断，命中集由向量的绝对阈值与 top_k 共同约束。
         sorted.truncate(req.top_k);
 
         let final_hits = if req.mmr_enabled {
@@ -376,5 +378,60 @@ mod tests {
         };
         let result = hybrid.search(req).await.unwrap();
         assert_eq!(result.hits.first().map(|h| h.memory_id), Some(target));
+    }
+
+    /// 回归：融合层不得再套用 `min_score` 绝对阈值。
+    ///
+    /// 纯向量命中（alpha=0.5）的顶项融合分恒为 0.5，恰等于默认 min_score；若仍按
+    /// 绝对阈值截断，将只保留顶项、丢失其余已达原始相似度门槛的候选。修复后应保留
+    /// 全部通过向量绝对阈值（余弦 >= min_score）的候选。
+    #[tokio::test]
+    async fn test_fused_min_score_does_not_truncate_to_top() {
+        let vector_store = Arc::new(VectorStore::new(3));
+        let fts_store = Arc::new(TantivyStore::new_test());
+        let hybrid = HybridStore::new(
+            vector_store,
+            fts_store,
+            MmrConfig::default(),
+            ScorerConfig::default(),
+        );
+
+        // 查询向量 [1,0,0]；三条余弦相似度 1.0 / 0.8 / 0.6，均 >= 0.5。
+        // 存储文本与查询文本无词项重叠，避免 FTS 侧贡献干扰本用例。
+        for (emb, text) in [
+            (vec![1.0_f32, 0.0, 0.0], "stored_alpha_token"),
+            (vec![0.8, 0.6, 0.0], "stored_beta_token"),
+            (vec![0.6, 0.8, 0.0], "stored_gamma_token"),
+        ] {
+            hybrid
+                .add(&Uuid::new_v4(), &emb, text, VectorPayload::default())
+                .await
+                .unwrap();
+        }
+        hybrid.reload().unwrap();
+
+        let req = HybridSearchRequest {
+            query: "query_delta_token".to_string(),
+            query_embedding: vec![1.0, 0.0, 0.0],
+            filter: SearchFilter {
+                min_score: 0.5,
+                ..Default::default()
+            },
+            top_k: 10,
+            hybrid_alpha: 0.5,
+            mmr_lambda: 0.5,
+            mmr_enabled: false,
+        };
+        let result = hybrid.search(req).await.unwrap();
+        assert_eq!(
+            result.hits.len(),
+            3,
+            "融合层不应以 min_score 绝对阈值裁剪到仅剩顶项，实际: {:?}",
+            result
+                .hits
+                .iter()
+                .map(|h| (h.memory_id, h.score))
+                .collect::<Vec<_>>()
+        );
     }
 }

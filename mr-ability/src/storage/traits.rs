@@ -89,6 +89,8 @@ pub struct SearchFilter {
     /// 仅检索全局记忆（project_id 为 None；nil 视为历史遗留的全局）。
     pub global_only: bool,
     pub memory_type: Option<String>,
+    /// 最低相似度，仅作用于**原始向量余弦相似度**（向量存储在 KNN 阶段过滤）。
+    /// 融合检索分（min-max 归一化 + alpha 加权）为相对量，不再套用该阈值。
     pub min_score: f32,
 }
 

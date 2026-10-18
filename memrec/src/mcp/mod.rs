@@ -60,6 +60,19 @@ fn parse_memory_type(s: &str) -> mr_common::MemoryType {
     }
 }
 
+/// 计算写入路径（`mr_add`）应携带的工作目录。
+///
+/// 全局记忆不携带工作目录（归属由 `is_global` 决定为全局）；
+/// 非全局记忆取调用方的项目根/当前目录，供守护进程据此解析 `.mr_pid`。
+/// 与 `tool_search` 的项目范围处理一致，保证两个入口归属语义对称。
+fn add_working_dir(is_global: bool) -> Option<String> {
+    if is_global {
+        None
+    } else {
+        detect_working_dir().ok()
+    }
+}
+
 /// MCP 服务器，通过 stdin/stdout 与 AI 工具通信。
 pub struct McpServer;
 
@@ -375,6 +388,10 @@ impl McpServer {
     }
 
     /// `mr_add` 工具实现：添加记忆。
+    ///
+    /// 与 `mr_search` / CLI `add` 对齐：非全局记忆传递调用方工作目录，供守护进程
+    /// 正确定位项目 UUID。此前恒传 `working_dir: None`，守护进程会回落到自身 cwd，
+    /// 导致所有 MCP 写入汇入同一项目桶，项目内检索无法命中。
     async fn tool_add(&self, args: &Value) -> Result<String, String> {
         let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
         let memory_type = args
@@ -404,7 +421,7 @@ impl McpServer {
                     tags,
                     project_id: None,
                     is_global,
-                    working_dir: None,
+                    working_dir: add_working_dir(is_global),
                     source: None,
                     scope: None,
                     dedup: None,
@@ -891,5 +908,20 @@ mod tests {
         let default = default_scope();
         assert_eq!(parse_scope(Some("invalid")), default);
         assert_eq!(parse_scope(None), default);
+    }
+
+    #[test]
+    fn test_add_working_dir_global_is_none() {
+        // 全局写入不携带工作目录，归属由 is_global 决定为全局。
+        assert_eq!(add_working_dir(true), None);
+    }
+
+    #[test]
+    fn test_add_working_dir_project_uses_caller_cwd() {
+        // 回归：非全局写入必须携带调用方工作目录，否则守护进程回落到自身 cwd，
+        // 所有 MCP 写入汇入同一项目桶（项目隔离失效）。
+        let wd = add_working_dir(false);
+        assert!(wd.is_some(), "非全局写入必须携带工作目录");
+        assert_eq!(wd, detect_working_dir().ok());
     }
 }
