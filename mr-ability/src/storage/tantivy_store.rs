@@ -41,11 +41,14 @@ struct TantivySchema {
 /// 全文检索字段使用的分词器名称（jieba 中文分词）。
 const TOKENIZER_NAME: &str = "cn_jieba";
 
-/// 分词器版本标记：语义变更时递增，触发索引目录重建。
+/// 索引版本标记：分词器或 FTS schema 变更时递增，触发索引目录重建。
 ///
-/// FTS 为派生数据（以记忆库为唯一真源），分词器升级后旧 token 与新查询的
-/// 切分方式不一致，必须重建，否则旧文档将无法被新查询命中。
-const TOKENIZER_VERSION: &str = "cn_jieba_v1";
+/// FTS 为派生数据（以记忆库为唯一真源）。分词器升级后旧 token 与新查询的切分
+/// 方式不一致，或 schema 变更（如 `content` 增加 STORED）后旧文档缺字段，
+/// 都会导致旧索引不可用或命中缺数据，必须重建。
+///
+/// v2：`content` 字段改为 STORED，检索命中回填 `content_preview`。
+const TOKENIZER_VERSION: &str = "cn_jieba_v2";
 
 /// 版本标记文件名，写入 Tantivy 索引目录内。
 const VERSION_MARKER: &str = ".tokenizer_version";
@@ -61,7 +64,10 @@ impl TantivySchema {
                 tantivy::schema::TextFieldIndexing::default()
                     .set_tokenizer(TOKENIZER_NAME)
                     .set_index_option(IndexRecordOption::WithFreqsAndPositions),
-            ),
+            )
+            // STORED：检索命中时需回填 content_preview（仅 FTS 命中的记忆
+            // 其向量侧载荷缺失，此前 preview 恒为空，削弱 Agent 判读能力）。
+            .set_stored(),
         );
         let project_id = schema_builder.add_text_field("project_id", STRING | STORED);
         let memory_type = schema_builder.add_text_field("memory_type", STRING | STORED);
@@ -391,7 +397,12 @@ impl FtsStorage for TantivyStore {
                         .and_then(|v| v.as_str())
                         .map(|s| s.split_whitespace().map(String::from).collect())
                         .unwrap_or_default(),
-                    content_preview: String::new(),
+                    // 从 STORED 的正文回填预览（截断 200 字符，与向量侧载荷口径一致）。
+                    content_preview: doc
+                        .get_first(self.schema.content)
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.chars().take(200).collect())
+                        .unwrap_or_default(),
                     importance: doc
                         .get_first(self.schema.importance)
                         .and_then(|v| v.as_f64())
@@ -507,6 +518,31 @@ mod tests {
         assert!(
             result.unwrap().iter().any(|h| h.memory_id == id),
             "应命中原文"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_search_returns_content_preview() {
+        // 回归：FTS 命中须回填 content_preview。此前 content 字段未 STORED，
+        // 纯全文命中（无向量侧载荷）的 preview 恒为空串，削弱判读能力。
+        let store = TantivyStore::new_test();
+        let id = Uuid::new_v4();
+        let content = "检索结果预览回填：FTS 命中的正文预览不得为空。";
+        store.add(&id, content, payload()).await.unwrap();
+        store.reload().unwrap();
+
+        let hits = store
+            .search("检索结果预览回填", SearchFilter::default(), 5)
+            .await
+            .unwrap();
+        let hit = hits
+            .iter()
+            .find(|h| h.memory_id == id)
+            .expect("应命中目标文档");
+        assert_eq!(
+            hit.payload.content_preview, content,
+            "FTS 命中应回填正文预览，实际: {:?}",
+            hit.payload.content_preview
         );
     }
 
