@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > [中文](CHANGELOG.md) | English
 
+## [Unreleased]
+
+### Fixed
+
+- **Inverted vector normalization**: `HybridStore::merge_and_normalize` applied `1.0 - normalized` to vector similarity, ranking the most relevant memory last. With same-direction normalization, pure-vector self-retrieval recall@5 rose from 0.36 to 1.0, and golden-set MRR from 0.251 to 0.711
+- **Chinese full-text tokenization**: The Tantivy full-text field now uses jieba-rs word-level tokenization (was n-gram), so paraphrase-style Chinese queries can match the source; the FTS index is automatically rebuilt when the tokenizer semantics change (memory store remains the source of truth)
+- **Special characters aborting search**: Queries containing `+ - : ( ) " [ ]` made `QueryParser` fail and abort the whole search; it now falls back to an OR query built from the tokenizer tokens
+
+### Added
+
+- `memrec eval` gains `--alpha` and `--no-mmr` to isolate pure-vector/pure-full-text retrieval and MMR-off ordering
+- Retrieval quality gate `scripts/retrieval_gate.sh` with golden set `eval/retrieval_golden.jsonl` (self-retrieval invariant + paraphrase hit@5/MRR), wired into the multi-step test and deploy flow
+
 ## [0.9.0] - 2026-10-18
 
 ### Added

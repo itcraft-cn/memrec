@@ -9,14 +9,15 @@ use std::sync::Arc;
 use tantivy::{
     collector::{Count, TopDocs},
     directory::MmapDirectory,
-    query::{QueryParser, TermQuery},
+    query::{BooleanQuery, Occur, Query, QueryParser, TermQuery},
     schema::{Field, IndexRecordOption, Schema, Value, FAST, STORED, STRING, TEXT},
-    tokenizer::{LowerCaser, NgramTokenizer, RemoveLongFilter, TextAnalyzer},
+    tokenizer::{LowerCaser, RemoveLongFilter, TextAnalyzer, TokenStream},
     Index, IndexReader, IndexWriter, TantivyDocument,
 };
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
+use super::cn_tokenizer::CnTokenizer;
 use super::traits::{FtsPayload, FtsStorage, SearchFilter, SearchHit, VectorPayload};
 
 /// Tantivy 全文检索存储。
@@ -37,7 +38,17 @@ struct TantivySchema {
     importance: Field,
 }
 
-const TOKENIZER_NAME: &str = "ngram_chinese";
+/// 全文检索字段使用的分词器名称（jieba 中文分词）。
+const TOKENIZER_NAME: &str = "cn_jieba";
+
+/// 分词器版本标记：语义变更时递增，触发索引目录重建。
+///
+/// FTS 为派生数据（以记忆库为唯一真源），分词器升级后旧 token 与新查询的
+/// 切分方式不一致，必须重建，否则旧文档将无法被新查询命中。
+const TOKENIZER_VERSION: &str = "cn_jieba_v1";
+
+/// 版本标记文件名，写入 Tantivy 索引目录内。
+const VERSION_MARKER: &str = ".tokenizer_version";
 
 impl TantivySchema {
     fn build() -> (Schema, Self) {
@@ -82,7 +93,8 @@ impl TantivySchema {
 
 impl TantivyStore {
     fn register_tokenizer(index: &Index) {
-        let tokenizer = TextAnalyzer::builder(NgramTokenizer::all_ngrams(2, 4).unwrap())
+        // jieba 词级切分 + 长 token 过滤 + 小写归一；中文改写查询得以命中原文。
+        let tokenizer = TextAnalyzer::builder(CnTokenizer::new())
             .filter(RemoveLongFilter::limit(40))
             .filter(LowerCaser)
             .build();
@@ -90,8 +102,24 @@ impl TantivyStore {
     }
 
     /// 打开或创建 Tantivy 索引。
+    ///
+    /// 若检测到分词器版本变化（标记文件缺失但索引已存在，或标记不一致），
+    /// 会先删除旧索引目录再新建，避免旧分词结果残留导致查询不可用；随后由
+    /// 上层（daemon 启动自愈）以记忆库为真源全量重建。
     pub async fn open(path: &Path) -> Result<Self> {
         let (schema, tantivy_schema) = TantivySchema::build();
+
+        // 分词器版本校验：旧索引与当前分词方式不兼容时强制重建。
+        let marker = path.join(VERSION_MARKER);
+        let stale = match std::fs::read_to_string(&marker) {
+            Ok(v) => v.trim() != TOKENIZER_VERSION,
+            // 标记缺失：目录内已有 meta.json 说明是旧版本创建的索引。
+            Err(_) => path.join("meta.json").exists(),
+        };
+        if stale {
+            tracing::warn!("全文检索分词器版本变化，重建索引目录: {:?}", path);
+            let _ = std::fs::remove_dir_all(path);
+        }
 
         if !path.exists() {
             std::fs::create_dir_all(path)
@@ -105,6 +133,11 @@ impl TantivyStore {
             .context("Failed to open or create Tantivy index")?;
 
         Self::register_tokenizer(&index);
+
+        // 写入分词器版本标记，供下次启动比对；失败不影响检索，仅记录以避免阻断。
+        if let Err(e) = std::fs::write(&marker, TOKENIZER_VERSION) {
+            tracing::warn!("写入分词器版本标记失败: {e}");
+        }
 
         let writer = index
             .writer(50_000_000)
@@ -179,6 +212,53 @@ impl TantivyStore {
         doc
     }
 
+    /// 由查询文本构建检索查询。
+    ///
+    /// 优先走 `QueryParser`：其短语/加权解析更贴近 BM25 的期望，排序质量更佳。
+    /// 当查询包含 `+ - : ( ) " [ ]` 等会被当作语法操作符的符号、解析失败时，
+    /// 回退到 [`Self::build_term_or_query`]，以「任一分词命中即召回」的宽松语义
+    /// 保证检索可用（此前会直接返回错误，导致整次检索失败）。
+    fn build_query(&self, query: &str) -> Box<dyn Query> {
+        let parser =
+            QueryParser::for_index(&self.index, vec![self.schema.content, self.schema.tags]);
+        match parser.parse_query(query) {
+            Ok(q) => q,
+            Err(_) => self.build_term_or_query(query),
+        }
+    }
+
+    /// 回退查询：复用字段分词器（jieba + LowerCaser）切词，为每个词构造
+    /// `content`/`tags` 两个字段的 `Should` 词项查询并合并（OR 语义）。
+    ///
+    /// 该路径不做任何语法解析，因此对查询中的特殊符号天然免疫；与索引侧使用
+    /// 同一分词器，保证中文切分一致。词项数量上限 256，避免构造过大的布尔查询。
+    fn build_term_or_query(&self, query: &str) -> Box<dyn Query> {
+        let mut clauses: Vec<(Occur, Box<dyn Query>)> = Vec::new();
+        if let Some(mut analyzer) = self.index.tokenizers().get(TOKENIZER_NAME) {
+            let mut stream = analyzer.token_stream(query);
+            let mut seen = std::collections::HashSet::new();
+            while let Some(tok) = stream.next() {
+                if tok.text.is_empty() || !seen.insert(tok.text.clone()) {
+                    continue;
+                }
+                for field in [self.schema.content, self.schema.tags] {
+                    let term = tantivy::Term::from_field_text(field, &tok.text);
+                    clauses.push((
+                        Occur::Should,
+                        Box::new(TermQuery::new(
+                            term,
+                            IndexRecordOption::WithFreqsAndPositions,
+                        )),
+                    ));
+                }
+                if seen.len() >= 256 {
+                    break;
+                }
+            }
+        }
+        Box::new(BooleanQuery::new(clauses))
+    }
+
     /// 批量写入文档，仅一次提交。用于启动自愈的全量重建，避免逐条提交的开销。
     pub async fn add_many(&self, docs: &[(Uuid, String, FtsPayload)]) -> Result<()> {
         if docs.is_empty() {
@@ -237,12 +317,9 @@ impl FtsStorage for TantivyStore {
     ) -> Result<Vec<SearchHit>> {
         let searcher = self.reader.searcher();
 
-        let query_parser =
-            QueryParser::for_index(&self.index, vec![self.schema.content, self.schema.tags]);
-
-        let tantivy_query = query_parser
-            .parse_query(query)
-            .context("Failed to parse search query")?;
+        // 复用字段分词器构建词项查询，避免 QueryParser 对原始字符串中特殊符号的
+        // 语法解析失败（此前会因 `+ - : ( )` 等符号使整次检索报错）。
+        let tantivy_query = self.build_query(query);
 
         let top_docs = searcher
             .search(&tantivy_query, &TopDocs::with_limit(top_k))
@@ -368,6 +445,69 @@ mod tests {
         store.remove(&id).await.unwrap();
         store.reload().unwrap();
         assert!(!store.contains(&id).await.unwrap(), "移除后不应存在");
+    }
+
+    #[tokio::test]
+    async fn test_chinese_paraphrase_query_hits_source() {
+        // 回归：中文改写查询（与原文措辞不同、无整段子串重叠）应能命中原文。
+        let store = TantivyStore::new_test();
+        let target = Uuid::new_v4();
+        let distractor = Uuid::new_v4();
+        store
+            .add(
+                &target,
+                "BPE 项目 AGENTS.md 已按 rust 模板合并，并全部移除 Java/Python 内容",
+                payload(),
+            )
+            .await
+            .unwrap();
+        store
+            .add(
+                &distractor,
+                "完全无关的记录：某缓存系统的批量淘汰策略调参过程",
+                payload(),
+            )
+            .await
+            .unwrap();
+        store.reload().unwrap();
+
+        let hits = store
+            .search(
+                "把仓库的 AGENTS.md 合并成纯 Rust 模板并去掉 Java 内容",
+                SearchFilter::default(),
+                5,
+            )
+            .await
+            .unwrap();
+        assert!(
+            hits.iter().any(|h| h.memory_id == target),
+            "中文改写查询应命中原文，实际: {:?}",
+            hits.iter().map(|h| h.memory_id).collect::<Vec<_>>()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_query_with_special_chars_does_not_fail() {
+        // 回归：查询含 `+ - : ( ) "` 等 QueryParser 语法符号时不得整次报错。
+        let store = TantivyStore::new_test();
+        let id = Uuid::new_v4();
+        store
+            .add(
+                &id,
+                "分布式命名锁：epoch fencing + 迁移（SRENEW_LOST 即停续）",
+                payload(),
+            )
+            .await
+            .unwrap();
+        store.reload().unwrap();
+
+        let raw = "分布式命名锁：epoch fencing + 迁移（SRENEW_LOST 即停续）";
+        let result = store.search(raw, SearchFilter::default(), 5).await;
+        assert!(result.is_ok(), "含特殊符号的查询不应报错: {result:?}");
+        assert!(
+            result.unwrap().iter().any(|h| h.memory_id == id),
+            "应命中原文"
+        );
     }
 
     #[tokio::test]

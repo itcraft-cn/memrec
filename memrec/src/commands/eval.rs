@@ -132,10 +132,15 @@ pub fn score_case(ranked: &[Uuid], relevant: &[Uuid], k: usize) -> (bool, f32, f
 }
 
 /// 运行评测：对每个用例发送只读检索请求并汇总指标。
+///
+/// - `alpha`：向量检索权重（0.0 纯全文，1.0 纯向量），透传给 daemon。
+/// - `mmr_enabled`：是否启用 MMR 多样性重排；关闭可隔离验证纯相关性排序。
 pub async fn run(
     client: &Client,
     cases: &[EvalCase],
     k: usize,
+    alpha: f64,
+    mmr_enabled: bool,
     mut on_case: impl FnMut(&CaseResult),
 ) -> Result<EvalReport> {
     let mut per_case = Vec::with_capacity(cases.len());
@@ -153,8 +158,8 @@ pub async fn run(
                 top_k: k,
                 min_score: 0.0,
                 working_dir: None,
-                hybrid_alpha: mr_protocol::default_hybrid_alpha(),
-                mmr_enabled: true,
+                hybrid_alpha: alpha,
+                mmr_enabled,
                 mmr_lambda: mr_protocol::default_mmr_lambda(),
             })),
             (idx + 1) as u64,
@@ -214,6 +219,8 @@ pub async fn eval_retrieval(
     client: &Client,
     dataset: &Path,
     k: usize,
+    alpha: f64,
+    mmr_enabled: bool,
     human: bool,
 ) -> Result<()> {
     let cases = load_cases(dataset)?;
@@ -221,7 +228,7 @@ pub async fn eval_retrieval(
         anyhow::bail!("评测集为空: {}", dataset.display());
     }
 
-    let report = run(client, &cases, k, |c| {
+    let report = run(client, &cases, k, alpha, mmr_enabled, |c| {
         if human {
             let tag = c.id.as_deref().unwrap_or("-");
             eprintln!(
@@ -241,7 +248,12 @@ pub async fn eval_retrieval(
     if human {
         eprintln!(
             "\n用例 {} 条，k={}\nhit_rate={:.4}  mean_recall={:.4}  mrr={:.4}  mean_ndcg={:.4}",
-            report.cases, report.k, report.hit_rate, report.mean_recall, report.mrr, report.mean_ndcg
+            report.cases,
+            report.k,
+            report.hit_rate,
+            report.mean_recall,
+            report.mrr,
+            report.mean_ndcg
         );
     }
     println!("{}", serde_json::to_string_pretty(&report)?);

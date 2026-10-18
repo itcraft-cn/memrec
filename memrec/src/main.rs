@@ -123,6 +123,12 @@ enum Commands {
         /// 截断位置 k
         #[arg(long, default_value_t = 10)]
         k: usize,
+        /// 向量检索权重（0.0=纯全文，1.0=纯向量），默认 0.5
+        #[arg(long, default_value_t = mr_protocol::default_hybrid_alpha())]
+        alpha: f64,
+        /// 关闭 MMR 多样性重排（用于隔离验证纯相关性排序）
+        #[arg(long)]
+        no_mmr: bool,
     },
     Stats,
     Search(SearchArgs),
@@ -264,8 +270,21 @@ async fn main() -> Result<()> {
         Commands::DreamReport { last } => {
             dream_report(&client, last, human).await?;
         }
-        Commands::Eval { dataset, k } => {
-            eval_retrieval(&client, std::path::Path::new(&dataset), k, human).await?;
+        Commands::Eval {
+            dataset,
+            k,
+            alpha,
+            no_mmr,
+        } => {
+            eval_retrieval(
+                &client,
+                std::path::Path::new(&dataset),
+                k,
+                alpha,
+                !no_mmr,
+                human,
+            )
+            .await?;
         }
         Commands::Stats => {
             stats(&client, human).await?;

@@ -10,6 +10,7 @@
 //!
 //! 底层 RocksDB 封装见 [`RocksDBStore`]，使用列族（Column Family）隔离不同数据。
 
+pub mod cn_tokenizer;
 pub mod dream_run_store;
 pub mod edge_store;
 pub mod facet_store;
@@ -26,6 +27,7 @@ pub mod tiered_store;
 pub mod traits;
 pub mod vector_store;
 
+pub use cn_tokenizer::CnTokenizer;
 pub use dream_run_store::DreamRunStore;
 pub use edge_store::EdgeStore;
 pub use facet_store::FacetStore;

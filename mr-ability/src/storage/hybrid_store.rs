@@ -93,10 +93,13 @@ impl HybridStore {
         let mut merged: HashMap<Uuid, SearchHit> = HashMap::new();
 
         for hit in vec_hits {
+            // 向量侧 score 为余弦相似度（越大越相似），归一化后应保持同向：
+            // 最相似项 -> 1.0，最不相似项 -> 0.0。此前写成 `1.0 - ...` 方向相反，
+            // 导致最相关记忆被压到最低分并垫底。
             let norm_score = if (vec_max - vec_min).abs() < f32::EPSILON {
                 1.0
             } else {
-                1.0 - (hit.score - vec_min) / (vec_max - vec_min)
+                (hit.score - vec_min) / (vec_max - vec_min)
             };
             let final_score = alpha * norm_score;
             merged.insert(
@@ -259,5 +262,119 @@ impl HybridStorage for HybridStore {
         let vec_removed = self.vector_store.remove(id).await?;
         let fts_removed = self.fts_store.remove(id).await?;
         Ok(vec_removed || fts_removed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::{SearchFilter, TantivyStore, VectorStore};
+
+    /// 构造仅含向量召回的混合存储（FTS 文本与查询无词重叠，alpha=1.0）。
+    fn vector_only_store() -> HybridStore {
+        let vector_store = Arc::new(VectorStore::new(3));
+        let fts_store = Arc::new(TantivyStore::new_test());
+        HybridStore::new(
+            vector_store,
+            fts_store,
+            MmrConfig::default(),
+            ScorerConfig::default(),
+        )
+    }
+
+    /// 回归：向量侧归一化方向不得反转——最相似文档必须排第一。
+    ///
+    /// 此前 `merge_and_normalize` 对向量分做 `1.0 - 归一化`，令最相似项得 0 分垫底。
+    #[tokio::test]
+    async fn test_vector_similarity_keeps_best_first() {
+        let hybrid = vector_only_store();
+        let best = Uuid::new_v4();
+        let mid = Uuid::new_v4();
+        let worst = Uuid::new_v4();
+
+        for (id, embedding) in [
+            (best, vec![1.0_f32, 0.0, 0.0]),
+            (mid, vec![0.9, 0.1, 0.0]),
+            (worst, vec![0.0, 1.0, 0.0]),
+        ] {
+            hybrid
+                .add(
+                    &id,
+                    &embedding,
+                    "zzz_no_lexical_overlap",
+                    VectorPayload {
+                        content_preview: "zzz_no_lexical_overlap".to_string(),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        hybrid.reload().unwrap();
+
+        let req = HybridSearchRequest {
+            query: "zzz_no_lexical_overlap".to_string(),
+            query_embedding: vec![1.0, 0.0, 0.0],
+            filter: SearchFilter {
+                min_score: 0.0,
+                ..Default::default()
+            },
+            top_k: 3,
+            hybrid_alpha: 1.0,
+            mmr_lambda: 0.5,
+            mmr_enabled: false,
+        };
+        let result = hybrid.search(req).await.unwrap();
+        let ids: Vec<Uuid> = result.hits.iter().map(|h| h.memory_id).collect();
+        assert_eq!(
+            ids.first(),
+            Some(&best),
+            "最相似文档应排第一，实际: {ids:?}"
+        );
+        assert_eq!(ids.last(), Some(&worst), "最不相似文档应排最后");
+    }
+
+    /// 回归：纯向量通路中，文档对查询自身的检索必须命中自己且排第一。
+    #[tokio::test]
+    async fn test_vector_self_retrieval_ranks_first() {
+        let hybrid = vector_only_store();
+        let target = Uuid::new_v4();
+        hybrid
+            .add(
+                &target,
+                &[1.0, 0.0, 0.0],
+                "内容无关占位",
+                VectorPayload {
+                    content_preview: "内容无关占位".to_string(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        hybrid
+            .add(
+                &Uuid::new_v4(),
+                &[0.0, 1.0, 0.0],
+                "另一条无关占位",
+                VectorPayload::default(),
+            )
+            .await
+            .unwrap();
+        hybrid.reload().unwrap();
+
+        let req = HybridSearchRequest {
+            query: "内容无关占位".to_string(),
+            query_embedding: vec![1.0, 0.0, 0.0],
+            filter: SearchFilter {
+                min_score: 0.0,
+                ..Default::default()
+            },
+            top_k: 2,
+            hybrid_alpha: 1.0,
+            mmr_lambda: 0.5,
+            mmr_enabled: false,
+        };
+        let result = hybrid.search(req).await.unwrap();
+        assert_eq!(result.hits.first().map(|h| h.memory_id), Some(target));
     }
 }
