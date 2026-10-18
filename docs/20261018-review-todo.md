@@ -76,17 +76,22 @@
     （新增 test_migrate_global_semantics、test_global_only_filter）。
   - 遗留观察项：向量/FTS payload 快照中的 pid 需待记忆更新或重建索引时归一
     （过滤逻辑已对 nil 等价容忍，不阻塞）。
-- [ ] T5 错误链保留：DreamError（及同模式错误）改 thiserror #[from] 保留原始类型，
-  日志/审计以 {:#} 输出完整错误链；String 化仅允许在协议边界。
+- [x] T5 错误链保留（2026-10-18 完成，commit f30c796）：DreamError::Storage
+  改 `#[from] anyhow::Error`、LLM 改 `#[from] LlmError`，#[error] 以 {:#} 插值
+  输出完整错误链；extract_cluster 直接传播 LlmError 不再 String 化；
+  单测断言两层链保留。String 化仅余协议边界。
 
 ### P2 可维护性
 
-- [ ] T6 handle_add 拆分：去重决策、更新窗口合并、写入与索引同步拆分为独立方法或
-  AddHandler；目标单方法职责单一、长度减半。
-- [ ] T7 MCP 方法名双轨收敛：call_daemon 接收 RequestAction 枚举统一走 serde，
-  Response 按枚举 match，消除新增接口改两处的漂移。
-- [ ] T8 死接口处理：ProjectStorage / ConfigStorage 要么实现要么删除删除预期更大，
-  若为规划预留则补注释说明。
+- [x] T6 handle_add 拆分（2026-10-18 完成，commit 54b1c89）：拆为
+  build_add_memory / apply_dedup_decision / merge_update_in_window /
+  mark_superseded / save_and_index 五个单一职责方法，handle_add 仅分发与
+  响应包装；去重回退语义（窗口外 → 标注 superseded → 正常新增）保留。
+- [x] T7 MCP 方法名双轨收敛（2026-10-18 完成，commit 6af02a8）：call_daemon
+  接收强类型 JsonRpcRequest（枚举 method + 联合 params），直接序列化；
+  新增接口不再需要字符串/type 双轨映射；typed 二进制实机 MCP 冒烟通过。
+- [x] T8 死接口处理（2026-10-18 完成，commit 489a207）：ProjectStorage /
+  ConfigStorage 无实现无引用，删除；如规划需用时随实现一并引入。
 - [ ] T9 mark_applied 事务化：PropagationEngine 若未来并发调用，改 RocksDB
   WriteBatch 单次提交；当前 DreamLock 保护下降级为低优先观察项。
 
