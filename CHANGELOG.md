@@ -21,13 +21,24 @@
 - **记录更新窗口**：`[dedup] update_window_mins`（默认 60）——窗口内相似写入原地更新，窗口外新增并将旧记录标记 `superseded`
 - **上游去重**：Dream 融合产出的事实条做嵌入近重复去重（`fusion_dedup_enabled`/`fusion_dedup_threshold`，默认 0.97）
 - **启动全文索引自愈**：启动时对账全文索引与活跃记忆数，不一致则以记忆库为真源全量重建（清除软删残留、重复与悬空文档）
+- **二级索引下推查询**：新增 RocksDB `by_created`（unix 秒大端 + id）与 `by_project`（项目桶 + id）两个二级索引列族；Dream 候选时间区间、全局/项目记忆列表由索引前缀扫描下推（边界秒级截断由调用侧精确二次过滤补偿），替代全量扫描后内存过滤；启动时自愈补写缺失索引项
 
 ### 变更
 
 - **重要性评级口径**：`importance` 仅作全局先验；Dream 评级为簇域（topic-scoped），附着于簇产出、不回写开放字段
 - **Dream 配置扩展**：新增 `[dream]` 下 `networking_*`、`retrieval_graph_*`（含 `retrieval_graph_quota`）、`fusion_dedup_*` 等项
+- **全局语义统一**：`project_id = None` 成为全局记忆唯一判据，`MemoryScope::Workspace` 废弃（枚举仅为持久化兼容保留）；`SearchFilter` 新增显式 `global_only` 过滤并在向量/FTS 两侧一致落地；写入侧（Add、Dream 产出、个人摘要、CLI `Scope::Global`）全部归一为 None；启动期迁移 `Some(nil)` 与 `Workspace` 记录（含软删）为 None/Global，幂等可重复执行
+- **MCP 守护进程调用的强类型化**：`call_daemon` 接收 `JsonRpcRequest`（枚举方法 + 联合参数）直接序列化，消除"字符串方法名 + type 字段"双轨映射；新增接口漏配改为编译期错误
+- **handle_add 拆分**：拆为记忆构建 / 去重决策 / 窗口内合并 / superseded 标注 / 持久化+索引五个单一职责方法；去重回退语义（窗口外 → 标注 superseded → 正常新增）不变
 
 ### 修复
+
+- **MMR 多样性失效**：重排相似度此前使用 200 字符 `content_preview`，"开头相同、结论相反"的记忆被判同簇；新增 `TextProvider` trait 在重排前批量回表取全文（未注入 provider 时回退旧行为）
+- **save() 批内索引抹除**：WriteBatch 中 put 在前、delete 在后，`nil→None` 同桶迁移时收尾 delete 抹掉刚写入的新索引值；改为先清理旧索引项再写入
+- **Dream 错误链丢失**：`DreamError::Storage`/`Llm` 变体由 String 承载导致根因丢失；改 `#[from] anyhow::Error` 与 `#[from] LlmError`，`#[error]` 以 `{:#}` 插值输出完整错误链，`extract_cluster` 直接传播 `LlmError`
+- **FTS 侧 global 检索放行全部文档**：全文检索的 global_only 查询此前因 `include_global` 分支恒真而不过滤；随 `SearchFilter.global_only` 显式化一并修复
+- **删除死接口**：移除从未有实现与引用的 `ProjectStorage`/`ConfigStorage` trait
+
 
 - **Dream 写路径绕过混合检索索引**：融合产出记忆不可检索、软删源记忆成"幽灵结果"；新增 `IndexingStorage` 装饰器，把 Dream 全部写操作统一镜像到混合检索索引，并修正启动向量重建的 `list(1000)` 截断为全量
 - **混合检索排序不确定**：同分结果补充 `memory_id` tie-break，保证评测结果可复现

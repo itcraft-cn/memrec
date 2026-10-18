@@ -180,7 +180,7 @@ memrec add "用户偏好暗色主题" --mtype preference --tag ui --global
 | 参数 | 值 | 说明 |
 |------|------|------|
 | `--source` | `user`（默认）、`system`、`inferred`、`external` | 记忆来源 — 影响搜索排序权重 |
-| `--scope` | `project`（默认）、`global`、`workspace` | 记忆可见范围 |
+| `--scope` | `project`（默认）、`global` | 记忆可见范围（历史 `workspace` 已废弃：枚举仅为持久化兼容保留，启动迁移归一为 `global`） |
 
 ```bash
 # 用户来源记忆（搜索权重最高）

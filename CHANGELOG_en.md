@@ -21,13 +21,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Record update window**: `[dedup] update_window_mins` (default 60) — similar writes within the window update in place; outside the window a new record is added and the old one is marked `superseded`
 - **Upstream dedup**: embedding-based near-duplicate dedup of Dream-produced facts (`fusion_dedup_enabled`/`fusion_dedup_threshold`, default 0.97)
 - **Startup full-text index self-heal**: on startup, reconcile the full-text index against the active memory count; on mismatch, rebuild from the memory store as the source of truth (clearing stale deleted, duplicate and dangling docs)
+- **Secondary-index pushdown queries**: two new RocksDB secondary index column families, `by_created` (unix seconds big-endian + id) and `by_project` (project bucket + id); Dream candidate time ranges and global/project memory listings are pushed down to index-prefix scans (second-level key truncation is compensated by exact re-filtering on the caller side), replacing full scans with in-memory filtering; missing index entries are self-healed at startup
 
 ### Changed
 
 - **Importance semantics**: `importance` is a global prior only; Dream ratings are cluster-scoped (topic-scoped), attached to cluster outputs and never written back to the open field
 - **Dream configuration expanded**: new `[dream]` keys `networking_*`, `retrieval_graph_*` (including `retrieval_graph_quota`) and `fusion_dedup_*`
+- **Unified global semantics**: `project_id = None` is now the single global-memory criterion, and `MemoryScope::Workspace` is deprecated (the enum remains only for persisted-data compatibility); a new explicit `SearchFilter.global_only` is honored consistently by both vector and FTS sides; all write paths (Add, Dream outputs, personal summarizer, CLI `Scope::Global`) normalized to None; legacy `Some(nil)` and `Workspace` records (including soft-deleted) are migrated to None/Global at startup, idempotently
+- **Typed daemon calls from MCP**: `call_daemon` now takes a `JsonRpcRequest` (enum method + typed params union) and serializes it directly, removing the "method string + type field" double bookkeeping; a missing mapping for a new request becomes a compile-time error
+- **handle_add split**: split into five single-purpose steps — memory construction / dedup decision / in-window merge / supersede marking / persist+index; the correction fallback semantics (out of window → mark `superseded` → normal add) are unchanged
 
 ### Fixed
+
+- **MMR diversity failure**: re-ranking similarity used the 200-char `content_preview`, so memories with identical openings but opposite conclusions were judged near-identical; a new `TextProvider` trait fetches full texts in batch before re-ranking (falls back to the old behavior when no provider is set)
+- **WriteBatch index erasure in save()**: puts came before deletes in the batch, so same-key moves (nil bucket == global bucket) erased freshly written index entries; stale-index cleanup now precedes writes
+- **Lost error chains in Dream**: `DreamError::Storage`/`Llm` variants carried Strings, losing root causes; now `#[from] anyhow::Error` and `#[from] LlmError`, with `#[error]` interpolating `{:#}` to render the full chain; `extract_cluster` propagates `LlmError` directly
+- **FTS global search let all documents through**: the full-text global_only query never filtered because the `include_global` branch was always true; fixed alongside the explicit `SearchFilter.global_only`
+- **Removed dead interfaces**: the never-implemented and never-referenced `ProjectStorage`/`ConfigStorage` traits are deleted
 
 - **Dream write path bypassed the hybrid index**: produced memories were unsearchable and soft-deleted sources appeared as "ghost" results; a new `IndexingStorage` decorator mirrors all Dream writes into the hybrid index, and the startup vector rebuild's `list(1000)` truncation was fixed to full scan
 - **Non-deterministic hybrid ranking**: added a `memory_id` tie-break for equal scores so evaluation results are reproducible

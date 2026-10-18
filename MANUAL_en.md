@@ -181,7 +181,7 @@ memrec add "User prefers dark theme" --mtype preference --tag ui --global
 | Flag | Values | Description |
 |------|--------|-------------|
 | `--source` | `user` (default), `system`, `inferred`, `external` | Memory origin — affects search ranking |
-| `--scope` | `project` (default), `global`, `workspace` | Memory visibility |
+| `--scope` | `project` (default), `global` | Memory visibility (legacy `workspace` is deprecated: the enum value exists only for persisted-data compatibility, and startup migration folds it into `global`) |
 
 ```bash
 # User-sourced memory (highest search weight)

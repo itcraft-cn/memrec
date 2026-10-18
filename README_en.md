@@ -9,7 +9,7 @@ Local memory persistence system for AI CLI tools, providing cross-session memory
 ## Features
 
 - **Project Isolation** — Auto-detect git root, .mr_pid persistence, independent memory per project
-- **Hybrid Search** — KNN vector search + BM25 full-text, MMR reranking, Chinese text support
+- **Hybrid Search** — KNN vector search + BM25 full-text, MMR reranking (similarity computed on full texts), secondary-index pushdown queries, Chinese text support
 - **Scene Aggregation** — L2 theme-based aggregation over memory cards, heat-ranked (memory pyramid L0-L3)
 - **Dream Consolidation** — idle-triggered two-stage consolidation (Stage F fusion + Stage N networking) with optional LLM summaries; every run (incl. gate rejection, dry-run, failure) is audited as a `DreamRun`
 - **Retrieval Graph Diffusion** — 1-hop graph diffusion augments hybrid recall; graph hits carry an `EdgeHint`; `retrieval_graph_quota` reserves `top_k` slots for graph hits
@@ -362,5 +362,5 @@ Apache-2.0
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) (中文版 [CHANGELOG_en.md](CHANGELOG_en.md))
+See [CHANGELOG_en.md](CHANGELOG_en.md) (中文版 [CHANGELOG.md](CHANGELOG.md))
 
