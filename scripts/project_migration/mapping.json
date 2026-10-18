@@ -1,0 +1,361 @@
+{
+  "source_project": "b435a636-481b-43dd-a819-cc2cedebf365",
+  "projects": [
+    {
+      "name": ".memrec",
+      "uuid": "b435a636-481b-43dd-a819-cc2cedebf365",
+      "aliases": [
+        ".memrec"
+      ]
+    },
+    {
+      "name": "0x02_erayt",
+      "uuid": "8269fad3-a10c-46f9-b9d6-3e3dbd30b064",
+      "aliases": [
+        "0x02_erayt"
+      ]
+    },
+    {
+      "name": "20260617_qes_mem_leak_summary",
+      "uuid": "19729c2c-3de2-46e4-9d3c-41b39e42484f",
+      "aliases": [
+        "20260617_qes_mem_leak_summary"
+      ]
+    },
+    {
+      "name": "20260904_1_qes_perf_test_mem_inc",
+      "uuid": "8f3882b4-8652-4ca8-ad9c-75aae1c75ed6",
+      "aliases": [
+        "20260904_1_qes_perf_test_mem_inc"
+      ]
+    },
+    {
+      "name": "2027gsyuna",
+      "uuid": "327e8a0d-c739-4fd8-a704-cd191c21cefd",
+      "aliases": [
+        "2027gsyuna"
+      ]
+    },
+    {
+      "name": "c_cpp_dev_spec",
+      "uuid": "f54e4c9f-e679-44d7-ba24-f56cb0f678c6",
+      "aliases": [
+        "c_cpp_dev_spec"
+      ]
+    },
+    {
+      "name": "code-checklist",
+      "uuid": "fd1f4ced-2899-4d78-abe7-e76d815752f0",
+      "aliases": [
+        "code-checklist"
+      ]
+    },
+    {
+      "name": "cotael-project",
+      "uuid": "d8738b3e-97c9-4455-a21b-763e6849eaf4",
+      "aliases": [
+        "cotael-project"
+      ]
+    },
+    {
+      "name": "cotael-srv",
+      "uuid": "52530e24-6093-43a3-8732-114107205edb",
+      "aliases": [
+        "cotael-srv"
+      ]
+    },
+    {
+      "name": "demo-erayt",
+      "uuid": "37909b58-dd9f-41ab-839a-9bd2cfa5dd36",
+      "aliases": [
+        "demo-erayt"
+      ]
+    },
+    {
+      "name": "demo_cpp",
+      "uuid": "61877372-e307-4c29-8b51-c74d8d852202",
+      "aliases": [
+        "demo_cpp"
+      ]
+    },
+    {
+      "name": "ebiz",
+      "uuid": "9f542f73-2873-43b0-a9f7-f7daa2d1ed7d",
+      "aliases": [
+        "ebiz"
+      ]
+    },
+    {
+      "name": "ecas4.4",
+      "uuid": "96d930bb-ab69-4317-aa0b-f26a7052ab0a",
+      "aliases": [
+        "ecas4.4"
+      ]
+    },
+    {
+      "name": "elfdumphelper",
+      "uuid": "34df7f92-e94f-4f2a-b095-d70e0b72213e",
+      "aliases": [
+        "elfdumphelper"
+      ]
+    },
+    {
+      "name": "emms_2606_dev",
+      "uuid": "a75190a5-2f65-4357-86f0-4caa62e8cdc8",
+      "aliases": [
+        "emms",
+        "emms_2606_dev"
+      ]
+    },
+    {
+      "name": "eops",
+      "uuid": "86b43a8f-6973-4680-bc9c-06b8969e9ed9",
+      "aliases": [
+        "eops"
+      ]
+    },
+    {
+      "name": "equery",
+      "uuid": "0856d2d1-f3a9-47cb-ade4-58e8a7e68fa0",
+      "aliases": [
+        "equery"
+      ]
+    },
+    {
+      "name": "ereport",
+      "uuid": "c2d42bee-02c5-424c-8e87-8f621668b80c",
+      "aliases": [
+        "ereport"
+      ]
+    },
+    {
+      "name": "ereport2",
+      "uuid": "1a51ae7f-1bc4-4e03-9901-f14f633a146e",
+      "aliases": [
+        "ereport2"
+      ]
+    },
+    {
+      "name": "falconail",
+      "uuid": "b4ea037b-269a-4465-a912-02d07b66de50",
+      "aliases": [
+        "falconail"
+      ]
+    },
+    {
+      "name": "javaheaphelper",
+      "uuid": "ee2bd37a-84c7-425f-a380-a6e5f37ca9c7",
+      "aliases": [
+        "javaheaphelper"
+      ]
+    },
+    {
+      "name": "jbpe",
+      "uuid": "2842cf9d-1cfa-418f-afc4-676a2e123fe8",
+      "aliases": [
+        "jbpe"
+      ]
+    },
+    {
+      "name": "jcustpck",
+      "uuid": "3e80a767-1410-4ae9-b6a3-9224cf667cc4",
+      "aliases": [
+        "jcustpck"
+      ]
+    },
+    {
+      "name": "jrdb",
+      "uuid": "36109229-5512-40e3-9a2f-798f6de5a116",
+      "aliases": [
+        "jrdb"
+      ]
+    },
+    {
+      "name": "jwsch",
+      "uuid": "7bd43187-6cd4-4bc8-ae27-cef86d74e2ca",
+      "aliases": [
+        "jwsch"
+      ]
+    },
+    {
+      "name": "lgxrs",
+      "uuid": "96875747-b4be-4507-a924-38274b2d3b37",
+      "aliases": [
+        "lgx4j",
+        "lgxrs",
+        "xnet4j"
+      ]
+    },
+    {
+      "name": "memrec",
+      "uuid": "312a9769-4e0c-4a81-8e69-44741c90eddd",
+      "aliases": [
+        "memrec",
+        "memrecd"
+      ]
+    },
+    {
+      "name": "multype2txt",
+      "uuid": "60a1ab23-1360-461a-90d1-4ac995d44d0f",
+      "aliases": [
+        "multype2txt"
+      ]
+    },
+    {
+      "name": "nginx",
+      "uuid": "ff5c3dd8-2675-4c14-9959-a0bbcc316340",
+      "aliases": [
+        "nginx"
+      ]
+    },
+    {
+      "name": "pdfblur-mini",
+      "uuid": "38e5ac51-8a79-4b3d-9763-60f8d5178fad",
+      "aliases": [
+        "pdfblur-mini"
+      ]
+    },
+    {
+      "name": "pdfblur-web",
+      "uuid": "952cec9c-1504-4c46-961e-d3fe128e669f",
+      "aliases": [
+        "pdfblur-web"
+      ]
+    },
+    {
+      "name": "pricerefresh",
+      "uuid": "4fbc2b68-b4a2-413c-bbcf-c8214550ae11",
+      "aliases": [
+        "pricerefresh"
+      ]
+    },
+    {
+      "name": "qes3",
+      "uuid": "2c0569ee-5a02-4652-80e2-01f9602be095",
+      "aliases": [
+        "cltspothk",
+        "qes",
+        "qes-common-domain",
+        "qes3"
+      ]
+    },
+    {
+      "name": "qes3_client",
+      "uuid": "6ec55ea3-ca93-416f-a456-51907ce045a5",
+      "aliases": [
+        "qes3_client"
+      ]
+    },
+    {
+      "name": "qes_mixed_project",
+      "uuid": "8ff9996d-631c-42e8-a9b5-0debf259240f",
+      "aliases": [
+        "qes_mixed_project"
+      ]
+    },
+    {
+      "name": "rcsrebuild",
+      "uuid": "de4b3720-7c16-41cf-9a8b-a4b871a8efe1",
+      "aliases": [
+        "rcsrebuild"
+      ]
+    },
+    {
+      "name": "reinforcement_plan",
+      "uuid": "12197538-67a1-4b2c-8958-f0f0a83300f7",
+      "aliases": [
+        "reinforcement_plan"
+      ]
+    },
+    {
+      "name": "self-ai-spec",
+      "uuid": "35758135-8d37-41ce-aeb5-d41419647e68",
+      "aliases": [
+        "self-ai-spec"
+      ]
+    },
+    {
+      "name": "sgeki",
+      "uuid": "70ebe819-3ec6-4190-aa00-1596b4c01864",
+      "aliases": [
+        "sgeki",
+        "sgeki-rebuild"
+      ]
+    },
+    {
+      "name": "speedboat",
+      "uuid": "1e6e2f5b-93ce-4aa6-abff-120ff2433646",
+      "aliases": [
+        "speedboat"
+      ]
+    },
+    {
+      "name": "tcmalloc",
+      "uuid": "6eac5a00-b401-4917-b1d4-1b62b8d8f806",
+      "aliases": [
+        "tcmalloc"
+      ]
+    },
+    {
+      "name": "titanpub_01.01_titanpub_release",
+      "uuid": "398a4771-223d-4bdb-8def-5ee6c5b5b0d0",
+      "aliases": [
+        "titanpub_01.01_titanpub_release"
+      ]
+    },
+    {
+      "name": "uedabs_frontend",
+      "uuid": "23568d00-b576-477f-a67d-fc4c63f20e0d",
+      "aliases": [
+        "uedabs_frontend"
+      ]
+    },
+    {
+      "name": "unipromcp",
+      "uuid": "a075c797-809d-4f48-b489-09bb15e87077",
+      "aliases": [
+        "unipromcp"
+      ]
+    },
+    {
+      "name": "update-git-proj-ver",
+      "uuid": "1f82ffe0-a876-4b98-b277-6b3ae39f03c7",
+      "aliases": [
+        "update-git-proj-ver"
+      ]
+    },
+    {
+      "name": "varhighscale",
+      "uuid": "7d4a9b1e-2f8c-4a5b-9d3e-5f7c8e2b1a9f",
+      "aliases": [
+        "cbond-curve",
+        "cbond-var",
+        "frtb",
+        "negative-var",
+        "var",
+        "varhighscale"
+      ]
+    },
+    {
+      "name": "webnet",
+      "uuid": "3738bba0-0316-4bec-9e48-90ba4e336336",
+      "aliases": [
+        "webnet"
+      ]
+    },
+    {
+      "name": "xlsb-series",
+      "uuid": "13644ab0-816b-481d-9d6e-dfab06ab391e",
+      "aliases": [
+        "xlsb-series"
+      ]
+    },
+    {
+      "name": "xpadco",
+      "uuid": "64ad5828-4c44-4c9b-ac44-0f9935348466",
+      "aliases": [
+        "xpadco"
+      ]
+    }
+  ]
+}

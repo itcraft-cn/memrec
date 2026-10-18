@@ -1,0 +1,9 @@
+{
+  "_comment": "WS2 一次性迁移别名表：键为磁盘项目目录名(小写)，值为可识别该项目的标签别名。仅收录高置信映射；存疑者留空待人工裁决。",
+  "qes3": ["cltspothk", "qes-common-domain", "qes"],
+  "varhighscale": ["frtb", "var", "negative-var", "cbond-var", "cbond-curve"],
+  "lgxrs": ["xnet4j", "lgx4j"],
+  "sgeki": ["sgeki-rebuild"],
+  "memrec": ["memrecd"],
+  "emms_2606_dev": ["emms"]
+}
