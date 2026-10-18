@@ -40,9 +40,9 @@ pub use scene_store::SceneStore;
 pub use tantivy_store::TantivyStore;
 pub use tiered_store::TieredStore;
 pub use traits::{
-    ConfigStorage, DreamRunStorage, EdgeStorage, FacetSearchHit, FacetStorage, FtsPayload,
-    FtsStorage, GraphSearchHit, GraphTraversalParams, HybridSearchRequest, HybridSearchResult,
-    HybridStorage, MemoryStorage, ProjectStorage, PropagationStorage, RuleStorage, SceneStorage,
-    SearchFilter, SearchHit, TextProvider, TieredStorage, VectorPayload, VectorStorage,
+    DreamRunStorage, EdgeStorage, FacetSearchHit, FacetStorage, FtsPayload, FtsStorage,
+    GraphSearchHit, GraphTraversalParams, HybridSearchRequest, HybridSearchResult, HybridStorage,
+    MemoryStorage, PropagationStorage, RuleStorage, SceneStorage, SearchFilter, SearchHit,
+    TextProvider, TieredStorage, VectorPayload, VectorStorage,
 };
 pub use vector_store::VectorStore;

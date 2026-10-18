@@ -68,24 +68,6 @@ pub trait MemoryStorage: Send + Sync {
     async fn list_older_than(&self, cutoff: &str, limit: usize) -> Result<Vec<Memory>>;
 }
 
-/// 项目存储 trait。
-#[async_trait]
-pub trait ProjectStorage: Send + Sync {
-    async fn save(&self, project: &mr_common::Project) -> Result<()>;
-    async fn get(&self, id: &Uuid) -> Result<Option<mr_common::Project>>;
-    async fn get_by_name(&self, name: &str) -> Result<Option<mr_common::Project>>;
-    async fn delete(&self, id: &Uuid) -> Result<bool>;
-
-    async fn list(&self) -> Result<Vec<mr_common::Project>>;
-}
-
-/// 配置存储 trait（键值对）。
-#[async_trait]
-pub trait ConfigStorage: Send + Sync {
-    async fn get(&self, key: &str) -> Result<Option<String>>;
-    async fn set(&self, key: &str, value: &str) -> Result<()>;
-}
-
 /// 向量搜索附加载荷，存储在向量索引中用于过滤和结果展示。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct VectorPayload {
