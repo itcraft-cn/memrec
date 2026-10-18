@@ -28,6 +28,11 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+use mr_protocol::{
+    AddParams, DeleteParams, DreamParams, DreamReportParams, GetParams, GetProjectInfoParams,
+    JsonRpcRequest, ListParams, RequestAction, RequestParams, SearchMemoryParams,
+};
+
 use crate::commands::{default_scope, detect_working_dir, read_project_uuid, Scope};
 
 /// 解析 MCP 工具的 `scope` 参数（project/global/all）。
@@ -40,6 +45,18 @@ fn parse_scope(scope: Option<&str>) -> Scope {
         Some("global") => Scope::Global,
         Some("all") => Scope::All,
         _ => default_scope(),
+    }
+}
+
+/// 解析 MCP 工具参数中的 memory_type 字符串（T7），
+/// 未识别值回退 Conversation（与旧字符串透传的服务端行为一致）。
+fn parse_memory_type(s: &str) -> mr_common::MemoryType {
+    match s.to_lowercase().as_str() {
+        "decision" => mr_common::MemoryType::Decision,
+        "knowledge" => mr_common::MemoryType::Knowledge,
+        "context" => mr_common::MemoryType::Context,
+        "preference" => mr_common::MemoryType::Preference,
+        _ => mr_common::MemoryType::Conversation,
     }
 }
 
@@ -314,16 +331,35 @@ impl McpServer {
     async fn handle_resources_read(&self, id: Option<Value>, params: &Value) -> Value {
         let uri = params.get("uri").and_then(|v| v.as_str()).unwrap_or("");
 
-        let content = match uri {
-            "memrec://stats" => match self.call_daemon("stats", json!({})).await {
-                Ok(resp) => serde_json::to_string_pretty(&resp).unwrap_or_default(),
-                Err(e) => e,
-            },
-            "memrec://project" => match self.call_daemon("get_project_info", json!({})).await {
-                Ok(resp) => serde_json::to_string_pretty(&resp).unwrap_or_default(),
-                Err(e) => e,
-            },
-            _ => format!("Unknown resource: {}", uri),
+        // T7: 资源请求转为强类型守护进程调用
+        let (action, params): (RequestAction, Option<RequestParams>) = match uri {
+            "memrec://stats" => (RequestAction::Stats, None),
+            "memrec://project" => (
+                RequestAction::GetProjectInfo,
+                Some(RequestParams::GetProjectInfo(
+                    GetProjectInfoParams::default(),
+                )),
+            ),
+            _ => {
+                return self.make_result(
+                    id,
+                    json!({
+                        "contents": [{
+                            "uri": uri,
+                            "mimeType": "text/plain",
+                            "text": format!("Unknown resource: {}", uri)
+                        }]
+                    }),
+                )
+            }
+        };
+
+        let content = match self
+            .call_daemon(JsonRpcRequest::new(action, params, 1))
+            .await
+        {
+            Ok(resp) => serde_json::to_string_pretty(&resp).unwrap_or_default(),
+            Err(e) => e,
         };
 
         self.make_result(
@@ -359,14 +395,23 @@ impl McpServer {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let params = json!({
-            "content": content,
-            "memory_type": memory_type,
-            "tags": tags,
-            "is_global": is_global
-        });
-
-        let resp = self.call_daemon("add", params).await?;
+        let resp = self
+            .call_daemon(JsonRpcRequest::new(
+                RequestAction::Add,
+                Some(RequestParams::Add(AddParams {
+                    content: content.to_string(),
+                    memory_type: parse_memory_type(memory_type),
+                    tags,
+                    project_id: None,
+                    is_global,
+                    working_dir: None,
+                    source: None,
+                    scope: None,
+                    dedup: None,
+                })),
+                1,
+            ))
+            .await?;
 
         let memory_id = resp
             .get("result")
@@ -402,28 +447,36 @@ impl McpServer {
             Scope::All => (false, false, true),
         };
 
-        let mut params = json!({
-            "query": query,
-            "top_k": top_k,
-            "min_score": min_score,
-            "project_only": project_only,
-            "global_only": global_only,
-            "cross_project": cross_project,
-            "include_global": false
-        });
-
         // project 范围：传递 working_dir，避免守护进程用自身 cwd 定位到错误项目
-        if scope == Scope::Project {
-            if let Ok(dir) = detect_working_dir() {
-                params["working_dir"] = json!(dir);
-            }
-        }
+        let working_dir = if scope == Scope::Project {
+            detect_working_dir().ok()
+        } else {
+            None
+        };
 
-        if let Some(mt) = memory_type {
-            params["memory_type"] = json!(mt);
-        }
-
-        let resp = self.call_daemon("search_memory", params).await?;
+        let resp = self
+            .call_daemon(JsonRpcRequest::new(
+                RequestAction::SearchMemory,
+                Some(RequestParams::SearchMemory(SearchMemoryParams {
+                    query: query.to_string(),
+                    project_id: None,
+                    include_global: false,
+                    project_only,
+                    global_only,
+                    cross_project,
+                    memory_type: memory_type
+                        .filter(|s| !s.is_empty())
+                        .map(|mt| parse_memory_type(mt)),
+                    top_k: top_k as usize,
+                    min_score: min_score as f32,
+                    working_dir,
+                    hybrid_alpha: mr_protocol::default_hybrid_alpha(),
+                    mmr_enabled: mr_protocol::default_mmr_enabled(),
+                    mmr_lambda: mr_protocol::default_mmr_lambda(),
+                })),
+                1,
+            ))
+            .await?;
 
         Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
     }
@@ -433,8 +486,14 @@ impl McpServer {
         let id = args.get("id").and_then(|v| v.as_str()).unwrap_or("");
         let merge = args.get("merge").and_then(|v| v.as_bool()).unwrap_or(false);
 
-        let params = json!({ "id": id, "merge": merge });
-        let resp = self.call_daemon("get", params).await?;
+        let id = uuid::Uuid::parse_str(id).map_err(|_| format!("Invalid memory id: {}", id))?;
+        let resp = self
+            .call_daemon(JsonRpcRequest::new(
+                RequestAction::Get,
+                Some(RequestParams::Get(GetParams { id, merge })),
+                1,
+            ))
+            .await?;
 
         Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
     }
@@ -457,13 +516,22 @@ impl McpServer {
             Scope::All => (false, false, None),
         };
 
-        let params = json!({
-            "limit": limit,
-            "project_only": project_only,
-            "global_only": global_only,
-            "project_id": project_id
-        });
-        let resp = self.call_daemon("list", params).await?;
+        let resp = self
+            .call_daemon(JsonRpcRequest::new(
+                RequestAction::List,
+                Some(RequestParams::List(ListParams {
+                    tags: vec![],
+                    memory_type: None,
+                    limit: limit as usize,
+                    project_only,
+                    global_only,
+                    project_id,
+                    include_deleted: false,
+                    skip: 0,
+                })),
+                1,
+            ))
+            .await?;
 
         Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
     }
@@ -472,37 +540,63 @@ impl McpServer {
     async fn tool_delete(&self, args: &Value) -> Result<String, String> {
         let id = args.get("id").and_then(|v| v.as_str()).unwrap_or("");
 
-        let params = json!({ "id": id });
-        let resp = self.call_daemon("delete", params).await?;
+        let id = uuid::Uuid::parse_str(id).map_err(|_| format!("Invalid memory id: {}", id))?;
+        let resp = self
+            .call_daemon(JsonRpcRequest::new(
+                RequestAction::Delete,
+                Some(RequestParams::Delete(DeleteParams { id, force: false })),
+                1,
+            ))
+            .await?;
 
         Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
     }
 
     /// `mr_stats` 工具实现：统计信息。
     async fn tool_stats(&self) -> Result<String, String> {
-        let resp = self.call_daemon("stats", json!({})).await?;
+        let resp = self
+            .call_daemon(JsonRpcRequest::new(RequestAction::Stats, None, 1))
+            .await?;
         Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
     }
 
     /// `mr_dream` 工具实现：记忆整合。
     async fn tool_dream(&self, args: &Value) -> Result<String, String> {
         let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
-        let dry_run = args.get("dry_run").and_then(|v| v.as_bool()).unwrap_or(false);
+        let dry_run = args
+            .get("dry_run")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
-        let params = json!({ "force": force, "dry_run": dry_run });
-        let resp = self.call_daemon("dream", params).await?;
+        let resp = self
+            .call_daemon(JsonRpcRequest::new(
+                RequestAction::Dream,
+                Some(RequestParams::Dream(DreamParams { force, dry_run })),
+                1,
+            ))
+            .await?;
 
         if let Some(result) = resp.get("result") {
             if let Some(d) = result.get("integrated_count") {
                 let count = d.as_u64().unwrap_or(0);
                 let summary = result.get("summary").and_then(|v| v.as_str()).unwrap_or("");
-                let clusters = result.get("cluster_count").and_then(|v| v.as_u64()).unwrap_or(0);
-                let edges = result.get("edge_count").and_then(|v| v.as_u64()).unwrap_or(0);
+                let clusters = result
+                    .get("cluster_count")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let edges = result
+                    .get("edge_count")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
                 let propagations = result
                     .get("propagation_count")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0);
-                let mode = if dry_run { "Dream dry-run" } else { "Dream completed" };
+                let mode = if dry_run {
+                    "Dream dry-run"
+                } else {
+                    "Dream completed"
+                };
                 return Ok(format!(
                     "{}: {} memories integrated, {} clusters, {} edges, {} propagations\nSummary: {}",
                     mode, count, clusters, edges, propagations, summary
@@ -524,8 +618,16 @@ impl McpServer {
     /// `mr_dream_report` 工具实现：返回最近的 DreamRun 审计报告。
     async fn tool_dream_report(&self, args: &Value) -> Result<String, String> {
         let last = args.get("last").and_then(|v| v.as_u64()).unwrap_or(10);
-        let params = json!({ "last": last });
-        let resp = self.call_daemon("dream_report", params).await?;
+        let resp = self
+            .call_daemon(JsonRpcRequest::new(
+                RequestAction::DreamReport,
+                Some(RequestParams::DreamReport(DreamReportParams {
+                    last: Some(last as usize),
+                    offset: None,
+                })),
+                1,
+            ))
+            .await?;
 
         if let Some(result) = resp.get("result") {
             if let Some(runs) = result.get("runs") {
@@ -547,7 +649,11 @@ impl McpServer {
     /// 通过 Unix Socket 调用 memrecd 守护进程。
     ///
     /// 流程：连接 → 发送请求 → 关闭写端 → 读取响应（最大 1MB）→ 解析。
-    async fn call_daemon(&self, method: &str, mut params: Value) -> Result<Value, String> {
+    ///
+    /// T7：接收强类型 [`JsonRpcRequest`]（枚举 method + 联合 params），序列化
+    /// 与守护进程协议严格一致；新增接口不再需要维护"字符串方法名 + type 字段"
+    /// 的双轨映射，漏配在编译期暴露。
+    async fn call_daemon(&self, req: JsonRpcRequest) -> Result<Value, String> {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use tokio::net::UnixStream;
 
@@ -558,70 +664,8 @@ impl McpServer {
             .await
             .map_err(|e| format!("Connect error: {}", e))?;
 
-        let (method_str, typed_params) = match method {
-            "add" => ("add", {
-                if !params.is_object() {
-                    params = json!({});
-                }
-                params["type"] = json!("add");
-                Some(params)
-            }),
-            "get" => ("get", {
-                if !params.is_object() {
-                    params = json!({});
-                }
-                params["type"] = json!("get");
-                Some(params)
-            }),
-            "delete" => ("delete", {
-                if !params.is_object() {
-                    params = json!({});
-                }
-                params["type"] = json!("delete");
-                Some(params)
-            }),
-            "list" => ("list", {
-                if !params.is_object() {
-                    params = json!({});
-                }
-                params["type"] = json!("list");
-                Some(params)
-            }),
-            "search_memory" => ("search_memory", {
-                if !params.is_object() {
-                    params = json!({});
-                }
-                params["type"] = json!("search_memory");
-                Some(params)
-            }),
-            "get_project_info" => ("get_project_info", {
-                if !params.is_object() {
-                    params = json!({});
-                }
-                params["type"] = json!("get_project_info");
-                Some(params)
-            }),
-            "stats" => ("stats", None),
-            "get_version" => ("get_version", None),
-            "dream" => ("dream", {
-                if !params.is_object() {
-                    params = json!({});
-                }
-                params["type"] = json!("dream");
-                Some(params)
-            }),
-            _ => return Err(format!("Unknown method: {}", method)),
-        };
-
-        let request = json!({
-            "jsonrpc": "2.0",
-            "method": method_str,
-            "params": typed_params,
-            "id": 1
-        });
-
         let request_json =
-            serde_json::to_string(&request).map_err(|e| format!("Serialize error: {}", e))?;
+            serde_json::to_string(&req).map_err(|e| format!("Serialize error: {}", e))?;
 
         stream
             .write_all(request_json.as_bytes())
