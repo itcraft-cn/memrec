@@ -32,7 +32,7 @@ use mr_common::types::{
 
 use crate::edge::EdgeGenerator;
 use crate::embedding::EmbeddingGenerator;
-use crate::llm::LlmClient;
+use crate::llm::{LlmClient, LlmError};
 use crate::propagation::PropagationEngine;
 use crate::storage::{DreamRunStorage, EdgeStorage, MemoryStorage, VectorStorage};
 
@@ -57,12 +57,12 @@ pub enum DreamError {
     GateFailed(String),
     #[error("Lock error: {0}")]
     Lock(#[from] super::lock::DreamLockError),
-    #[error("Storage error: {0}")]
-    Storage(String),
+    #[error("Storage error: {0:#}")]
+    Storage(#[from] anyhow::Error),
     #[error("Not enough memories: {0} < {1}")]
     NotEnoughMemories(usize, usize),
-    #[error("LLM error: {0}")]
-    Llm(String),
+    #[error("LLM error: {0:#}")]
+    Llm(#[from] LlmError),
 }
 
 /// 计算两个等长向量的余弦相似度；维度不一致或存在零向量时返回 0。
@@ -248,7 +248,7 @@ async fn count_new_user_memories(
     let recent = storage
         .list_created_between(since.timestamp(), Utc::now().timestamp(), usize::MAX)
         .await
-        .map_err(|e| DreamError::Storage(e.to_string()))?;
+        .map_err(DreamError::from)?;
     Ok(recent
         .into_iter()
         .filter(|m| m.source != MemorySource::System)
@@ -458,11 +458,7 @@ impl DreamProcessor {
     /// 一条 DreamRun；门控拦截（force=false 时）同样落库。
     pub async fn execute_ext(&self, force: bool, dry_run: bool) -> Result<DreamResult, DreamError> {
         // 当前记忆总数：锁记录与状态写入均基于该值
-        let memory_count = self
-            .storage
-            .count()
-            .await
-            .map_err(|e| DreamError::Storage(e.to_string()))?;
+        let memory_count = self.storage.count().await.map_err(DreamError::from)?;
 
         if !force {
             // 时间门槛基于持久化的 dream.state（上次执行完成时间），
@@ -511,11 +507,7 @@ impl DreamProcessor {
         // P2: 仅成功执行才写 state，失败（如 LLM 故障）不刷新 last_run_at，
         // 保证故障恢复后可立即重试，不浪费 24h 重试窗口。
         if result.is_ok() && !dry_run {
-            let post_count = self
-                .storage
-                .count()
-                .await
-                .map_err(|e| DreamError::Storage(e.to_string()))?;
+            let post_count = self.storage.count().await.map_err(DreamError::from)?;
             if let Err(e) = self.lock.write_state(post_count as u32) {
                 tracing::warn!("Failed to write dream state: {}", e);
             }
@@ -567,7 +559,7 @@ impl DreamProcessor {
             .storage
             .list_created_between(0, cutoff.timestamp(), usize::MAX)
             .await
-            .map_err(|e| DreamError::Storage(e.to_string()))?;
+            .map_err(DreamError::from)?;
 
         // P4: 排除高价值记忆（importance ≥ 阈值、命中保留标签、保留类型），
         // 同时过滤过短内容（测试/占位垃圾记录）。
@@ -735,10 +727,7 @@ impl DreamProcessor {
 
                     let mid = m.id;
                     if !dry_run {
-                        self.storage
-                            .add(&m)
-                            .await
-                            .map_err(|e| DreamError::Storage(e.to_string()))?;
+                        self.storage.add(&m).await.map_err(DreamError::from)?;
                     }
                     integrated_ids.push(mid);
                     produced.push(m);
@@ -759,10 +748,7 @@ impl DreamProcessor {
                     build_produced_memory(content.clone(), mem_type, tags, base_meta.clone(), 0.8);
                 let mid = m.id;
                 if !dry_run {
-                    self.storage
-                        .add(&m)
-                        .await
-                        .map_err(|e| DreamError::Storage(e.to_string()))?;
+                    self.storage.add(&m).await.map_err(DreamError::from)?;
                 }
                 summary_ids.push(mid);
                 integrated_ids.push(mid);
@@ -837,7 +823,7 @@ impl DreamProcessor {
             self.storage
                 .delete(&memory.id)
                 .await
-                .map_err(|e| DreamError::Storage(e.to_string()))?;
+                .map_err(DreamError::from)?;
             run.deleted_source_ids.push(memory.id);
         }
 
@@ -1137,7 +1123,7 @@ impl DreamProcessor {
             .storage
             .list_by_tag(TAG_INTEGRATED, usize::MAX)
             .await
-            .map_err(|e| DreamError::Storage(e.to_string()))?;
+            .map_err(DreamError::from)?;
         for m in summaries {
             if let Some(raw) = m.metadata.get("source_ids") {
                 if let Ok(ids) = serde_json::from_str::<Vec<String>>(raw) {
@@ -1159,6 +1145,19 @@ mod tests {
     use crate::storage::{MemoryStore, RocksDBStore};
     use mr_common::MemoryType;
     use tempfile::tempdir;
+
+    /// T5 验证：DreamError 经 #[from] 保留原始错误链，Display 输出包裹层
+    /// 与根因两层信息（旧 String 化实现会丢根因）。
+    #[test]
+    fn test_dream_error_preserves_chain() {
+        let inner = anyhow::anyhow!("inner root cause").context("storage layer ctx");
+        let display = DreamError::from(inner).to_string();
+        assert!(display.contains("Storage error: storage layer ctx"));
+        assert!(display.contains("inner root cause"));
+
+        let llm_err = DreamError::Llm(LlmError::EmptyResponse).to_string();
+        assert!(llm_err.contains("LLM error: LLM response is empty"));
+    }
 
     fn create_test_processor() -> (DreamProcessor, Arc<MemoryStore>, tempfile::TempDir) {
         let dir = tempdir().unwrap();

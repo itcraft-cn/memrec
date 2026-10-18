@@ -19,7 +19,7 @@ use serde::Deserialize;
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::llm::{LlmClient, LlmMessage};
+use crate::llm::{LlmClient, LlmError, LlmMessage};
 
 /// 簇内提炼出的一条事实。
 #[derive(Debug, Clone, Deserialize)]
@@ -273,7 +273,7 @@ pub async fn extract_cluster(
     llm: Option<&Arc<dyn LlmClient>>,
     memories: &[Memory],
     use_llm: bool,
-) -> Result<ClusterExtraction, String> {
+) -> Result<ClusterExtraction, LlmError> {
     if use_llm {
         if let Some(llm) = llm {
             let user = build_extract_prompt(memories);
@@ -283,8 +283,7 @@ pub async fn extract_cluster(
             ];
             let raw = llm
                 .chat_with_think(&messages, mr_common::ThinkLevel::Off)
-                .await
-                .map_err(|e| format!("Fusion extraction LLM failed: {}", e))?;
+                .await?;
             if let Some(parsed) = parse_extraction(&raw) {
                 return Ok(parsed);
             }
@@ -349,10 +348,7 @@ fn fallback_extraction(memories: &[Memory]) -> ClusterExtraction {
             source_hints: Vec::new(),
         })
         .collect();
-    let summary = format!(
-        "[Dream 分簇摘要] 本簇整合了 {} 条记忆。",
-        memories.len()
-    );
+    let summary = format!("[Dream 分簇摘要] 本簇整合了 {} 条记忆。", memories.len());
     ClusterExtraction {
         facts,
         summary,
