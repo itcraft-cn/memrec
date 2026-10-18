@@ -251,7 +251,7 @@ impl McpServer {
                     cross_project,
                     memory_type: memory_type
                         .filter(|s| !s.is_empty())
-                        .map(|mt| parse_memory_type(mt)),
+                        .map(parse_memory_type),
                     top_k: top_k as usize,
                     min_score: min_score as f32,
                     working_dir,

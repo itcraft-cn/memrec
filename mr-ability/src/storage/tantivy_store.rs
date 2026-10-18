@@ -2,6 +2,7 @@
 //!
 //! 基于 Tantivy 实现 BM25 全文搜索。
 
+use std::collections::HashSet;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use std::path::Path;
@@ -242,7 +243,7 @@ impl TantivyStore {
         let mut clauses: Vec<(Occur, Box<dyn Query>)> = Vec::new();
         if let Some(mut analyzer) = self.index.tokenizers().get(TOKENIZER_NAME) {
             let mut stream = analyzer.token_stream(query);
-            let mut seen = std::collections::HashSet::new();
+            let mut seen = HashSet::new();
             while let Some(tok) = stream.next() {
                 if tok.text.is_empty() || !seen.insert(tok.text.clone()) {
                     continue;
@@ -362,7 +363,7 @@ impl FtsStorage for TantivyStore {
                 let is_global_doc = doc
                     .get_first(self.schema.project_id)
                     .and_then(|v| v.as_str())
-                    .map_or(true, |s| {
+                    .is_none_or(|s| {
                         s.is_empty() || Uuid::parse_str(s).map(|p| p.is_nil()).unwrap_or(false)
                     });
                 if !is_global_doc {

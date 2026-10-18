@@ -1,9 +1,7 @@
 //! 记忆命令单元测试（内联 tests 抽离）。
 
 use super::chunk::*;
-use super::*;
 
-    use super::*;
 
     #[test]
     fn test_split_short_content() {

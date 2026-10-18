@@ -170,12 +170,9 @@ impl Default for LlmConfig {
 /// - 非引用形式（如明文密钥）返回 `None`，调用方保持原值
 /// - 引用形式但环境变量未设置时同样返回 `None`，保持原值，避免误替换
 fn expand_env_var(value: &str) -> Option<String> {
-    let name = if let Some(rest) = value.strip_prefix("${") {
-        rest.strip_suffix('}')?
-    } else if let Some(rest) = value.strip_prefix('$') {
-        rest
-    } else {
-        return None;
+    let name = match value.strip_prefix("${") {
+        Some(rest) => rest.strip_suffix('}')?,
+        None => value.strip_prefix('$')?,
     };
     if name.is_empty() {
         return None;
@@ -313,8 +310,10 @@ mod tests {
 
     #[test]
     fn test_think_level_parse_fallback() {
-        let mut config = LlmConfig::default();
-        config.think_level = "invalid".to_string();
+        let mut config = LlmConfig {
+            think_level: "invalid".to_string(),
+            ..Default::default()
+        };
         assert_eq!(config.think_level(), ThinkLevel::Medium);
 
         config.think_level = "OFF".to_string();
@@ -324,8 +323,10 @@ mod tests {
     #[test]
     fn test_resolve_env_api_key_dollar_form() {
         std::env::set_var("MEMREC_TEST_LLM_KEY_DOLLAR", "sk-env-value");
-        let mut config = LlmConfig::default();
-        config.api_key = "$MEMREC_TEST_LLM_KEY_DOLLAR".to_string();
+        let mut config = LlmConfig {
+            api_key: "$MEMREC_TEST_LLM_KEY_DOLLAR".to_string(),
+            ..Default::default()
+        };
         config.resolve_env_api_key();
         assert_eq!(config.api_key, "sk-env-value");
         std::env::remove_var("MEMREC_TEST_LLM_KEY_DOLLAR");
@@ -334,8 +335,10 @@ mod tests {
     #[test]
     fn test_resolve_env_api_key_braced_form() {
         std::env::set_var("MEMREC_TEST_LLM_KEY_BRACED", "sk-env-value");
-        let mut config = LlmConfig::default();
-        config.api_key = "${MEMREC_TEST_LLM_KEY_BRACED}".to_string();
+        let mut config = LlmConfig {
+            api_key: "${MEMREC_TEST_LLM_KEY_BRACED}".to_string(),
+            ..Default::default()
+        };
         config.resolve_env_api_key();
         assert_eq!(config.api_key, "sk-env-value");
         std::env::remove_var("MEMREC_TEST_LLM_KEY_BRACED");
@@ -343,8 +346,10 @@ mod tests {
 
     #[test]
     fn test_resolve_env_api_key_plain_unchanged() {
-        let mut config = LlmConfig::default();
-        config.api_key = "sk-plain-text".to_string();
+        let mut config = LlmConfig {
+            api_key: "sk-plain-text".to_string(),
+            ..Default::default()
+        };
         config.resolve_env_api_key();
         assert_eq!(config.api_key, "sk-plain-text");
     }
@@ -352,16 +357,20 @@ mod tests {
     #[test]
     fn test_resolve_env_api_key_unset_keeps_original() {
         std::env::remove_var("MEMREC_TEST_LLM_KEY_UNSET");
-        let mut config = LlmConfig::default();
-        config.api_key = "$MEMREC_TEST_LLM_KEY_UNSET".to_string();
+        let mut config = LlmConfig {
+            api_key: "$MEMREC_TEST_LLM_KEY_UNSET".to_string(),
+            ..Default::default()
+        };
         config.resolve_env_api_key();
         assert_eq!(config.api_key, "$MEMREC_TEST_LLM_KEY_UNSET");
     }
 
     #[test]
     fn test_resolve_env_api_key_empty_keeps_original() {
-        let mut config = LlmConfig::default();
-        config.api_key = "$".to_string();
+        let mut config = LlmConfig {
+            api_key: "$".to_string(),
+            ..Default::default()
+        };
         config.resolve_env_api_key();
         assert_eq!(config.api_key, "$");
     }

@@ -1,19 +1,20 @@
 //! 分层引擎单元测试（内联 tests 抽离）。
 
     use super::*;
+    use std::collections::HashMap;
     use crate::storage::{GraphSearchHit, GraphTraversalParams};
     use async_trait::async_trait;
     use mr_common::{EdgeType, MemorySource, MemoryType};
 
     struct MockMemoryStore {
-        memories: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<Uuid, Memory>>>,
+        memories: std::sync::Arc<tokio::sync::Mutex<HashMap<Uuid, Memory>>>,
     }
 
     impl MockMemoryStore {
         fn new() -> Self {
             MockMemoryStore {
                 memories: std::sync::Arc::new(tokio::sync::Mutex::new(
-                    std::collections::HashMap::new(),
+                    HashMap::new(),
                 )),
             }
         }
@@ -153,18 +154,18 @@
     }
 
     struct MockTieredStore {
-        summaries: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<Uuid, String>>>,
-        keywords: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<Uuid, Vec<String>>>>,
+        summaries: std::sync::Arc<tokio::sync::Mutex<HashMap<Uuid, String>>>,
+        keywords: std::sync::Arc<tokio::sync::Mutex<HashMap<Uuid, Vec<String>>>>,
     }
 
     impl MockTieredStore {
         fn new() -> Self {
             MockTieredStore {
                 summaries: std::sync::Arc::new(tokio::sync::Mutex::new(
-                    std::collections::HashMap::new(),
+                    HashMap::new(),
                 )),
                 keywords: std::sync::Arc::new(tokio::sync::Mutex::new(
-                    std::collections::HashMap::new(),
+                    HashMap::new(),
                 )),
             }
         }

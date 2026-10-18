@@ -258,8 +258,10 @@ mod tests {
     #[test]
     fn test_missing_required_files_reports_all_when_dir_empty() {
         let dir = tempfile::tempdir().unwrap();
-        let mut config = ModelConfig::default();
-        config.model_dir = Some(dir.path().to_string_lossy().to_string());
+        let config = ModelConfig {
+            model_dir: Some(dir.path().to_string_lossy().to_string()),
+            ..Default::default()
+        };
 
         let missing = missing_required_files(&config).unwrap();
         let expected: Vec<String> = config
@@ -276,8 +278,10 @@ mod tests {
     #[test]
     fn test_missing_required_files_empty_when_present() {
         let dir = tempfile::tempdir().unwrap();
-        let mut config = ModelConfig::default();
-        config.model_dir = Some(dir.path().to_string_lossy().to_string());
+        let config = ModelConfig {
+            model_dir: Some(dir.path().to_string_lossy().to_string()),
+            ..Default::default()
+        };
 
         for file in config.files.iter().filter(|f| f.required) {
             std::fs::write(dir.path().join(&file.filename), b"x").unwrap();
@@ -289,8 +293,10 @@ mod tests {
     #[test]
     fn test_missing_required_files_skips_optional() {
         let dir = tempfile::tempdir().unwrap();
-        let mut config = ModelConfig::default();
-        config.model_dir = Some(dir.path().to_string_lossy().to_string());
+        let config = ModelConfig {
+            model_dir: Some(dir.path().to_string_lossy().to_string()),
+            ..Default::default()
+        };
 
         // 仅写入必需文件，可选文件缺失不应出现在缺失列表中
         for file in config.files.iter().filter(|f| f.required) {

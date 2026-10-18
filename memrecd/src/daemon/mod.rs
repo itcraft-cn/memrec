@@ -184,7 +184,7 @@ impl Daemon {
 
         // LLM 装配：未启用时强制 Dream 视为不启用
         let llm_client: Option<Arc<dyn LlmClient>> = if self.config.llm.enabled {
-            let client = Arc::new(OpenAiCompatibleClient::new(self.config.llm.clone()));
+            let client = Arc::new(OpenAiCompatibleClient::new(self.config.llm.clone())?);
             info!(
                 "LLM enabled: provider={}, model={}, think_level={}",
                 self.config.llm.provider, self.config.llm.model, self.config.llm.think_level

@@ -66,7 +66,10 @@ impl Default for ArchiveConfig {
 
 impl Default for DaemonConfig {
     fn default() -> Self {
-        let home = dirs::home_dir().expect("Failed to get home directory");
+        let home = dirs::home_dir().unwrap_or_else(|| {
+            tracing::warn!(target: "config", "无法获取家目录，回退到 /tmp");
+            PathBuf::from("/tmp")
+        });
 
         let base_dir = home.join(".memrec");
 
@@ -118,7 +121,10 @@ impl DaemonConfig {
 
     /// 配置文件路径：`~/.memrec/config.toml`
     fn config_path() -> PathBuf {
-        let home = dirs::home_dir().expect("Failed to get home directory");
+        let home = dirs::home_dir().unwrap_or_else(|| {
+            tracing::warn!(target: "config", "无法获取家目录，回退到 /tmp");
+            PathBuf::from("/tmp")
+        });
         home.join(".memrec/config.toml")
     }
 

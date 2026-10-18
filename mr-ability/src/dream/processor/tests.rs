@@ -2,6 +2,7 @@
 
     use super::*;
     use super::helpers::*;
+    use std::collections::HashMap;
     use crate::storage::{MemoryStore, RocksDBStore};
     use mr_common::MemoryType;
     use tempfile::tempdir;
@@ -348,7 +349,7 @@
         let mut integrated = Memory::new("previous summary".to_string(), MemoryType::Knowledge);
         integrated.tags = vec!["dream-integrated".to_string()];
         integrated.created_at = Utc::now() - chrono::Duration::hours(50);
-        let mut md = std::collections::HashMap::new();
+        let mut md = HashMap::new();
         md.insert(
             "source_ids".to_string(),
             serde_json::to_string(&vec![leftover.id.to_string()]).unwrap(),

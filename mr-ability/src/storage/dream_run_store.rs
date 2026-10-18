@@ -80,7 +80,7 @@ impl DreamRunStorage for DreamRunStore {
     async fn list_runs(&self, limit: usize, offset: usize) -> Result<Vec<DreamRun>> {
         let mut runs = self.collect_all()?;
         // 最近优先
-        runs.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+        runs.sort_by_key(|r| std::cmp::Reverse(r.started_at));
         Ok(runs.into_iter().skip(offset).take(limit).collect())
     }
 

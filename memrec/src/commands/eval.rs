@@ -26,6 +26,7 @@
 //! - **只读**：仅发送 `SearchMemory` 请求，不写入、不改动服务端状态；
 //! - **与运行期度量互补**：此处为离线端到端标尺，`DreamRun.metrics` 为运行期内在指标。
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -103,7 +104,7 @@ pub fn score_case(ranked: &[Uuid], relevant: &[Uuid], k: usize) -> (bool, f32, f
         return (false, 0.0, 0.0, 0.0);
     }
     let topk = &ranked[..ranked.len().min(k)];
-    let rel_set: std::collections::HashSet<Uuid> = relevant.iter().copied().collect();
+    let rel_set: HashSet<Uuid> = relevant.iter().copied().collect();
 
     let hits = topk.iter().filter(|id| rel_set.contains(id)).count();
     let hit = hits > 0;

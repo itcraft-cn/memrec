@@ -130,7 +130,7 @@ use super::*;
         let rocksdb2 = store.rocksdb.clone();
         let cf_created = rocksdb2.cf_by_created().unwrap();
         let key = MemoryStore::created_index_key(&m.created_at, &m.id);
-        rocksdb2.delete_cf(&cf_created, &key).unwrap();
+        rocksdb2.delete_cf(cf_created, key.as_slice()).unwrap();
 
         let fixed = store.reconcile_secondary_indexes().await.unwrap();
         assert_eq!(fixed, 1);

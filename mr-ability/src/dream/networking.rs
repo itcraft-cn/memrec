@@ -386,7 +386,7 @@ mod tests {
 
         let first = builder
             .build(
-                &[p.clone()],
+                std::slice::from_ref(&p),
                 &emb,
                 &[p.clone(), s.clone()],
                 &emb,
@@ -398,7 +398,7 @@ mod tests {
             .unwrap();
         let second = builder
             .build(
-                &[p.clone()],
+                std::slice::from_ref(&p),
                 &emb,
                 &[p.clone(), s.clone()],
                 &emb,

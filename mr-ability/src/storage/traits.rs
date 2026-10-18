@@ -108,7 +108,7 @@ pub struct SearchFilter {
 
 /// 全局记忆判据：project_id 为 None；`Some(nil)` 是历史遗留写法，检索侧等价处理。
 pub fn is_global_project(project_id: &Option<Uuid>) -> bool {
-    project_id.map_or(true, |pid| pid.is_nil())
+    project_id.is_none_or(|pid| pid.is_nil())
 }
 
 /// 语义搜索命中结果。
@@ -206,7 +206,7 @@ pub trait TextProvider: Send + Sync {
 }
 
 /// 混合搜索存储 trait。
-////// 整合向量检索和全文检索，提供统一的搜索接口。
+/// 整合向量检索和全文检索，提供统一的搜索接口。
 #[async_trait]
 pub trait HybridStorage: Send + Sync {
     /// 混合搜索（KNN + BM25）。

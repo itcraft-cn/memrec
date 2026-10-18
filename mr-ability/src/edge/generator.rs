@@ -9,6 +9,7 @@
 //! - **Similar/CausedBy/Contradicts**: 语义关系，需要 LLM 判断
 //! - **Evolves/References**: 演进/引用关系，需要 LLM 判断
 
+use std::collections::HashSet;
 use crate::storage::{EdgeStorage, MemoryStorage};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -63,8 +64,8 @@ impl MockEdgeGenerator {
         let a_lower = content_a.to_lowercase();
         let b_lower = content_b.to_lowercase();
 
-        let words_a: std::collections::HashSet<&str> = a_lower.split_whitespace().collect();
-        let words_b: std::collections::HashSet<&str> = b_lower.split_whitespace().collect();
+        let words_a: HashSet<&str> = a_lower.split_whitespace().collect();
+        let words_b: HashSet<&str> = b_lower.split_whitespace().collect();
 
         if words_a.is_empty() || words_b.is_empty() {
             return 0.0;
@@ -101,7 +102,7 @@ impl EdgeGenerator for MockEdgeGenerator {
         edge_store: &dyn EdgeStorage,
     ) -> Result<Vec<MemoryEdge>> {
         let existing_edges = edge_store.neighbors(&new_memory.id).await?;
-        let existing_targets: std::collections::HashSet<Uuid> = existing_edges
+        let existing_targets: HashSet<Uuid> = existing_edges
             .iter()
             .map(|e| {
                 if e.source_id == new_memory.id {
@@ -262,7 +263,7 @@ impl EdgeGenerator for LlmEdgeGenerator {
 
         // 已存在邻居关系，避免重复建边
         let existing = edge_store.neighbors(&new_memory.id).await?;
-        let existing_targets: std::collections::HashSet<Uuid> = existing
+        let existing_targets: HashSet<Uuid> = existing
             .iter()
             .map(|e| {
                 if e.source_id == new_memory.id {
@@ -374,7 +375,7 @@ impl ProjectEdgeGenerator {
         let project_memories = memory_store.list_by_project(&project_id).await?;
 
         let existing = edge_store.neighbors(&memory.id).await?;
-        let existing_ids: std::collections::HashSet<Uuid> = existing
+        let existing_ids: HashSet<Uuid> = existing
             .iter()
             .filter(|e| e.edge_type == EdgeType::SameProject)
             .map(|e| {

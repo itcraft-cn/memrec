@@ -312,5 +312,6 @@ impl McpServer {
 
 }
 
+#[cfg(test)]
 mod tests;
 mod tools;

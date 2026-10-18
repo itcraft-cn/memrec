@@ -14,7 +14,7 @@
 //! 使用暴力余弦相似度搜索，支持项目 ID、记忆类型和最低分数过滤。
 
 use super::traits::{SearchFilter, SearchHit, VectorPayload, VectorStorage};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use rocksdb::{Options, WriteBatch, DB};
 use serde::{Deserialize, Serialize};
@@ -61,7 +61,7 @@ impl RocksDBVectorStore {
         let db = Arc::new(db);
 
         {
-            let cf = db.cf_handle(CF_VECTORS).expect("CF_VECTORS not found");
+            let cf = db.cf_handle(CF_VECTORS).context("CF_VECTORS not found")?;
             let mut cache_lock = cache.lock().unwrap();
 
             for (key, value) in db.iterator_cf(&cf, rocksdb::IteratorMode::Start).flatten() {
@@ -93,7 +93,7 @@ impl RocksDBVectorStore {
         }
 
         let cache = self.cache.lock().unwrap();
-        let cf_vectors = self.db.cf_handle(CF_VECTORS).expect("CF_VECTORS not found");
+        let cf_vectors = self.db.cf_handle(CF_VECTORS).context("CF_VECTORS not found")?;
 
         let mut batch = WriteBatch::default();
 
@@ -163,7 +163,7 @@ impl VectorStorage for RocksDBVectorStore {
         if existed {
             *self.dirty.lock().unwrap() = true;
 
-            let cf_vectors = self.db.cf_handle(CF_VECTORS).expect("CF_VECTORS not found");
+            let cf_vectors = self.db.cf_handle(CF_VECTORS).context("CF_VECTORS not found")?;
             self.db.delete_cf(&cf_vectors, id.to_string().as_bytes())?;
         }
         Ok(existed)

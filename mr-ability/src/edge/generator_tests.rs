@@ -27,7 +27,7 @@
         let a = create_test_memory("root cause of the crash");
         let b = create_test_memory("crash observed in production");
         let edges = generator
-            .generate(&a, &[b.clone()], &edge_store)
+            .generate(&a, std::slice::from_ref(&b), &edge_store)
             .await
             .unwrap();
         assert_eq!(edges.len(), 1);

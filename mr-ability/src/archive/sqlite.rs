@@ -208,6 +208,7 @@ impl ArchiveStorage for SqliteArchive {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use super::*;
     use mr_common::{MemoryScope, MemorySource, MemoryType};
     use tempfile::tempdir;
@@ -233,7 +234,7 @@ mod tests {
             access_count: 1,
             summary: None,
             embedding: None,
-            metadata: std::collections::HashMap::new(),
+            metadata: HashMap::new(),
             is_deleted: false,
             deleted_at: None,
             chunk_group_id: None,
@@ -270,7 +271,7 @@ mod tests {
             access_count: 1,
             summary: None,
             embedding: None,
-            metadata: std::collections::HashMap::new(),
+            metadata: HashMap::new(),
             is_deleted: false,
             deleted_at: None,
             chunk_group_id: None,

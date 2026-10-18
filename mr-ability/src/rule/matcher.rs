@@ -4,17 +4,17 @@
 
 use mr_common::{MemoryType, RetrievalRule, RuleCondition};
 use regex::Regex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// 规则匹配器。
 pub struct RuleMatcher {
-    compiled_patterns: std::collections::HashMap<String, Regex>,
+    compiled_patterns: HashMap<String, Regex>,
 }
 
 impl RuleMatcher {
     pub fn new() -> Self {
         Self {
-            compiled_patterns: std::collections::HashMap::new(),
+            compiled_patterns: HashMap::new(),
         }
     }
 

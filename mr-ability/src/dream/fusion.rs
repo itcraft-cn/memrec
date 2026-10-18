@@ -153,7 +153,7 @@ pub fn cluster_candidates(
     // 超过最大簇数：合并相似度最高、体量最小的尾部簇
     while max_clusters > 0 && clusters.len() > max_clusters {
         // 找到体量最小的簇，并入与之最相似的另一个簇
-        clusters.sort_by(|a, b| a.len().cmp(&b.len()));
+        clusters.sort_by_key(|c| c.len());
         let smallest = clusters.remove(0);
         if let Some(best) = best_merge_target(&smallest, &clusters, candidates, embeddings) {
             clusters[best].extend(smallest);

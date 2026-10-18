@@ -101,6 +101,7 @@ impl Router {
     /// - Update → 窗口内合并旧记录（`updated` 响应），窗口外仅标注 superseded
     ///   后返回 None 走正常新增；
     /// - Add / 无目标 → None 走正常新增。
+    ///
     /// 窗口内合并失败、目标丢失同样回退 None（按新增处理）。
     pub(super) async fn apply_dedup_decision(
         &self,

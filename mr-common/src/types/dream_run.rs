@@ -50,10 +50,11 @@ impl SummaryClues {
 }
 
 /// Dream 门控结果（记录"为何允许/为何未执行"）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum GateOutcome {
     /// 通过门控，正常执行
+    #[default]
     Allowed,
     /// Dream 未启用
     Disabled,
@@ -65,17 +66,12 @@ pub enum GateOutcome {
     LlmNotConfigured,
 }
 
-impl Default for GateOutcome {
-    fn default() -> Self {
-        GateOutcome::Allowed
-    }
-}
-
 /// DreamRun 终态。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum DreamRunStatus {
     /// 运行中（占位，结束时更新）
+    #[default]
     Running,
     /// 成功执行（含"无事可做"的 NoOp 之外的正常完成）
     Success,
@@ -83,12 +79,6 @@ pub enum DreamRunStatus {
     Failed,
     /// 成功执行但无候选（无事可做）
     NoOp,
-}
-
-impl Default for DreamRunStatus {
-    fn default() -> Self {
-        DreamRunStatus::Running
-    }
 }
 
 /// 单个阶段的执行记录（DreamRun 内的可序列化快照）。

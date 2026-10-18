@@ -227,7 +227,7 @@ impl MemoryStorage for IndexingStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
     use std::sync::Mutex;
 
     use crate::embedding::MockEmbedder;
@@ -238,7 +238,7 @@ mod tests {
     #[derive(Default)]
     struct FakeHybrid {
         ids: Mutex<HashSet<Uuid>>,
-        embeddings: Mutex<std::collections::HashMap<Uuid, Vec<f32>>>,
+        embeddings: Mutex<HashMap<Uuid, Vec<f32>>>,
     }
 
     impl FakeHybrid {

@@ -15,7 +15,7 @@
 
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use thiserror::Error;
 use tracing::{debug, info, warn};
@@ -88,14 +88,15 @@ impl OpenAiCompatibleClient {
     /// 创建客户端。
     ///
     /// `timeout_secs` 控制单次请求超时；HTTP 客户端复用连接池。
-    pub fn new(config: LlmConfig) -> Self {
+    /// 构造可能因 TLS/运行时初始化失败而返回错误（避免生产代码 `expect`）。
+    pub fn new(config: LlmConfig) -> Result<Self> {
         let timeout = Duration::from_secs(config.timeout_secs.max(1));
         let http = reqwest::Client::builder()
             .timeout(timeout)
             .connect_timeout(Duration::from_secs(15))
             .build()
-            .expect("failed to build HTTP client");
-        Self { config, http }
+            .context("failed to build HTTP client")?;
+        Ok(Self { config, http })
     }
 
     /// 构造 chat/completions 请求 URL：`{url}/chat/completions`。
@@ -266,7 +267,7 @@ mod tests {
 
     #[test]
     fn test_endpoint_joins_url() {
-        let client = OpenAiCompatibleClient::new(LlmConfig::default());
+        let client = OpenAiCompatibleClient::new(LlmConfig::default()).unwrap();
         assert_eq!(
             client.endpoint(),
             "https://api.deepseek.com/v1/chat/completions"
@@ -275,10 +276,12 @@ mod tests {
 
     #[test]
     fn test_build_request_deepseek_thinking() {
-        let mut config = LlmConfig::default();
-        config.provider = "deepseek".to_string();
-        config.think_level = "xhigh".to_string();
-        let client = OpenAiCompatibleClient::new(config);
+        let config = LlmConfig {
+            provider: "deepseek".to_string(),
+            think_level: "xhigh".to_string(),
+            ..Default::default()
+        };
+        let client = OpenAiCompatibleClient::new(config).unwrap();
 
         let req = client.build_request(&[LlmMessage::user("hello")], ThinkLevel::Xhigh);
         assert_eq!(req.extra["thinking"]["type"], "enabled");
@@ -289,11 +292,13 @@ mod tests {
 
     #[test]
     fn test_build_request_openai_reasoning() {
-        let mut config = LlmConfig::default();
-        config.provider = "openai".to_string();
-        config.model = "gpt-4o-mini".to_string();
-        config.think_level = "medium".to_string();
-        let client = OpenAiCompatibleClient::new(config);
+        let config = LlmConfig {
+            provider: "openai".to_string(),
+            model: "gpt-4o-mini".to_string(),
+            think_level: "medium".to_string(),
+            ..Default::default()
+        };
+        let client = OpenAiCompatibleClient::new(config).unwrap();
 
         let req = client.build_request(&[], ThinkLevel::Medium);
         assert_eq!(req.extra["reasoning_effort"], "medium");
@@ -302,9 +307,11 @@ mod tests {
     #[test]
     fn test_build_request_off_disables_thinking() {
         // DeepSeek 思考模式默认打开：Off 必须显式 disabled（而非不传）
-        let mut config = LlmConfig::default();
-        config.think_level = "off".to_string();
-        let client = OpenAiCompatibleClient::new(config);
+        let config = LlmConfig {
+            think_level: "off".to_string(),
+            ..Default::default()
+        };
+        let client = OpenAiCompatibleClient::new(config).unwrap();
 
         let req = client.build_request(&[], ThinkLevel::Off);
         assert_eq!(req.extra["thinking"]["type"], "disabled");
@@ -314,7 +321,7 @@ mod tests {
     #[test]
     fn test_build_request_per_call_think_override() {
         // 配置 think_level=medium（默认），按调用覆盖为 Off：显式 disabled
-        let client = OpenAiCompatibleClient::new(LlmConfig::default());
+        let client = OpenAiCompatibleClient::new(LlmConfig::default()).unwrap();
         let req = client.build_request(&[], ThinkLevel::Off);
         assert_eq!(req.extra["thinking"]["type"], "disabled");
 
@@ -327,7 +334,7 @@ mod tests {
     #[test]
     fn test_build_request_deepseek_medium_effort() {
         // 文档映射：medium → high
-        let client = OpenAiCompatibleClient::new(LlmConfig::default());
+        let client = OpenAiCompatibleClient::new(LlmConfig::default()).unwrap();
         let req = client.build_request(&[], ThinkLevel::Medium);
         assert_eq!(req.extra["thinking"]["type"], "enabled");
         assert_eq!(req.extra["reasoning_effort"], "high");
@@ -335,12 +342,14 @@ mod tests {
 
     #[test]
     fn test_configured_check() {
-        let client = OpenAiCompatibleClient::new(LlmConfig::default());
+        let client = OpenAiCompatibleClient::new(LlmConfig::default()).unwrap();
         assert!(!client.configured());
 
-        let mut config = LlmConfig::default();
-        config.api_key = "sk-test".to_string();
-        let client = OpenAiCompatibleClient::new(config);
+        let config = LlmConfig {
+            api_key: "sk-test".to_string(),
+            ..Default::default()
+        };
+        let client = OpenAiCompatibleClient::new(config).unwrap();
         assert!(client.configured());
     }
 
