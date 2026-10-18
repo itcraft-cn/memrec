@@ -33,4 +33,4 @@ pub use networking::EdgeBuilder;
 pub use phases::{
     CrossProjectExtractor, MemoryCleaner, PersonalSummarizer, PhaseResult, VectorRegenerator,
 };
-pub use processor::{extract_summary_clues, DreamProcessor, DreamResult};
+pub use processor::{extract_summary_clues, DreamError, DreamProcessor, DreamResult};

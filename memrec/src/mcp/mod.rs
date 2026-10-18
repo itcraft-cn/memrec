@@ -626,7 +626,9 @@ impl McpServer {
                 .get("message")
                 .and_then(|v| v.as_str())
                 .unwrap_or("Unknown error");
-            return Err(format!("Dream failed: {}", msg));
+            // daemon 侧错误串已带类别前缀（Dream skipped / Gate check failed / LLM error ...），
+            // 直接透传，避免与"Dream failed"叠加成双重前缀。
+            return Err(msg.to_string());
         }
 
         Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())

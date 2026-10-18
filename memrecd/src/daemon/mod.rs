@@ -21,7 +21,7 @@ use crate::config::DaemonConfig;
 use crate::server::{Router, UnixSocketServer};
 use mr_ability::archive::ArchiveManager;
 use mr_ability::dedup::{DedupDecider, RuleDedupDecider};
-use mr_ability::dream::DreamProcessor;
+use mr_ability::dream::{DreamError, DreamProcessor};
 use mr_ability::embedding::{EmbeddingGenerator, GeneratorFactory};
 use mr_ability::idle::{DreamRequest, SystemIdleMonitor};
 use mr_ability::llm::{LlmClient, OpenAiCompatibleClient};
@@ -393,8 +393,8 @@ impl Daemon {
 
     /// 向量存储定时同步循环，每 [`SYNC_INTERVAL_SECS`] 秒将缓存刷盘。
     ///
-    /// 仅在存在脏数据时实际写入并记录 INFO（携带条数与耗时）；
-    /// 无变更时静默（trace），避免每 30 秒一条无意义日志。
+    /// 仅在存在脏数据时实际写入；无论是否有变更均以 debug 记录，
+    /// 默认 INFO 级下静默，避免高频同步日志淹没其他信息。
     async fn sync_loop(vector_store: Arc<RocksDBVectorStore>) {
         let mut ticker = interval(Duration::from_secs(SYNC_INTERVAL_SECS));
 
@@ -408,7 +408,7 @@ impl Daemon {
             match vector_store.save() {
                 Ok(()) => {
                     if dirty {
-                        info!(
+                        tracing::debug!(
                             "Vector store synced: {} vectors, took {:?}",
                             count,
                             start.elapsed()
@@ -447,7 +447,9 @@ impl Daemon {
         info!("Dream loop started");
 
         while let Some(request) = receiver.recv().await {
-            info!(target: "dream", "Dream triggered: force={}", request.force);
+            // 触发通告降为 debug：真正有信息量的是本次执行的结果（完成/跳过/失败），
+            // 避免空闲期每 5 分钟一条重复的"已触发"。
+            tracing::debug!(target: "dream", "Dream triggered: force={}", request.force);
 
             match processor.execute(request.force).await {
                 Ok(result) => {
@@ -456,6 +458,11 @@ impl Daemon {
                         "Dream completed: integrated {} memories",
                         result.integrated_count
                     );
+                }
+                // 门控正常拦截（距上次过近/新增不足等）属预期跳过，用 debug 记录，
+                // 不作为告警，避免淹没真实故障。
+                Err(DreamError::GateSkipped { message, .. }) => {
+                    tracing::debug!(target: "dream", "Dream skipped: {}", message);
                 }
                 Err(e) => {
                     warn!(target: "dream", "Dream failed: {}", e);

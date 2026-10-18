@@ -53,8 +53,19 @@ const TAG_SUMMARY: &str = "dream-summary";
 
 #[derive(Debug, Error)]
 pub enum DreamError {
+    /// 硬性门控失败：配置/依赖/并发问题导致本次无法执行（如未接入 LLM、锁被占用）。
     #[error("Gate check failed: {0}")]
     GateFailed(String),
+    /// 门控正常拦截：并非故障，而是预期性的"暂不执行"。
+    ///
+    /// 与 [`DreamError::GateFailed`] 区分，调用方（如 `dream_loop`）应对其按
+    /// "跳过"处理并降级日志，避免把"距上次执行过近""新增记忆不足"等正常状态
+    /// 误报为告警。`outcome` 保留门控原因供审计与上游判定。
+    #[error("Dream skipped: {message}")]
+    GateSkipped {
+        outcome: GateOutcome,
+        message: String,
+    },
     #[error("Lock error: {0}")]
     Lock(#[from] super::lock::DreamLockError),
     #[error("Storage error: {0:#}")]
@@ -484,7 +495,10 @@ impl DreamProcessor {
                 run.finish(DreamRunStatus::NoOp);
                 run.error = Some(msg.clone());
                 self.record_run(&run).await;
-                return Err(DreamError::GateFailed(msg));
+                return Err(DreamError::GateSkipped {
+                    outcome,
+                    message: msg,
+                });
             }
         }
 
@@ -1191,7 +1205,7 @@ mod tests {
         let processor = DreamProcessor::new(config, dir.path(), storage);
 
         let result = processor.execute(false).await;
-        assert!(matches!(result, Err(DreamError::GateFailed(_))));
+        assert!(matches!(result, Err(DreamError::GateSkipped { .. })));
     }
 
     #[tokio::test]

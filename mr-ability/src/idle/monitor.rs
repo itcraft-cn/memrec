@@ -119,7 +119,9 @@ impl SystemIdleMonitor {
             match get_system_load_1min() {
                 Ok(load) => {
                     if load < self.config.load_threshold {
-                        info!(
+                        // 触发通告降为 debug：是否真正执行由 dream_loop 的结果决定，
+                        // 此处仅表示"已投递请求"，默认 INFO 级下静默以免空闲期刷屏。
+                        tracing::debug!(
                             target: "dream",
                             "IdleMonitor: system load {:.2} < threshold {:.2}, triggering dream",
                             load, self.config.load_threshold
