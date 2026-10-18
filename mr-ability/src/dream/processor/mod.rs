@@ -302,6 +302,7 @@ pub use helpers::extract_summary_clues;
 
 mod helpers;
 mod metrics;
+mod network;
 mod pipeline;
 
 #[cfg(test)]
