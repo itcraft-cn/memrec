@@ -40,8 +40,11 @@ scripts/package/
 
 | 事实源版本 | 包 VERSION | 包 RELEASE | 结果（deb / rpm） |
 |-----------|-----------|-----------|------------------|
-| `0.11.0-dev` | `0.11.0` | `dev1` | `memrec_0.11.0-dev1_amd64.deb` / `memrec-0.11.0-dev1.x86_64.rpm` |
+| `0.11.0-dev` | `0.11.0` | `0.1.dev1` | `memrec_0.11.0-0.1.dev1_amd64.deb` / `memrec-0.11.0-0.1.dev1.x86_64.rpm` |
 | `0.11.0` | `0.11.0` | `1` | `memrec_0.11.0-1_amd64.deb` / `memrec-0.11.0-1.x86_64.rpm` |
+
+采用 `0.1.dev1` 而非 `dev1`：deb/rpm 均按数字段比较，dev 包会正确低于正式包
+（`0.11.0-0.1.dev1` < `0.11.0-1`），避免预发布包被判定为更新版本。
 
 可用 `PKG_VERSION` / `PKG_RELEASE` 覆盖，便于同版本重打包（递增 release）。
 

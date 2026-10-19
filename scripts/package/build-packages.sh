@@ -16,7 +16,7 @@
 #
 # 环境变量：
 #   PKG_VERSION   覆盖版本号（默认由版本事实源推导）
-#   PKG_RELEASE   覆盖发布号（默认 dev1 / 1）
+#   PKG_RELEASE   覆盖发布号（默认 0.1.dev1 / 1）
 #   SKIP_BUILD    非空时跳过 cargo build --release
 set -euo pipefail
 
@@ -54,10 +54,12 @@ if [ -z "$RAW_VERSION" ]; then
     exit 1
 fi
 
-# -dev 后缀拆分为 VERSION + RELEASE：0.11.0-dev -> 0.11.0 / dev1
+# -dev 后缀拆分为 VERSION + RELEASE：0.11.0-dev -> 0.11.0 / 0.1.dev1
+# 采用 0.1.dev1 而非 dev1：deb/rpm 均按数字段排序，dev 包会正确低于正式包
+# （0.11.0-0.1.dev1 < 0.11.0-1），避免预发布包被判定为更新版本。
 if [[ "$RAW_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-dev$ ]]; then
     VERSION="${PKG_VERSION:-${BASH_REMATCH[1]}}"
-    RELEASE="${PKG_RELEASE:-dev1}"
+    RELEASE="${PKG_RELEASE:-0.1.dev1}"
 else
     VERSION="${PKG_VERSION:-$RAW_VERSION}"
     RELEASE="${PKG_RELEASE:-1}"

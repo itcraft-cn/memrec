@@ -114,8 +114,8 @@ git tag vX.Y.Z
 ## 4. 版本管理规则
 
 - 单一事实源为 `.version`；包版本由 `build-packages.sh` 推导。
-- dev 版本 `X.Y.Z-dev` 对应包 `VERSION=X.Y.Z`、`RELEASE=dev1`；正式版本
-  `X.Y.Z` 对应 `RELEASE=1`。
+- dev 版本 `X.Y.Z-dev` 对应包 `VERSION=X.Y.Z`、`RELEASE=0.1.dev1`；正式版本
+  `X.Y.Z` 对应 `RELEASE=1`。dev 包因数字段更小，排序低于正式包。
 - 同一版本重复打包时通过 `PKG_RELEASE` 递增发布号。
 - 发布顺序：先修好版本同步（3.2），再构建与打包，避免带病发包。
 
@@ -123,8 +123,8 @@ git tag vX.Y.Z
 
 | 格式 | 命名示例 | 安装位置 |
 |------|----------|----------|
-| deb | `memrec_0.11.0-dev1_amd64.deb` | `/usr/bin`、`/usr/lib/systemd/user` |
-| rpm | `memrec-0.11.0-dev1.x86_64.rpm` | 同上 |
+| deb | `memrec_0.11.0-0.1.dev1_amd64.deb` | `/usr/bin`、`/usr/lib/systemd/user` |
+| rpm | `memrec-0.11.0-0.1.dev1.x86_64.rpm` | 同上 |
 
 安装后用户按 postinst 提示执行一次（模型不自动下载）：
 

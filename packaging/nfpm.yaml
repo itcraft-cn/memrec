@@ -6,7 +6,7 @@
 #
 # 版本、发布号与架构通过环境变量注入（见 scripts/package/build-packages.sh）：
 #   VERSION  语义化版本，如 0.11.0（不含 -dev 后缀）
-#   RELEASE  包发布号，如 dev1 / 1
+#   RELEASE  包发布号，如 0.1.dev1 / 1
 #   ARCH     目标架构（amd64 / arm64），nfpm 会转换为各格式约定
 #
 # 说明：本配置以“系统级安装 + 用户级 systemd 服务”为模型。
