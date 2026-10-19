@@ -8,6 +8,17 @@
 //! 4. 下载嵌入模型（HuggingFace/镜像）
 //! 5. 注册并启动系统服务（systemd/launchd）
 //! 6. 验证安装
+//!
+//! ## 包管理器安装场景（deb/rpm）
+//!
+//! 当二进制由包管理器安装时，可组合使用：
+//!
+//! - `--skip-install`：跳过 `cargo install`
+//! - `--skip-cargo-check`：跳过 cargo 预检（无需 Rust 工具链）
+//! - `--non-interactive`：无人值守（如 postinst），确认步骤默认否定
+//!
+//! 典型用法：`mr-install --skip-install`，由 mr-install 完成配置生成、
+//! 模型下载与服务注册。
 
 use anyhow::Result;
 use clap::Parser;
@@ -72,6 +83,25 @@ struct Cli {
     /// 允许任意 Git 仓库 URL（安全风险）
     #[arg(long, help = "Allow any Git repository URL (security risk)")]
     allow_any_repo: bool,
+
+    /// 跳过 cargo 可用性预检。
+    ///
+    /// 适用于二进制已由包管理器（deb/rpm）安装的场景：此时无需 cargo，
+    /// 通常与 `--skip-install` 配合使用。
+    #[arg(
+        long,
+        help = "Skip cargo availability pre-check (for package-managed installs)"
+    )]
+    skip_cargo_check: bool,
+
+    /// 非交互模式：需要确认的步骤一律取默认（否定）答案，不再读取标准输入。
+    ///
+    /// 适用于 postinst 脚本或 CI 等无人值守场景。
+    #[arg(
+        long,
+        help = "Non-interactive mode: confirmation prompts default to no"
+    )]
+    non_interactive: bool,
 }
 
 /// 打印步骤标题
@@ -111,11 +141,20 @@ async fn main() -> Result<()> {
     // Step 0: Pre-check
     step("Step 0/6: Pre-check");
 
-    if !which_exists("cargo") {
+    // 二进制安装（cargo install）需要 cargo；若已声明跳过安装或显式跳过预检，
+    // 则不再要求 cargo，以满足包管理器安装场景（deb/rpm）。
+    if cli.skip_install || cli.skip_cargo_check {
+        if cli.skip_install {
+            ok("cargo pre-check skipped (--skip-install)");
+        } else {
+            ok("cargo pre-check skipped (--skip-cargo-check)");
+        }
+    } else if !which_exists("cargo") {
         fail("cargo not found. Install Rust first: https://rustup.rs");
         std::process::exit(1);
+    } else {
+        ok("cargo found");
     }
-    ok("cargo found");
     ok(&format!(
         "Model: {} ({}d)",
         model_type.name(),
@@ -172,12 +211,14 @@ async fn main() -> Result<()> {
                 warn(&format!("Model download failed: {}", e));
                 println!();
                 println!("  You can manually download later:");
-                println!("    mr-install --skip-install --skip-service --skip-verify");
+                println!(
+                    "    mr-install --skip-install --skip-cargo-check --skip-service --skip-verify"
+                );
                 println!();
                 println!("  Or set a custom model path:");
                 println!("    export MEMREC_MODEL_DIR=/path/to/your/model");
 
-                if !confirm("Continue without model?") {
+                if !confirm("Continue without model?", cli.non_interactive) {
                     std::process::exit(1);
                 }
             }
@@ -260,8 +301,16 @@ fn which_exists(cmd: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// 交互式确认提示，默认为否
-fn confirm(msg: &str) -> bool {
+/// 交互式确认提示，默认为否。
+///
+/// 非交互模式（`non_interactive = true`）下不读取标准输入，直接返回否定答案，
+/// 供 postinst/CI 等无人值守场景使用。
+fn confirm(msg: &str, non_interactive: bool) -> bool {
+    if non_interactive {
+        println!("{} [non-interactive: no]", msg);
+        return false;
+    }
+
     println!("{} (y/N) ", msg);
     let mut input = String::new();
     std::io::stdin().read_line(&mut input).ok();
