@@ -18,6 +18,10 @@ Cargo.lock
 # Test
 /test_data/
 
+# Packaging outputs and vendored tools
+/release/
+/scripts/tools/
+
 # Memory
 MEMORY.md
 .mr_pid

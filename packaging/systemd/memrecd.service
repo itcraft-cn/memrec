@@ -1,0 +1,33 @@
+[Unit]
+Description=MemRec Memory Persistence Daemon
+Documentation=https://github.com/itcraft-cn/memrec
+After=default.target
+
+# 失败重启限流：60 秒内启动失败超过 3 次即停止重启，避免崩溃循环刷屏。
+# 恢复方式：systemctl --user reset-failed memrecd && systemctl --user start memrecd
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+# 二进制由系统包提供，固定安装于 /usr/bin。
+ExecStart=/usr/bin/memrecd
+ExecStopPost=/bin/rm -f %h/.memrec/memrecd.sock
+Restart=on-failure
+RestartSec=5
+
+Environment="RUST_LOG=info"
+
+# 从 ~/.memrec/memrecd.env 加载环境变量（如 MEMREC_LLM_KEY）。
+# 文件可不存在（- 前缀），由用户按需创建（权限 600）。
+EnvironmentFile=-%h/.memrec/memrecd.env
+
+WorkingDirectory=%h/.memrec
+
+# 日志由 memrecd 内部 tracing 写入 ~/.memrec/logs/（按天滚存），
+# stdout/stderr 交给 journald 采集。
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
