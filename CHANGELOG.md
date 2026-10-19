@@ -7,7 +7,7 @@
 
 > 中文版 | [English](CHANGELOG_en.md)
 
-## [Unreleased]
+## [0.10.0] - 2026-10-19
 
 ### 新增
 

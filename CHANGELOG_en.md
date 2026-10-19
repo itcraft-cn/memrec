@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > [中文](CHANGELOG.md) | English
 
-## [Unreleased]
+## [0.10.0] - 2026-10-19
 
 ### Added
 
