@@ -248,7 +248,7 @@ memrec search "中文搜索" --human
 | 选项 | 说明 | 默认值 |
 |------|------|--------|
 | `-k, --top-k` | 返回结果数 | 10 |
-| `--min-score` | 最低相似度阈值 | 0.5（BGE-M3）/ 0.75（MiniLM） |
+| `--min-score` | 最低原始向量余弦相似度阈值（仅约束向量层；融合分为相对量，不套用此阈值） | 0.5（BGE-M3）/ 0.75（MiniLM） |
 | `-p, --project` | 仅当前项目 | 按 `.mr_pid` 推断 |
 | `-g, --global` | 仅公共记忆 | 按 `.mr_pid` 推断 |
 | `-a, --all` | 跨所有项目 | - |
@@ -399,11 +399,14 @@ memrec dream-report --last 5      # 查看最近 5 次 DreamRun（候选/簇/边
 
 ### 离线检索评测
 
-以 JSONL 数据集驱动只读检索，输出 `hit@k`/`recall@k`/`MRR`/`nDCG`，用于对比不同检索配置（如开启/关闭图扩散）。
+以 JSONL 数据集驱动只读检索，输出 `hit@k`/`recall@k`/`MRR`/`nDCG`，用于对比不同检索配置（如开启/关闭图扩散、纯向量/纯全文）。
 
 ```bash
 memrec eval dataset.jsonl --k 10 --human
+memrec eval dataset.jsonl --k 10 --alpha 1.0 --no-mmr   # 纯向量 + 关闭 MMR，隔离相关性排序
 ```
+
+`--alpha` 为向量检索权重（`0.0` 纯全文，`1.0` 纯向量，默认 `0.5`）；`--no-mmr` 关闭 MMR 多样性重排。
 
 数据集每行格式：`{"query": "...", "relevant": ["<uuid>", ...]}`。
 

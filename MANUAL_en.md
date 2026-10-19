@@ -250,7 +250,7 @@ memrec search "中文搜索" --human
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-k, --top-k` | Number of results | 10 |
-| `--min-score` | Minimum similarity threshold | 0.5 (BGE-M3) / 0.75 (MiniLM) |
+| `--min-score` | Minimum raw vector cosine similarity threshold (vector layer only; the fused score is relative and does not use this threshold) | 0.5 (BGE-M3) / 0.75 (MiniLM) |
 | `-p, --project` | Current project only | Inferred from `.mr_pid` |
 | `-g, --global` | Global memories only | Inferred from `.mr_pid` |
 | `-a, --all` | All projects | - |
@@ -401,11 +401,14 @@ memrec dream-report --last 5      # inspect recent DreamRun records (candidates/
 
 ### Offline Retrieval Evaluation
 
-Drive read-only retrieval over a JSONL dataset and report `hit@k`/`recall@k`/`MRR`/`nDCG`, useful for comparing retrieval configurations (e.g. graph diffusion on/off).
+Drive read-only retrieval over a JSONL dataset and report `hit@k`/`recall@k`/`MRR`/`nDCG`, useful for comparing retrieval configurations (e.g. graph diffusion on/off, pure vector vs. pure full-text).
 
 ```bash
 memrec eval dataset.jsonl --k 10 --human
+memrec eval dataset.jsonl --k 10 --alpha 1.0 --no-mmr   # pure vector + MMR off, isolate relevance ordering
 ```
+
+`--alpha` is the vector retrieval weight (`0.0` pure full-text, `1.0` pure vector, default `0.5`); `--no-mmr` disables MMR diversity reranking.
 
 Dataset line format: `{"query": "...", "relevant": ["<uuid>", ...]}`.
 

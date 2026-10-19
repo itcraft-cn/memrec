@@ -9,16 +9,28 @@
 
 ## [Unreleased]
 
+### 新增
+
+- `memrec eval` 新增 `--alpha` 与 `--no-mmr`，可隔离验证纯向量/纯全文检索与关闭 MMR 的排序
+- 检索质量门禁 `scripts/retrieval_gate.sh` 与语义金标集 `eval/retrieval_golden.jsonl`（自检索不变量 + 改写查询 hit@5/MRR），纳入多步骤测试与部署流程
+- **历史项目归属回迁工具（一次性，非常驻 API）**：`mr-ability/examples/migrate_project_attribution.rs` 与 `scripts/project_migration/`（`build_mapping.py` 扫描磁盘 `.mr_pid`，同名目录别名表 `aliases.json`）；把误归属到单一桶的历史记忆按标签/别名回迁，支持 `dry-run`/`apply` 两段、`--assign` 显式指派与 `--restore-deleted`；迁移经 `IndexingStorage::save` 统一刷新 `by_project` 二级索引、向量载荷与 FTS 载荷并落盘，报告记录 `(id, source, target)` 供审计与反向迁移
+
+### 变更
+
+- **大文件拆分（纯结构搬迁，行为不变）**：`memrecd/src/server/handler.rs`（2679 行）按 RPC 域拆为子模块，`mr-ability/src/dream/processor.rs`（1635 行）拆为子模块并分解 `process_inner`；`memrec/src/mcp/mod.rs`、`mr-common/src/types/config.rs`、`mr-ability/src/storage/memory_store.rs`、`mr-protocol/src/request.rs`、`memrec/src/commands/memory.rs` 转为目录模块；拆分后单文件生产代码 ≤ 500 行
+- **检索链路性能**：新增 `MemoryStorage::get_many`（底层 `RocksDBStore::multi_get_cf`），搜索与图扩散改为批量取数、消除 N+1；向量重建 `rebuild_missing_embeddings` 改用 `embed_batch`；向量搜索收窄持锁范围（排序移出锁外，两段式持锁）
+- **代码质量归零**：`cargo clippy --release --all-targets` 归零；移除生产代码 `expect`（`mr-ability/src/llm/client.rs` 返回 `Result`、`memrecd/src/config.rs` 回退日志）；内联 FQN 改为 `use` 短名；消除 `partial_cmp().unwrap()` 的 NaN panic；`parse_relations` 解析失败改为告警（含字符安全截断）；`stats` 移除长期硬编码为 0.0 的 `storage_usage`/`avg_importance` 字段（缺乏可靠数据源）
+- **日志降噪**：预期的 Dream 门控跳过与同步噪声降级为 debug
+
 ### 修复
 
 - **向量归一化方向反置**：`HybridStore::merge_and_normalize` 对向量相似度误写为 `1.0 - 归一化`，令最相关记忆得分最低、排序垫底（排序与相关性反相关）。修正为同向归一化后，纯向量自检索 recall@5 由 0.36 提升至 1.0，检索金标集 MRR 由 0.251 提升至 0.711
 - **中文全文检索分词**：Tantivy 全文检索字段改用 jieba-rs 词级分词（原为 n-gram），改写式中文查询可命中原文；分词器语义变更时按版本标记自动重建 FTS 索引（以记忆库为真源）
 - **查询特殊符号导致整次检索失败**：查询含 `+ - : ( ) " [ ]` 等符号时 `QueryParser` 解析失败会使整次检索返回错误；改为解析失败时回退到按分词器逐词构造的 OR 查询
-
-### 新增
-
-- `memrec eval` 新增 `--alpha` 与 `--no-mmr`，可隔离验证纯向量/纯全文检索与关闭 MMR 的排序
-- 检索质量门禁 `scripts/retrieval_gate.sh` 与语义金标集 `eval/retrieval_golden.jsonl`（自检索不变量 + 改写查询 hit@5/MRR），纳入多步骤测试与部署流程
+- **MCP 写入未按调用方项目归属**：`mr_add` 非全局写入恒传 `working_dir: None`，守护进程回落到自身 cwd 解析项目，导致所有 MCP 写入汇入同一项目桶（项目隔离失效；读路径与 CLI 写路径均正确）。改为对齐 `mr_search`/CLI，非全局时携带调用方工作目录，并补归属一致性回归测试
+- **融合分被同一阈值二次过滤**：`min_score` 语义为"原始向量余弦相似度下限"，却对 min-max 归一化并按 `alpha` 加权后的融合分再套用同一绝对阈值，使纯向量命中顶项融合分恒等于 `alpha`（默认 0.5）、恰与默认 `min_score` 相等，结果被过度裁剪至仅剩顶项（表现为分数"钉在 0.5"、区分度丧失）。现 `min_score` 仅约束向量层原始余弦，融合层不再绝对截断，命中集由向量绝对阈值与 `top_k` 共同约束
+- **纯全文命中内容预览为空**：Tantivy `content` 字段此前仅索引未 `STORED`，无向量载荷的全文命中 `content_preview` 恒为空串，削弱 Agent 判读相关性能力；增加 `STORED` 并在命中时回填（截断 200 字符，与向量侧载荷口径一致），索引版本标记升至 `cn_jieba_v2` 触发旧索引重建
+- **大响应被截断**：CLI 与 MCP 的 IPC 响应上限由 1MB 提升至 64MB（仍保留上界防御异常巨大响应），避免列表类合法批量查询被拒（实测 `list -a -l 400` 约 3.7MB）
 
 ## [0.9.0] - 2026-10-18
 

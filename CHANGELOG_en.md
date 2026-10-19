@@ -9,16 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `memrec eval` gains `--alpha` and `--no-mmr` to isolate pure-vector/pure-full-text retrieval and MMR-off ordering
+- Retrieval quality gate `scripts/retrieval_gate.sh` with golden set `eval/retrieval_golden.jsonl` (self-retrieval invariant + paraphrase hit@5/MRR), wired into the multi-step test and deploy flow
+- **One-off historical project-attribution migration tool** (not a permanent API): `mr-ability/examples/migrate_project_attribution.rs` plus `scripts/project_migration/` (`build_mapping.py` scans disk `.mr_pid` files, with a directory-name alias table `aliases.json`); reassigns historically mis-attributed memories from the single bucket back by tag/alias, with two-phase `dry-run`/`apply`, `--assign` explicit assignment and `--restore-deleted`; migration goes through `IndexingStorage::save` to refresh the `by_project` secondary index, vector payload and FTS payload consistently and flush to disk, and a report records `(id, source, target)` for audit and reverse migration
+
+### Changed
+
+- **Large-file split (pure structural move, no behavior change)**: `memrecd/src/server/handler.rs` (2679 lines) split into per-RPC-domain submodules and `mr-ability/src/dream/processor.rs` (1635 lines) split into submodules with `process_inner` decomposed; `memrec/src/mcp/mod.rs`, `mr-common/src/types/config.rs`, `mr-ability/src/storage/memory_store.rs`, `mr-protocol/src/request.rs` and `memrec/src/commands/memory.rs` became directory modules; every production file is ≤ 500 lines
+- **Retrieval-path performance**: new `MemoryStorage::get_many` (backed by `RocksDBStore::multi_get_cf`) batches search and graph-diffusion fetches, removing N+1; vector rebuild `rebuild_missing_embeddings` now uses `embed_batch`; the vector search narrows its lock scope (sorting moved outside the lock, two-phase locking)
+- **Code-quality cleanup**: `cargo clippy --release --all-targets` is at zero warnings; production `expect`s removed (`mr-ability/src/llm/client.rs` returns `Result`, `memrecd/src/config.rs` logs and falls back); inline FQNs replaced with short `use` names; `partial_cmp().unwrap()` NaN panics eliminated; `parse_relations` parse failures warn (with char-safe truncation); `stats` drops the `storage_usage`/`avg_importance` fields that were long hardcoded to 0.0 (no reliable data source)
+- **Log noise reduction**: expected Dream gate skips and sync noise downgraded to debug
+
 ### Fixed
 
 - **Inverted vector normalization**: `HybridStore::merge_and_normalize` applied `1.0 - normalized` to vector similarity, ranking the most relevant memory last. With same-direction normalization, pure-vector self-retrieval recall@5 rose from 0.36 to 1.0, and golden-set MRR from 0.251 to 0.711
 - **Chinese full-text tokenization**: The Tantivy full-text field now uses jieba-rs word-level tokenization (was n-gram), so paraphrase-style Chinese queries can match the source; the FTS index is automatically rebuilt when the tokenizer semantics change (memory store remains the source of truth)
 - **Special characters aborting search**: Queries containing `+ - : ( ) " [ ]` made `QueryParser` fail and abort the whole search; it now falls back to an OR query built from the tokenizer tokens
-
-### Added
-
-- `memrec eval` gains `--alpha` and `--no-mmr` to isolate pure-vector/pure-full-text retrieval and MMR-off ordering
-- Retrieval quality gate `scripts/retrieval_gate.sh` with golden set `eval/retrieval_golden.jsonl` (self-retrieval invariant + paraphrase hit@5/MRR), wired into the multi-step test and deploy flow
+- **MCP writes not attributed to the caller's project**: `mr_add` always passed `working_dir: None` for non-global writes, so the daemon fell back to its own cwd to resolve the project, funneling every MCP write into a single project bucket (project isolation failure; the read paths and the CLI write path were correct). It now aligns with `mr_search`/CLI, passing the caller's working directory for non-global memories, with an attribution-consistency regression test added
+- **Fused score double-filtered by the same threshold**: `min_score` was defined as the raw vector-cosine floor, yet the same absolute threshold was applied again to the min-max normalized and `alpha`-weighted fused score, pinning a pure-vector top hit at `alpha` (default 0.5) — exactly the default `min_score` — and truncating results to the top hit only (scores "stuck at 0.5", no discrimination). `min_score` now constrains raw vector cosine only; the fused layer no longer truncates absolutely, so the hit set is bounded by the vector absolute threshold and `top_k`
+- **Empty content preview for pure full-text hits**: the Tantivy `content` field was indexed but not `STORED`, so full-text hits without a vector payload always had an empty `content_preview`, weakening an agent's ability to judge relevance; it is now `STORED` and backfilled on hit (truncated to 200 chars, matching the vector-side payload), with the index version marker bumped to `cn_jieba_v2` to trigger a rebuild of old indexes
+- **Truncated large responses**: the CLI and MCP IPC response cap was raised from 1MB to 64MB (an upper bound is still kept to defend against abnormally large responses), so legitimate bulk list queries are no longer rejected (measured `list -a -l 400` ≈ 3.7MB)
 
 ## [0.9.0] - 2026-10-18
 
