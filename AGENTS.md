@@ -97,7 +97,13 @@ cargo install --path memrecd --locked
 # 代码检查
 cargo clippy --release
 cargo fmt --check
+
+# 打包 deb/rpm（产物写入 release/）
+scripts/package/build-packages.sh
+scripts/package/build-packages.sh deb    # 仅 deb
 ```
+
+打包细节见 `packaging/README.md`，发布流程见 `docs/release-process.md`。
 
 ### 多步骤测试与部署
 

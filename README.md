@@ -48,6 +48,34 @@ mr-install
 | Linux | `~/.local/bin/` | `~/.memrec/` |
 | macOS | `~/bin/` | `~/.memrec/` |
 
+#### 包管理器安装（deb/rpm）
+
+deb/rpm 包把 `memrec`、`memrecd`、`mr-install` 安装到 `/usr/bin`，并随包提供
+systemd 用户服务单元 `/usr/lib/systemd/user/memrecd.service`。安装完成后按提示
+手动执行一次（包不自动下载模型）：
+
+```bash
+# 下载模型并生成配置（二进制已由包提供，无需 Rust 工具链）
+mr-install --skip-install --skip-cargo-check --skip-service
+
+# 启用并启动用户服务
+systemctl --user daemon-reload
+systemctl --user enable --now memrecd
+```
+
+说明：
+
+- 模型较大（数 GB），故不在安装时自动下载，由用户在交互环境中执行；
+- `--skip-service` 让 `mr-install` 使用随包提供的服务单元，避免在
+  `~/.config/systemd/user/` 下生成指向 `~/.local/bin` 的重复单元；
+- 卸载包不会删除 `~/.memrec/` 中的模型与数据。
+
+自行构建 deb/rpm：
+
+```bash
+scripts/package/build-packages.sh        # 产物归档到 release/
+```
+
 ### 选择 Embedding 模型
 
 | 模型 | 维度 | 适用场景 | 磁盘空间 | 内存 |

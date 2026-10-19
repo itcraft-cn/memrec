@@ -50,6 +50,38 @@ mr-install
 | Linux | `~/.local/bin/` | `~/.memrec/` |
 | macOS | `~/bin/` | `~/.memrec/` |
 
+#### Package Manager Install (deb/rpm)
+
+The deb/rpm packages install `memrec`, `memrecd` and `mr-install` into
+`/usr/bin`, plus a systemd user unit at
+`/usr/lib/systemd/user/memrecd.service`. After installation, run once
+(models are NOT downloaded automatically by the package):
+
+```bash
+# Download the model and generate the config (binaries come from the package,
+# so no Rust toolchain is required)
+mr-install --skip-install --skip-cargo-check --skip-service
+
+# Enable and start the user service
+systemctl --user daemon-reload
+systemctl --user enable --now memrecd
+```
+
+Notes:
+
+- Models are several GB, so they are downloaded by the user in an interactive
+  environment rather than during package installation.
+- `--skip-service` makes `mr-install` rely on the packaged unit instead of
+  generating a duplicate one under `~/.config/systemd/user/` that points to
+  `~/.local/bin`.
+- Removing the package never deletes models or data under `~/.memrec/`.
+
+Build deb/rpm locally:
+
+```bash
+scripts/package/build-packages.sh        # artifacts are written to release/
+```
+
 ### Choose Embedding Model
 
 | Model | Dimension | Best For | Disk Space | Memory |
