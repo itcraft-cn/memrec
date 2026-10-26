@@ -14,10 +14,19 @@
 
 ```
 memrec/
-├── common/       # 共享类型和协议
-├── memrecd/      # 守护进程服务
-├── memrec/       # CLI工具
-└── docs/         # 文档
+├── mr-common/     # 共享类型、配置与数据模型
+├── mr-protocol/   # JSON-RPC 请求/响应协议
+├── mr-ability/    # 核心能力：存储、检索、Dream、嵌入、LLM
+├── memrecd/       # 守护进程服务
+├── memrec/        # CLI 与 MCP 工具
+├── mr-install/    # 安装器与服务注册
+├── dsh-plugin/    # DSH 插件
+├── pi-extension/  # pi 扩展
+├── eval/          # 检索评测金标集
+├── scripts/       # 构建、门禁、打包脚本
+├── packaging/     # deb/rpm 打包配置
+├── skills/        # Agent skills
+└── docs/          # 设计与计划文档
 ```
 
 ## AI guide
