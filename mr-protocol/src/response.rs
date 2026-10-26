@@ -154,7 +154,8 @@ pub struct SemanticSearchResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchHit {
     pub memory_id: Uuid,
-    /// 与查询的余弦相似度分数
+    /// 校准后的相关度（0-1）。向量通路取原始余弦，全文通路取查询词覆盖率，
+    /// 双路命中按 noisy-OR 合成；`min_score` 作用于此值。
     pub score: f32,
     pub memory_type: MemoryType,
     /// 内容前若干字符的预览
@@ -169,6 +170,18 @@ pub struct SearchHit {
     /// 经图扩散到达时的边提示（None 表示直接命中）
     #[serde(default)]
     pub edge_hint: Option<mr_common::EdgeHint>,
+    /// 原始向量余弦相似度（仅向量通路命中时存在）。
+    #[serde(default)]
+    pub vector_score: Option<f32>,
+    /// 原始 BM25 分（仅全文通路命中时存在，量纲与余弦不可比）。
+    #[serde(default)]
+    pub fts_score: Option<f32>,
+    /// 查询词覆盖率（0-1，仅全文通路命中时存在）。
+    #[serde(default)]
+    pub coverage: Option<f32>,
+    /// 加权 RRF 名次分（0-1），用于同分裁决与可解释性。
+    #[serde(default)]
+    pub rank_score: Option<f32>,
 }
 
 /// 单个项目操作结果。
@@ -345,6 +358,10 @@ mod tests {
                 chunk_total: None,
                 created_at: Utc::now(),
                 edge_hint: None,
+                vector_score: Some(0.95),
+                fts_score: None,
+                coverage: None,
+                rank_score: None,
             }],
             total: 1,
             query_embedding_time_ms: 10,

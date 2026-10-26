@@ -2,9 +2,9 @@
 //!
 //! 基于 Tantivy 实现 BM25 全文搜索。
 
-use std::collections::HashSet;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 use tantivy::{
@@ -53,6 +53,59 @@ const TOKENIZER_VERSION: &str = "cn_jieba_v2";
 
 /// 版本标记文件名，写入 Tantivy 索引目录内。
 const VERSION_MARKER: &str = ".tokenizer_version";
+
+/// 覆盖率计算时忽略的高频虚词/功能词。
+///
+/// 这些词几乎出现在任意中文文本中，若计入覆盖率，会把"仅共享虚词"的无关文档
+/// 误判为高覆盖。仅影响 coverage 计算，不影响 Tantivy 建索引与 BM25 打分。
+fn is_coverage_stopword(token: &str) -> bool {
+    matches!(
+        token,
+        "的" | "了"
+            | "是"
+            | "在"
+            | "和"
+            | "与"
+            | "或"
+            | "把"
+            | "被"
+            | "让"
+            | "而"
+            | "及"
+            | "等"
+            | "之"
+            | "者"
+            | "么"
+            | "呢"
+            | "吗"
+            | "啊"
+            | "吧"
+            | "就"
+            | "也"
+            | "都"
+            | "很"
+            | "更"
+            | "其"
+            | "这"
+            | "那"
+            | "我"
+            | "你"
+            | "他"
+            | "她"
+            | "它"
+            | "我们"
+            | "你们"
+            | "他们"
+            | "这个"
+            | "那个"
+            | "一个"
+            | "什么"
+            | "怎么"
+            | "如何"
+            | "进行"
+            | "可以"
+    )
+}
 
 impl TantivySchema {
     fn build() -> (Schema, Self) {
@@ -266,6 +319,49 @@ impl TantivyStore {
         Box::new(BooleanQuery::new(clauses))
     }
 
+    /// 使用索引同款分词器切分查询，返回用于覆盖率计算的查询词集合。
+    ///
+    /// 过滤高频虚词，避免 `的/了/是` 等让"无关文档"也获得虚高覆盖率。
+    fn query_terms(&self, query: &str) -> HashSet<String> {
+        let mut terms = HashSet::new();
+        let Some(mut analyzer) = self.index.tokenizers().get(TOKENIZER_NAME) else {
+            return terms;
+        };
+        let mut stream = analyzer.token_stream(query);
+        while let Some(tok) = stream.next() {
+            if tok.text.is_empty() || is_coverage_stopword(&tok.text) {
+                continue;
+            }
+            terms.insert(tok.text.clone());
+        }
+        terms
+    }
+
+    /// 计算文档对查询词的覆盖率（0-1）：命中的查询词数 / 查询词总数。
+    ///
+    /// 覆盖率用于区分"语义命中"与"仅个别字词碰撞"：单路 BM25 命中若覆盖率过低，
+    /// 交由融合层丢弃，不再凭单次词项匹配获得高相关度。
+    fn coverage_ratio(&self, query_terms: &HashSet<String>, text: &str) -> f32 {
+        if query_terms.is_empty() {
+            return 0.0;
+        }
+        let Some(mut analyzer) = self.index.tokenizers().get(TOKENIZER_NAME) else {
+            return 0.0;
+        };
+        let mut stream = analyzer.token_stream(text);
+        let mut seen = HashSet::new();
+        let mut matched = 0usize;
+        while let Some(tok) = stream.next() {
+            if tok.text.is_empty() || !seen.insert(tok.text.clone()) {
+                continue;
+            }
+            if query_terms.contains(&tok.text) {
+                matched += 1;
+            }
+        }
+        matched as f32 / query_terms.len() as f32
+    }
+
     /// 批量写入文档，仅一次提交。用于启动自愈的全量重建，避免逐条提交的开销。
     pub async fn add_many(&self, docs: &[(Uuid, String, FtsPayload)]) -> Result<()> {
         if docs.is_empty() {
@@ -332,6 +428,10 @@ impl FtsStorage for TantivyStore {
             .search(&tantivy_query, &TopDocs::with_limit(top_k))
             .context("Failed to execute Tantivy search")?;
 
+        // 覆盖率基于查询词集合与文档内容计算，供融合层判断"真实语义/词项命中"
+        // 还是"个别字词碰撞"。查询词只切分一次。
+        let query_terms = self.query_terms(query);
+
         let mut hits = Vec::new();
 
         for (score, doc_address) in top_docs {
@@ -391,6 +491,22 @@ impl FtsStorage for TantivyStore {
                 }
             }
 
+            // 用正文 + 标签计算查询词覆盖率；正文过长时截取前 4000 字符，
+            // 在保证代表性的同时约束单次检索的分词开销。
+            let content_text = doc
+                .get_first(self.schema.content)
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let tags_text = doc
+                .get_first(self.schema.tags)
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let mut coverage_text = String::with_capacity(content_text.len() + tags_text.len() + 1);
+            coverage_text.push_str(&content_text.chars().take(4000).collect::<String>());
+            coverage_text.push(' ');
+            coverage_text.push_str(tags_text);
+            let coverage = self.coverage_ratio(&query_terms, &coverage_text);
+
             hits.push(SearchHit {
                 memory_id: id,
                 score,
@@ -410,11 +526,7 @@ impl FtsStorage for TantivyStore {
                         .map(|s| s.split_whitespace().map(String::from).collect())
                         .unwrap_or_default(),
                     // 从 STORED 的正文回填预览（截断 200 字符，与向量侧载荷口径一致）。
-                    content_preview: doc
-                        .get_first(self.schema.content)
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.chars().take(200).collect())
-                        .unwrap_or_default(),
+                    content_preview: content_text.chars().take(200).collect(),
                     importance: doc
                         .get_first(self.schema.importance)
                         .and_then(|v| v.as_f64())
@@ -423,6 +535,10 @@ impl FtsStorage for TantivyStore {
                     chunk_index: None,
                     chunk_total: None,
                 },
+                vector_score: None,
+                fts_score: Some(score),
+                coverage: Some(coverage),
+                rank_score: None,
             });
         }
 

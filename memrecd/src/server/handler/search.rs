@@ -107,6 +107,10 @@ impl Router {
                         chunk_total: h.payload.chunk_total,
                         created_at,
                         edge_hint: None,
+                        vector_score: h.vector_score,
+                        fts_score: h.fts_score,
+                        coverage: h.coverage,
+                        rank_score: h.rank_score,
                     });
                 }
 
@@ -215,6 +219,10 @@ impl Router {
                                             .join(" -> "),
                                         weight: gh.score,
                                     }),
+                                    vector_score: None,
+                                    fts_score: None,
+                                    coverage: None,
+                                    rank_score: None,
                                 });
                             }
                             tracing::debug!(target:"recall","graph hits pushed={}", pushed);
@@ -394,7 +402,6 @@ impl Router {
             ),
         }
     }
-
 
     pub(super) async fn build_tiered_result(
         &self,

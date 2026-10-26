@@ -33,6 +33,15 @@ impl Default for HybridConfig {
     }
 }
 
+/// RRF 平滑常数：越小越强调头部名次。60 为常用默认值。
+const RRF_K: f32 = 60.0;
+
+/// 全文单路命中的最低查询词覆盖率。
+///
+/// 低于该值时视为"个别字词碰撞"而非真实相关，避免单路 BM25 命中凭一个词
+/// 获得与语义命中相当的相关度。
+const MIN_FTS_COVERAGE: f32 = 0.30;
+
 /// 混合搜索存储。
 pub struct HybridStore {
     vector_store: Arc<dyn VectorStorage>,
@@ -72,8 +81,22 @@ impl HybridStore {
         self.fts_store.reload()
     }
 
-    /// 合并向量和全文检索结果并归一化。
-    fn merge_and_normalize(
+    /// 合并向量与全文检索结果，生成可解释的校准相关度。
+    ///
+    /// ## 分数模型
+    ///
+    /// - 向量贡献：原始余弦 `cos`（绝对值，0-1）。
+    /// - 全文贡献：查询词覆盖率 `coverage`（命中查询词数 / 查询词总数），
+    ///   而不是 BM25 原始分。BM25 量纲随查询与语料漂移，无法作为绝对阈值；
+    ///   覆盖率有明确语义，且能识别"只撞上一个词"的弱命中。
+    /// - 双路命中：`1 - (1 - cos)(1 - coverage)`（noisy-OR），两路都强时相互增强，
+    ///   单路命中时退化为该路自身的绝对分。
+    /// - `rank_score`：加权 RRF（`alpha` 向量路 + `1-alpha` 全文路），仅用于同分裁决
+    ///   与可解释性，不再把单路顶项固定为 `alpha`/`1-alpha`。
+    ///
+    /// 全文单路且覆盖率低于 [`MIN_FTS_COVERAGE`] 的候选在此直接丢弃；融合后的
+    /// 绝对阈值由调用方按双路证据统一判定。
+    fn merge_and_calibrate(
         vec_hits: Vec<SearchHit>,
         fts_hits: Vec<SearchHit>,
         alpha: f32,
@@ -81,66 +104,87 @@ impl HybridStore {
         if vec_hits.is_empty() && fts_hits.is_empty() {
             return Vec::new();
         }
+        let alpha = alpha.clamp(0.0, 1.0);
 
-        let (vec_min, vec_max) = vec_hits.iter().fold((f32::MAX, f32::MIN), |(min, max), h| {
-            (min.min(h.score), max.max(h.score))
-        });
+        // 名次映射：原始分降序，同分按 id 升序，保证多次运行结果确定。
+        fn rank_map(hits: &[SearchHit], raw: impl Fn(&SearchHit) -> f32) -> HashMap<Uuid, usize> {
+            let mut order: Vec<(Uuid, f32)> = hits.iter().map(|h| (h.memory_id, raw(h))).collect();
+            order.sort_by(|a, b| {
+                b.1.partial_cmp(&a.1)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.0.cmp(&b.0))
+            });
+            order
+                .into_iter()
+                .enumerate()
+                .map(|(i, (id, _))| (id, i + 1))
+                .collect()
+        }
 
-        let (fts_min, fts_max) = fts_hits.iter().fold((f32::MAX, f32::MIN), |(min, max), h| {
-            (min.min(h.score), max.max(h.score))
-        });
+        let vec_rank = rank_map(&vec_hits, |h| h.vector_score.unwrap_or(h.score));
+        let fts_rank = rank_map(&fts_hits, |h| h.fts_score.unwrap_or(h.score));
 
         let mut merged: HashMap<Uuid, SearchHit> = HashMap::new();
 
         for hit in vec_hits {
-            // 向量侧 score 为余弦相似度（越大越相似），归一化后应保持同向：
-            // 最相似项 -> 1.0，最不相似项 -> 0.0。此前写成 `1.0 - ...` 方向相反，
-            // 导致最相关记忆被压到最低分并垫底。
-            let norm_score = if (vec_max - vec_min).abs() < f32::EPSILON {
-                1.0
-            } else {
-                (hit.score - vec_min) / (vec_max - vec_min)
-            };
-            let final_score = alpha * norm_score;
-            merged.insert(
-                hit.memory_id,
-                SearchHit {
-                    memory_id: hit.memory_id,
-                    score: final_score,
-                    payload: hit.payload,
-                },
-            );
+            // 向量存储返回的 score 即原始余弦；这里直接作为绝对相关度。
+            let vec_abs = hit.score.clamp(0.0, 1.0);
+            let rank = vec_rank.get(&hit.memory_id).copied().unwrap_or(1);
+            let rrf = alpha / (RRF_K + rank as f32);
+            let mut hit = hit;
+            hit.score = vec_abs;
+            hit.vector_score = hit.vector_score.or(Some(vec_abs));
+            hit.fts_score = None;
+            hit.coverage = None;
+            hit.rank_score = Some(rrf);
+            merged.insert(hit.memory_id, hit);
         }
 
         for hit in fts_hits {
-            let norm_score = if (fts_max - fts_min).abs() < f32::EPSILON {
-                1.0
-            } else {
-                (hit.score - fts_min) / (fts_max - fts_min)
-            };
-            let fts_contrib = (1.0 - alpha) * norm_score;
+            let coverage = hit.coverage.unwrap_or(0.0).clamp(0.0, 1.0);
+            let fts_raw = hit.fts_score.unwrap_or(hit.score);
 
             if let Some(existing) = merged.get_mut(&hit.memory_id) {
-                existing.score += fts_contrib;
+                // 双路命中：保留向量载荷（含 chunk 信息），补全全文侧字段并做 noisy-OR。
+                let vec_abs = existing
+                    .vector_score
+                    .unwrap_or(existing.score)
+                    .clamp(0.0, 1.0);
+                existing.score = 1.0 - (1.0 - vec_abs) * (1.0 - coverage);
+                existing.fts_score = Some(fts_raw);
+                existing.coverage = Some(coverage);
+                let rank = fts_rank.get(&hit.memory_id).copied().unwrap_or(1);
+                let rrf = (1.0 - alpha) / (RRF_K + rank as f32);
+                existing.rank_score = Some(existing.rank_score.unwrap_or(0.0) + rrf);
             } else {
-                merged.insert(
-                    hit.memory_id,
-                    SearchHit {
-                        memory_id: hit.memory_id,
-                        score: fts_contrib,
-                        payload: hit.payload,
-                    },
-                );
+                // 全文单路：低覆盖视为字词碰撞，直接丢弃。
+                if coverage < MIN_FTS_COVERAGE {
+                    continue;
+                }
+                let rank = fts_rank.get(&hit.memory_id).copied().unwrap_or(1);
+                let rrf = (1.0 - alpha) / (RRF_K + rank as f32);
+                let mut hit = hit;
+                hit.score = coverage;
+                hit.vector_score = None;
+                hit.fts_score = Some(fts_raw);
+                hit.coverage = Some(coverage);
+                hit.rank_score = Some(rrf);
+                merged.insert(hit.memory_id, hit);
             }
         }
 
         let mut result: Vec<SearchHit> = merged.into_values().collect();
-        // 确定性排序：分数降序，同分按 memory_id 升序，避免 HashMap 迭代顺序导致
-        // 同分命中排名在多次运行间漂移（影响 MRR/nDCG 的可复现性）。
+        // 确定性排序：相关度降序 -> RRF 名次分降序 -> memory_id 升序。
         result.sort_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    b.rank_score
+                        .unwrap_or(0.0)
+                        .partial_cmp(&a.rank_score.unwrap_or(0.0))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
                 .then_with(|| a.memory_id.cmp(&b.memory_id))
         });
         result
@@ -168,10 +212,15 @@ impl MmrHit for MmrSearchHit {
 impl HybridStorage for HybridStore {
     async fn search(&self, req: HybridSearchRequest) -> Result<HybridSearchResult> {
         let filter = req.filter.clone();
+        // 向量侧不在 KNN 阶段应用 min_score：融合需要同时看到原始余弦与查询词覆盖率，
+        // 过早裁掉会让"低余弦但高词覆盖"的精确 token 命中无法进入融合。阈值在融合后
+        // 按双路证据统一判定（见下方 retain）。
+        let mut vector_filter = filter.clone();
+        vector_filter.min_score = 0.0;
         let (vec_result, fts_result) = tokio::join!(
             self.vector_store
-                .search(&req.query_embedding, filter.clone(), req.top_k),
-            self.fts_store.search(&req.query, filter.clone(), req.top_k)
+                .search(&req.query_embedding, vector_filter, req.top_k),
+            self.fts_store.search(&req.query, filter, req.top_k)
         );
 
         let vec_hits = vec_result?;
@@ -180,26 +229,40 @@ impl HybridStorage for HybridStore {
         let vec_count = vec_hits.len();
         let fts_count = fts_hits.len();
 
-        let merged = Self::merge_and_normalize(vec_hits, fts_hits, req.hybrid_alpha);
+        let merged = Self::merge_and_calibrate(vec_hits, fts_hits, req.hybrid_alpha);
 
         // 3. Apply scoring (time decay + source weight)
         // TODO: Need created_at/scope/source in VectorPayload or SearchHit for scoring
         // For now, skip scoring step - scorer_config is reserved for future use
         let _ = &self.scorer_config;
 
-        let mut sorted = merged;
+        // 融合后按"绝对证据"统一过滤：
+        // - 向量证据：原始余弦 >= min_score；
+        // - 全文证据：查询词覆盖率 >= MIN_FTS_COVERAGE（单路低覆盖视为字词碰撞）；
+        // - 至少一路成立，且 noisy-OR 融合分 >= min_score。
+        // 这样既不会把"单路 BM25 命中"直接抬到 0.5，也不会让两路都很弱的候选
+        // 靠 noisy-OR 互相抬轿子。
+        let min_score = req.filter.min_score;
+        let mut sorted: Vec<SearchHit> = merged
+            .into_iter()
+            .filter(|h| {
+                let vec_ok = h.vector_score.is_some_and(|v| v >= min_score);
+                let fts_ok = h.coverage.is_some_and(|c| c >= MIN_FTS_COVERAGE);
+                (vec_ok || fts_ok) && h.score >= min_score
+            })
+            .collect();
         sorted.sort_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    b.rank_score
+                        .unwrap_or(0.0)
+                        .partial_cmp(&a.rank_score.unwrap_or(0.0))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
                 .then_with(|| a.memory_id.cmp(&b.memory_id))
         });
-        // 量纲分离：`min_score` 只约束"原始向量余弦相似度"，由向量存储在 KNN 阶段
-        // 过滤（[`VectorStorage::search`]）。融合分是 min-max 归一化后再按 alpha 加权的
-        // **相对量**，与原始相似度不可比；此前对融合结果再套同一阈值做绝对截断，会产生
-        // 两个后果：纯向量命中的顶项恒等于 alpha（默认 0.5），恰与默认 min_score 相等，
-        // 于是结果被过度裁剪到仅剩顶项（表现为分数"钉在 0.5"、区分度丧失）。
-        // 因此这里不再做绝对阈值截断，命中集由向量的绝对阈值与 top_k 共同约束。
         sorted.truncate(req.top_k);
 
         let final_hits = if req.mmr_enabled {
@@ -380,11 +443,10 @@ mod tests {
         assert_eq!(result.hits.first().map(|h| h.memory_id), Some(target));
     }
 
-    /// 回归：融合层不得再套用 `min_score` 绝对阈值。
+    /// 回归：融合层以绝对校准分排序，`min_score` 作用在绝对相关度上。
     ///
-    /// 纯向量命中（alpha=0.5）的顶项融合分恒为 0.5，恰等于默认 min_score；若仍按
-    /// 绝对阈值截断，将只保留顶项、丢失其余已达原始相似度门槛的候选。修复后应保留
-    /// 全部通过向量绝对阈值（余弦 >= min_score）的候选。
+    /// 三条候选余弦为 1.0 / 0.8 / 0.6，均 >= 0.5，故全部保留；不再出现
+    /// "纯向量顶项恒为 alpha=0.5、恰等于阈值"的裁剪现象。
     #[tokio::test]
     async fn test_fused_min_score_does_not_truncate_to_top() {
         let vector_store = Arc::new(VectorStore::new(3));
@@ -431,6 +493,118 @@ mod tests {
                 .hits
                 .iter()
                 .map(|h| (h.memory_id, h.score))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// 构造内部命中，便于直接验证融合函数。
+    fn make_hit(
+        id: Uuid,
+        score: f32,
+        vector_score: Option<f32>,
+        fts_score: Option<f32>,
+        coverage: Option<f32>,
+    ) -> SearchHit {
+        SearchHit {
+            memory_id: id,
+            score,
+            payload: VectorPayload::default(),
+            vector_score,
+            fts_score,
+            coverage,
+            rank_score: None,
+        }
+    }
+
+    /// 单路向量命中不得被固定为 alpha（默认 0.5），必须保留原始余弦的绝对量纲。
+    #[test]
+    fn test_merge_calibrate_vector_score_is_absolute() {
+        let id = Uuid::new_v4();
+        let out = HybridStore::merge_and_calibrate(
+            vec![make_hit(id, 0.58, Some(0.58), None, None)],
+            vec![],
+            0.5,
+        );
+        assert_eq!(out.len(), 1);
+        assert!(
+            (out[0].score - 0.58).abs() < 1e-6,
+            "向量单路应保留绝对余弦，实际 {}",
+            out[0].score
+        );
+    }
+
+    /// 全文单路且覆盖率过低：视为字词碰撞，融合层直接丢弃。
+    #[test]
+    fn test_merge_calibrate_drops_low_coverage_fts_only() {
+        let id = Uuid::new_v4();
+        let out = HybridStore::merge_and_calibrate(
+            vec![],
+            vec![make_hit(id, 0.0, None, Some(3.0), Some(0.17))],
+            0.5,
+        );
+        assert!(out.is_empty(), "低覆盖全文命中应被丢弃: {out:?}");
+    }
+
+    /// 双路命中按 noisy-OR 合成：单路都强时相关度接近 1，且保留两路原始分。
+    #[test]
+    fn test_merge_calibrate_dual_route_noisy_or() {
+        let id = Uuid::new_v4();
+        let out = HybridStore::merge_and_calibrate(
+            vec![make_hit(id, 0.60, Some(0.60), None, None)],
+            vec![make_hit(id, 0.0, None, Some(4.0), Some(1.0))],
+            0.5,
+        );
+        assert_eq!(out.len(), 1);
+        assert!(
+            (out[0].score - 1.0).abs() < 1e-6,
+            "双路满分应合成 1.0，实际 {}",
+            out[0].score
+        );
+        assert_eq!(out[0].vector_score, Some(0.60));
+        assert_eq!(out[0].fts_score, Some(4.0));
+        assert_eq!(out[0].coverage, Some(1.0));
+        assert!(out[0].rank_score.unwrap_or(0.0) > 0.0);
+    }
+
+    /// 端到端回归：无关查询（仅个别字词命中）不得返回结果。
+    #[tokio::test]
+    async fn test_unrelated_query_returns_empty_with_default_threshold() {
+        let hybrid = vector_only_store();
+        // 与查询向量正交（cos=0），仅"无关"一词与查询重叠。
+        hybrid
+            .add(
+                &Uuid::new_v4(),
+                &[0.0, 1.0, 0.0],
+                "无关模块：panel 面板随机效应",
+                VectorPayload {
+                    content_preview: "无关模块：panel 面板随机效应".to_string(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        hybrid.reload().unwrap();
+
+        let req = HybridSearchRequest {
+            query: "完全无关的烘焙面包配方".to_string(),
+            query_embedding: vec![1.0, 0.0, 0.0],
+            filter: SearchFilter {
+                min_score: 0.5,
+                ..Default::default()
+            },
+            top_k: 10,
+            hybrid_alpha: 0.5,
+            mmr_lambda: 0.5,
+            mmr_enabled: false,
+        };
+        let result = hybrid.search(req).await.unwrap();
+        assert!(
+            result.hits.is_empty(),
+            "无关查询不应返回结果，实际: {:?}",
+            result
+                .hits
+                .iter()
+                .map(|h| (h.memory_id, h.score, h.coverage))
                 .collect::<Vec<_>>()
         );
     }

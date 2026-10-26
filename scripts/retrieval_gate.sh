@@ -5,11 +5,13 @@
 # 用途：作为多步骤测试与部署流程中的强制质量关卡，每次改动后校验检索排序质量，
 #       防止「向量归一化方向、中文分词、MMR 重排」等导致的相关性回归。
 #
-# 校验两部分：
+# 校验三部分：
 #   1. 自检索（纯向量、关闭 MMR）：抽样记忆，以其正文片段为查询，要求能检索到自身。
 #      这一项直接锁定向量通路「最相似者优先」的不变量，能捕获归一化方向反转。
 #   2. 语义金标集（混合检索）：eval/retrieval_golden.jsonl 中的改写查询，要求
 #      hit@k 与 MRR 达标，衡量真实语义召回与排序质量。
+#   3. 负例（无关查询）：完全无关的查询不得因个别字词碰撞得到高置信结果
+#      （top1 校准分必须低于默认阈值），锁定「单路 BM25 命中不再等于 0.5」。
 #
 # 依赖：memrecd 正在运行；PATH 中存在 memrec 与 jq。
 # 退出码：0=通过；非 0=任一项未达标（可用于 CI / 部署流程阻断）。
@@ -27,6 +29,7 @@ SELF_SAMPLE="${RETRIEVAL_GATE_SELF_SAMPLE:-120}"
 GOLDEN_MIN_HIT="${RETRIEVAL_GATE_MIN_HIT:-0.80}"
 GOLDEN_MIN_MRR="${RETRIEVAL_GATE_MIN_MRR:-0.55}"
 SELF_MIN_RECALL="${RETRIEVAL_GATE_MIN_SELF_RECALL:-0.97}"
+NEG_MAX_TOP="${RETRIEVAL_GATE_NEG_MAX_TOP:-0.5}"
 
 command -v "$MEMREC_BIN" >/dev/null || { echo "找不到 memrec 可执行文件: $MEMREC_BIN"; exit 2; }
 command -v jq >/dev/null || { echo "缺少 jq"; exit 2; }
@@ -76,6 +79,24 @@ if ! ge "$mrr" "$GOLDEN_MIN_MRR"; then
   echo "[retrieval-gate]   失败：MRR 未达标"
   fail=1
 fi
+
+# ---------- 3. 负例（无关查询不得给出高置信结果） ----------
+# 以 min_score=0 观察原始排序，要求 top1 校准分严格低于默认阈值。
+# 该用例锁定"单路词项碰撞不再等价于 0.5"的不变量。
+neg_queries=(
+  "如何给宠物仓鼠挑选跑轮"
+  "如何制作抹茶提拉米苏甜点"
+  "深海热泉喷口附近的化能合成生态系统有哪些物种"
+)
+for q in "${neg_queries[@]}"; do
+  top="$("$MEMREC_BIN" search "$q" -a --min-score 0 -k 1 2>/dev/null \
+    | jq -r '.result.results[0].score // 0' 2>/dev/null || echo 0)"
+  echo "[retrieval-gate] 负例：\"$q\" top1=$top（要求 < $NEG_MAX_TOP）"
+  if ! awk -v a="$top" -v b="$NEG_MAX_TOP" 'BEGIN { exit !(a < b) }'; then
+    echo "[retrieval-gate]   失败：无关查询 top1 达到或超过阈值"
+    fail=1
+  fi
+done
 
 if [ "$fail" -ne 0 ]; then
   echo "[retrieval-gate] 未通过"

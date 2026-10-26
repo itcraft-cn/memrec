@@ -101,8 +101,8 @@ pub struct SearchFilter {
     /// 仅检索全局记忆（project_id 为 None；nil 视为历史遗留的全局）。
     pub global_only: bool,
     pub memory_type: Option<String>,
-    /// 最低相似度，仅作用于**原始向量余弦相似度**（向量存储在 KNN 阶段过滤）。
-    /// 融合检索分（min-max 归一化 + alpha 加权）为相对量，不再套用该阈值。
+    /// 最低相关度阈值。混合检索在融合后以此过滤校准相关度（0-1）；
+    /// 直接调用向量存储时仍按原始余弦相似度过滤。
     pub min_score: f32,
 }
 
@@ -115,8 +115,22 @@ pub fn is_global_project(project_id: &Option<Uuid>) -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchHit {
     pub memory_id: Uuid,
+    /// 融合后的校准相关度（0-1）。向量通路取原始余弦，全文通路取查询词覆盖率，
+    /// 双路命中按 noisy-OR 合成；用于排序、展示与 `min_score` 阈值。
     pub score: f32,
     pub payload: VectorPayload,
+    /// 原始向量余弦相似度（仅向量通路命中时存在）。
+    #[serde(default)]
+    pub vector_score: Option<f32>,
+    /// 原始 BM25 分（仅全文通路命中时存在，量纲与余弦不可比）。
+    #[serde(default)]
+    pub fts_score: Option<f32>,
+    /// 查询词覆盖率（0-1）：命中的查询词数 / 查询词总数（仅全文通路计算）。
+    #[serde(default)]
+    pub coverage: Option<f32>,
+    /// 加权 RRF 名次分（0-1），用于同分裁决与可解释性。
+    #[serde(default)]
+    pub rank_score: Option<f32>,
 }
 
 /// 向量存储 trait。

@@ -120,6 +120,10 @@ impl VectorStorage for VectorStore {
                 memory_id: id,
                 score,
                 payload: VectorPayload::default(),
+                vector_score: Some(score),
+                fts_score: None,
+                coverage: None,
+                rank_score: None,
             })
             .collect();
 

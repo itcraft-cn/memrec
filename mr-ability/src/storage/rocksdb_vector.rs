@@ -93,7 +93,10 @@ impl RocksDBVectorStore {
         }
 
         let cache = self.cache.lock().unwrap();
-        let cf_vectors = self.db.cf_handle(CF_VECTORS).context("CF_VECTORS not found")?;
+        let cf_vectors = self
+            .db
+            .cf_handle(CF_VECTORS)
+            .context("CF_VECTORS not found")?;
 
         let mut batch = WriteBatch::default();
 
@@ -163,7 +166,10 @@ impl VectorStorage for RocksDBVectorStore {
         if existed {
             *self.dirty.lock().unwrap() = true;
 
-            let cf_vectors = self.db.cf_handle(CF_VECTORS).context("CF_VECTORS not found")?;
+            let cf_vectors = self
+                .db
+                .cf_handle(CF_VECTORS)
+                .context("CF_VECTORS not found")?;
             self.db.delete_cf(&cf_vectors, id.to_string().as_bytes())?;
         }
         Ok(existed)
@@ -204,7 +210,8 @@ impl VectorStorage for RocksDBVectorStore {
                     }
 
                     if filter.memory_type.is_some()
-                        && Some(stored.payload.memory_type.as_str()) != filter.memory_type.as_deref()
+                        && Some(stored.payload.memory_type.as_str())
+                            != filter.memory_type.as_deref()
                     {
                         return None;
                     }
@@ -237,6 +244,10 @@ impl VectorStorage for RocksDBVectorStore {
                     memory_id: id,
                     score,
                     payload: stored.payload.clone(),
+                    vector_score: Some(score),
+                    fts_score: None,
+                    coverage: None,
+                    rank_score: None,
                 })
             })
             .collect();
