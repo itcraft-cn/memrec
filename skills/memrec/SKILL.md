@@ -1,257 +1,222 @@
 ---
 name: memrec
-description: AI记忆持久化系统。使用memrec存储、检索、管理跨会话记忆。支持项目隔离、混合检索（KNN+BM25）、MMR重排、中文搜索。触发场景：(1)重要决策需记录，(2)关键知识需保存，(3)项目上下文需跨会话保持，(4)用户偏好需记忆，(5)检索历史知识辅助当前任务。
+description: AI 记忆持久化系统。用 memrec 跨会话保存与检索项目决策、知识、上下文和用户偏好。支持 MCP（优先）与 CLI、项目隔离、混合检索（KNN+BM25）、中文分词、MMR 重排、软删除与 Dream 整合。触发场景：需要记录重要决策或知识、需要回忆历史结论/路径/数字、需要跨会话保持项目上下文、需要解释检索结果可信度。
 ---
 
-# MemRec - AI记忆持久化系统
+# MemRec - AI 记忆持久化系统
 
-为AI CLI工具提供跨会话记忆能力，支持项目隔离和混合检索（KNN + BM25）。
+面向 AI Agent 的本地记忆库。写入以原文直存为主，检索为混合检索；目标不是"替你想"，而是"帮你准确找回之前确认过的事实"。
 
-## 触发场景
+## 何时使用
 
-1. 重要决策需记录 → `memrec add --mtype decision --tag critical`
-2. 关键知识需保存 → `memrec add --mtype knowledge`
-3. 项目上下文需跨会话保持 → 自动关联项目ID
-4. 用户偏好需记忆 → `memrec add --mtype preference --global`
-5. 检索历史知识辅助当前任务 → `memrec search "关键词"`
-6. 创建主题聚合 → `memrec scene create "主题" --tag xxx`
-7. 查看统计信息 → `memrec stats`
-8. 恢复误删记忆 → `memrec list --deleted` → `memrec restore <id>`
+| 场景 | 动作 |
+|------|------|
+| 做出决策、确认结论、踩坑修复完成 | `mr_add` 记录（decision / knowledge） |
+| 开始任务，需要历史结论、命令、路径、数字 | `mr_search` 先检索 |
+| 需要用户偏好或跨项目通用约定 | `mr_search` + `scope: global` |
+| 需要完整原文或分块合并 | `mr_get`（先确认 `is_deleted`） |
+| 需要盘点、统计、查看 Dream 运行 | `mr_list` / `mr_stats` / `mr_dream_report` |
+| 用户明确要求整合/清理旧记忆 | `mr_dream`（先 `dry_run`） |
+| 误删恢复 | CLI `memrec restore <id>` |
 
-## MCP Server
+不要用它做：实时数据查询、外部知识搜索、需要 LLM 抽取/改写事实的场景。MemRec 保真优先，写入什么就存什么。
 
-MemRec 可作为 MCP Server 直接被 AI 客户端（Claude Code、Codex、OpenCode）调用，无需 CLI 命令。
+## 优先使用 MCP
 
-**启动方式：** `memrec --mcp`（stdio 模式）
+MCP 模式：`memrec --mcp`（stdio）。
 
-**客户端配置：**
 ```json
 {
   "mcpServers": {
-    "memrec": {
-      "command": "memrec",
-      "args": ["--mcp"]
-    }
+    "memrec": { "command": "memrec", "args": ["--mcp"] }
   }
 }
 ```
 
-**MCP Tools：**
+MCP 不可用时再退回 CLI。两者共享同一守护进程与数据。
 
-| Tool | 功能 | 必需参数 | 范围参数 |
-|------|------|----------|----------|
-| `mr_add` | 添加记忆 | `content`, `memory_type` | `is_global` |
-| `mr_search` | 语义检索 | `query` | `scope`（project/global/all，缺省按 `.mr_pid` 推断） |
-| `mr_get` | 获取单条记忆 | `id` | - |
-| `mr_list` | 列出记忆 | - | `scope`（project/global/all，缺省按 `.mr_pid` 推断） |
-| `mr_delete` | 删除记忆 | `id` | - |
-| `mr_stats` | 统计信息 | - | - |
+## MCP 工具一览
 
-> `scope` 与 CLI 的 `-p/-g/-a` 对齐：`project`=仅当前项目、`global`=仅公共记忆、`all`=跨所有项目。
-> 均未指定时按项目根 `.mr_pid` 是否存在推断（存在→project，不存在→global）。
+| Tool | 用途 | 主要参数 |
+|------|------|----------|
+| `mr_add` | 写入记忆 | `content`、`memory_type`、`tags`、`is_global` |
+| `mr_search` | 混合检索 | `query`、`top_k`、`min_score`、`scope`、`memory_type` |
+| `mr_get` | 取单条完整记忆 | `id`、`merge` |
+| `mr_list` | 枚举记忆 | `limit`、`scope` |
+| `mr_delete` | 软删除 | `id` |
+| `mr_stats` | 统计 | 无 |
+| `mr_dream` | 触发 Dream 整合 | `force`、`dry_run` |
+| `mr_dream_report` | 查看 Dream 审计 | `last` |
 
-**MCP Resources：**
+### mr_add
 
-| URI | 描述 |
+```json
+{
+  "content": "选择 JWT 认证：access 15min + refresh 7d，密钥轮换 30d",
+  "memory_type": "decision",
+  "tags": ["auth", "critical"],
+  "is_global": false
+}
+```
+
+- `memory_type`：`decision` / `knowledge` / `context` / `preference` / `conversation`。
+- `tags`：建议 `critical`（重要）、`fact`（客观事实）、`best-practice`（模式）；写入前自行去重，避免 `["dream-integrated","dream-integrated"]`。
+- `is_global: true` 仅用于跨项目通用偏好/约定；项目内结论不要全局化。
+- 写入默认开启去重（服务端 `duplicate_threshold` / `update_threshold`）。MCP 返回只有一行 `Added memory: <id> (...)`，不暴露 `action`/`duplicates`；需要知道是新增、跳过还是合并时，用 CLI 的 JSON 输出。
+
+### mr_search
+
+```json
+{
+  "query": "认证方案 令牌轮换",
+  "top_k": 8,
+  "min_score": 0.5,
+  "scope": "project"
+}
+```
+
+- `top_k`：建议 5-10；过大只会把低相关结果和 token 一起带进来。
+- `min_score`：默认 0.5。MiniLM 模型建议显式 0.75；`MEMREC_MIN_SCORE` 可改默认值。
+- `scope`：`project` 仅当前项目、`global` 仅公共记忆、`all` 跨项目。省略时按项目根 `.mr_pid` 推断（存在→project，否则→global）。
+- 结果只含 200 字符 `content_preview`；需要全文时对少量命中调用 `mr_get`。
+
+### mr_get
+
+- 返回完整 `Memory`，包含 `embedding`（BGE-M3 为 1024 维）。这个字段对判断内容没有帮助，忽略即可，不要把它带入后续推理。
+- 返回可能带 `is_deleted: true`。软删除记录不能作为证据；需要时先用 CLI `memrec restore <id>`。
+- `merge: true` 用于分块记忆，按 `chunk_index` 拼接全文。
+
+### mr_list
+
+- 只支持 `limit`（默认 20）与 `scope`；返回完整 `Memory`，可能较大。
+- 需要按标签/类型/分页时用 CLI（`--tag`、`--type-filter`、`--skip`、`--deleted`）。
+
+### mr_delete / mr_stats
+
+- `mr_delete` 是软删除，不物理删除。
+- `mr_stats` 返回 `total` / `active` / `deleted`；`total` 含删除态，评估库大小时看 `active`。
+
+### mr_dream / mr_dream_report
+
+- `mr_dream` 会整合旧记忆，可能合并、改写或软删原条。只在用户明确要求"整合/清理记忆"时调用，且先 `dry_run: true` 预览。
+- `force: true` 绕过 24h / 新记忆数量门槛；不要用 `force` 代替正常门控。
+- `mr_dream_report` 用于审计最近运行：候选、簇、边、门控结果、质量指标。
+
+### MCP Resources
+
+| URI | 内容 |
 |-----|------|
 | `memrec://stats` | 记忆统计 |
 | `memrec://project` | 当前项目信息 |
 
-**示例：**
-```json
-// mr_add
-{"name": "mr_add", "arguments": {"content": "选择JWT认证", "memory_type": "decision", "tags": ["auth", "critical"]}}
+## 检索结果怎么读
 
-// mr_search（默认范围：按 .mr_pid 推断）
-{"name": "mr_search", "arguments": {"query": "认证方案", "min_score": 0.75}}
+`mr_search` 返回的每个命中包含：
 
-// mr_search 仅当前项目
-{"name": "mr_search", "arguments": {"query": "认证方案", "scope": "project"}}
+| 字段 | 含义 | 使用建议 |
+|------|------|----------|
+| `score` | 校准相关度 0-1 | 主判断指标；向量单路=余弦，全文单路=覆盖率，双路=noisy-OR |
+| `vector_score` | 原始向量余弦（仅向量命中） | 高表示语义相近；为 null 表示该条不是向量召回 |
+| `fts_score` | 原始 BM25（仅全文命中） | 只用于判断词项命中；跨查询不可比，不要拿它当阈值 |
+| `coverage` | 查询词覆盖率（仅全文命中） | 高表示查询词覆盖充分；单路低于 0.30 会被丢弃 |
+| `rank_score` | 加权 RRF 名次分 | 同分裁决用，一般忽略 |
+| `content_preview` | 前 200 字符 | 不足以判断时再 `mr_get` |
+| `edge_hint` | 图扩散来源 | 表示经 Dream 语义边到达，不是直接命中 |
+| `is_chunked` / `chunk_*` | 分块信息 | 需要全文用 `mr_get merge:true` |
 
-// mr_search 仅公共记忆
-{"name": "mr_search", "arguments": {"query": "用户偏好", "scope": "global"}}
+判断要点：
 
-// mr_search 跨项目
-{"name": "mr_search", "arguments": {"query": "xlsb", "scope": "all"}}
+1. `score` 高且 `vector_score` 有值：语义命中，可信度较高。
+2. `score` 高但 `vector_score` 为 null：词项/覆盖率命中；看 `coverage`，低覆盖要警惕"只撞上一个词"。
+3. `score` 在 0.5 附近且 `vector_score` 也在 0.5 附近：边界命中，建议换关键词或放宽 `scope` 再查一次。
+4. 结果为 `edge_hint`：这是图扩散结果，仍需用原文验证。
 
-// mr_list 仅当前项目
-{"name": "mr_list", "arguments": {"limit": 20, "scope": "project"}}
+当前检索参数默认值：混合权重 `alpha=0.5`、MMR 开启且 `lambda=0.5`、时间衰减与来源权重尚未接入排序（配置存在但未生效）。CLI `search` 未暴露 alpha/MMR 开关；需要隔离验证时用 `memrec eval --alpha/--no-mmr`。
 
-// mr_list 跨所有项目
-{"name": "mr_list", "arguments": {"limit": 50, "scope": "all"}}
-```
+## 记忆模型
 
-## 核心命令
+### 类型
 
-### 存储记忆
+| 类型 | 用途 |
+|------|------|
+| `decision` | 关键决策、方案取舍 |
+| `knowledge` | 已确认知识、事实、最佳实践 |
+| `context` | 项目配置、环境、技术栈 |
+| `preference` | 用户偏好（通常 global） |
+| `conversation` | 对话记录（默认） |
 
-```bash
-memrec add "内容" --mtype <type> [--tag <tag>] [--global] [--source <source>] [--scope <scope>]
-```
+### 标签
 
-**记忆类型：**
-- `decision` - 关键决策（推荐--tag critical）
-- `knowledge` - 知识点（通过tag细分）
-- `context` - 项目配置/环境信息
-- `preference` - 用户偏好（推荐--global）
-- `conversation` - 对话记录（默认）
+- `critical`：重要且应优先保留/检索。
+- `fact`：客观事实、数字、路径、命令。
+- `best-practice`：可复用模式。
+- 其余标签按项目/主题自定，保持短、稳定、可复用；写入前先去重。
 
-**来源权重（--source）：**
-| 值 | 说明 | 搜索权重 |
-|-----|------|----------|
-| `user`（默认） | 用户输入 | 最高 |
-| `system` | 系统生成 | 中等 |
-| `inferred` | AI推断 | 较低 |
-| `external` | 外部导入 | 较低 |
+### 作用域与 `.mr_pid`
 
-**示例：**
-```bash
-# 事实类知识
-memrec add "光速c=3×10⁸m/s，真空环境中恒定" --mtype knowledge --tag fact --tag physics
-memrec add "欧拉公式：e^(iπ)+1=0" --mtype knowledge --tag fact --tag math
+- 项目记忆：守护进程在项目根（优先 git root）维护 `.mr_pid`，格式为 `memrec_project_id=<uuid>` + `created_at`，首次非全局写入时自动创建。
+- 全局记忆：`project_id = None`（不是全零 UUID），通过 `--global` / `is_global: true` 写入。
+- 默认读取范围：`.mr_pid` 存在→project，否则→global。**常见陷阱**：在尚未注册的目录里只读不写时，默认范围是 global，容易漏掉项目记忆；先完成一次非全局写入生成 `.mr_pid`，或检索时显式用 `scope: all`。
+- 非全局写入不会落到 global：守护进程会在项目根自动创建 `.mr_pid` 并写入项目。若发现写入被归到别的项目，检查调用方传入的 `working_dir`（git root 是否多副本）。
+- `.mr_pid` 不应提交到 git，加入 `.gitignore`。
 
-# 最佳实践
-memrec add "RAII模式：资源获取即初始化，析构自动释放" --mtype knowledge --tag best-practice --tag rust
+### 删除与恢复
 
-# 决策
-memrec add "选择JWT认证方案" --mtype decision --tag auth --tag critical
+- `mr_delete` / `memrec delete` 为软删除；`memrec restore <id>` 恢复并重新加入检索索引。
+- `memrec list --deleted` 查看软删除原始记录。
+- `memrec get` 可能返回已删除记录；使用前检查 `is_deleted`。
 
-# 用户偏好（来源明确标记）
-memrec add "用户偏好详细输出" --mtype preference --tag output --global --source user
-
-# 项目上下文
-memrec add "技术栈：Rust+Tokio+RocksDB" --mtype context --tag tech
-
-# AI推断的知识
-memrec add "根据代码模式推断偏好函数式风格" --mtype knowledge --source inferred
-```
-
-### 混合检索
+## CLI 参考
 
 ```bash
-memrec search "关键词" [-p|-g|-a] [-k <num>]
-```
-
-**搜索流程：**
-1. KNN + BM25 并行搜索，合并归一化分数
-2. 时间衰减：近期记忆权重更高（knowledge/decision 豁免）
-3. 来源权重：user > system > inferred/external
-4. MMR 重排：结果多样性，减少冗余
-
-**中文搜索：** 自动支持，使用 N-gram 分词器（2-4 字）
-
-**搜索范围（三态互斥，未指定时按 `.mr_pid` 是否存在推断）：**
-| 选项 | 范围 | 用途 |
-|------|------|------|
-| 默认 | 有 `.mr_pid` → 仅当前项目；无 → 仅公共记忆 | 自动推断 |
-| `-p, --project` | 仅当前项目 | 精确项目内搜索 |
-| `-g, --global` | 仅公共记忆 | 查找用户偏好 |
-| `-a, --all` | 所有项目（跨项目） | 查找跨项目关联记忆 |
-
-**高级选项：**
-| 选项 | 说明 | 默认值 |
-|------|------|--------|
-| `--hybrid-alpha` | KNN vs BM25权重（0=纯BM25，1=纯KNN） | 0.5 |
-| `--mmr-enabled` | 启用MMR重排 | true |
-| `--mmr-lambda` | MMR多样性（0=最大多样性，1=最大相关性） | 0.7 |
-| `--min-score` | 最低相似度阈值 | 0.5（BGE-M3）/ 0.75（MiniLM） |
-
-**示例：**
-```bash
-memrec search "认证方案"
-memrec search "Rust最佳实践" -p
-memrec search "用户偏好" -g -k 20
-memrec search "xlsb" -a                      # 跨项目搜索
-memrec search "架构" --human                  # 中文搜索
-memrec search "算法" --hybrid-alpha 0.8       # 更偏重向量检索
-memrec search "决策" --mmr-enabled false      # 禁用MMR
-memrec search "知识" --mmr-lambda 0.5         # 更多样的结果
-```
-
-### 其他命令
-
-```bash
-memrec get <memory-id> [--merge]
-memrec list [--limit <num>] [--skip <num>] [-p|-g|-a] [--deleted]
-memrec list [--tag <tag>] [--type <type>]     # 按标签/类型过滤
+memrec add "内容" --mtype <type> [--tag <tag>]... [--global] [--source <source>] [--scope <scope>] [--no-dedup] [--human]
+memrec search "关键词" [-p|-g|-a] [-k <num>] [--min-score <f>] [--mtype <type>] [--human]
+memrec get <id> [--merge] [--human]
+memrec list [-l <num>] [--skip <num>] [-p|-g|-a] [--tag <tag>]... [--type-filter <type>] [--deleted] [--human]
+memrec delete <id> [--human]
+memrec restore <id> [--human]
 memrec stats
 memrec version
-memrec delete <memory-id>
-memrec restore <memory-id>                    # 恢复软删除记忆
-memrec scene create <theme> [--tag <tag>]     # 创建场景
-memrec scene list [--sort-by-heat]            # 列出场景
-memrec scene add-memory <scene-id> <memory-id>
-memrec scene remove-memory <scene-id> <memory-id>
-memrec scene get <scene-id>
-memrec scene update-heat <scene-id> <heat>
-memrec dream [--force]                        # 手动触发Dream整合
+memrec dream [--force] [--dry-run] [--human]
+memrec dream-report [--last <num>] [--human]
+memrec eval <dataset.jsonl> [--k <num>] [--alpha <f>] [--no-mmr] [--human]
+memrec scene create|get|list|delete|add-memory|remove-memory|update-heat ...
 ```
 
-## 项目隔离
+说明：
 
-**自动检测机制：**
-- 优先检测git root（`git rev-parse --show-toplevel`）
-- 若非git仓库，使用当前工作目录
-- 在项目根目录创建 `.mr_pid` 文件存储project_id
+- `add` 的 `--mtype` 必填；`--tag` 可重复；`--source` 取值 `user`（默认）/`system`/`inferred`/`external`，仅作元数据，当前不参与排序。
+- `add --scope` 仅设置记忆的 scope 元数据（project/global），不改变项目归属；项目归属由 `--global` 与 `.mr_pid` 决定（`workspace` 已废弃，不要新写）。
+- `add` 默认去重；`--no-dedup` 跳过。需要查看 `action`（added/skipped/updated）与 `duplicates` 时用默认 JSON 输出。
+- `search` 的范围三态互斥；默认按 `.mr_pid` 推断。`--mtype` 过滤记忆类型。
+- `list` 的 `--type-filter` 不是 `--type`；`--tag` 可重复且要求全部命中。
+- `eval` 为只读评测：`--alpha` 控制向量权重（0=纯全文，1=纯向量），`--no-mmr` 关闭多样性重排。
+- `scene` 是主题聚合，按需使用，不影响主检索。
 
-| 类型 | 用途 | project_id |
-|------|------|------------|
-| 公共记忆（--global） | 跨项目共享知识和用户偏好 | `Uuid::nil()`（全0） |
-| 项目记忆 | 项目特定决策和上下文 | `.mr_pid`中的UUID |
+## 工作流
 
-**检索范围（三态互斥，未指定时按 `.mr_pid` 是否存在推断）：**
-- 默认：有 `.mr_pid` → 仅当前项目；无 → 仅公共记忆
-- `-p, --project`：仅当前项目记忆
-- `-g, --global`：仅公共记忆
-- `-a, --all`：跨所有项目
+1. **任务开始**：用 2-3 个不同措辞的查询 `mr_search`；先 `scope: project`，需要跨项目时再 `scope: all`。`top_k` 保持 5-8。
+2. **判断结果**：读 `score` + `vector_score`/`coverage`；对关键条目 `mr_get`，检查 `is_deleted`，引用原文中的数字、路径、命令。
+3. **做出决策/完成修复**：`mr_add` 写入自包含内容（结论 + 关键依据 + 文件/行号 + 日期），打 `critical`/`fact` 标签。
+4. **纠错**：优先新增一条带"【更正】"前缀的 decision/knowledge，并在内容中写清被更正的旧结论；不要只依赖旧条。
+5. **结束**：需要时 `mr_stats` 确认写入生效；不要例行调用 `mr_dream`。
 
-**示例：**
-```bash
-# 在 /disk2/code/rust/memrec 目录
-memrec add "memrec项目决策" --mtype decision
-# → 写入 memrec/.mr_pid 的 project_id
+## 常见坑
 
-# 在 /disk2/code/java/hydrakiller 目录
-memrec add "hydrakiller项目决策" --mtype decision
-# → 写入 hydrakiller/.mr_pid 的 project_id（不同）
-
-# 搜索时自动隔离
-cd /disk2/code/rust/memrec
-memrec search "决策" -p  # 仅返回memrec项目
-
-cd /disk2/code/java/hydrakiller
-memrec search "决策" -p  # 仅返回hydrakiller项目
-```
-
-**注意：**
-- `.mr_pid` 文件不应提交到git（添加到.gitignore）
-- 移动项目目录后，project_id保持不变（`.mr_pid`随项目移动）
-
-## 工作流集成
-
-```bash
-# 开始任务：检索相关历史
-memrec search "相关历史" --project-only
-
-# 做出决策后
-memrec add "选择XXX方案" --mtype decision --tag critical
-
-# 用户表达偏好后
-memrec add "用户偏好YYY" --mtype preference --global
-
-# 结束任务
-memrec stats
-```
+1. **默认读取范围是 global**：未注册 `.mr_pid` 的目录里，检索默认只查全局记忆；用 `scope: all` 或先完成一次非全局写入，避免漏掉项目记忆。
+2. **把 `fts_score` 当相似度**：BM25 无固定量纲；判断相关性看 `score` 与 `coverage`。
+3. **把 0.5 当"中等相关"**：0.5 只是默认阈值；边界命中应换词重查，而不是直接采信。
+4. **`mr_get` 带入 embedding**：1024 维数组会浪费上下文；只取需要的字段/内容。
+5. **把软删记录当证据**：`is_deleted: true` 的记录不可用于结论；必要时先恢复。
+6. **重复标签/重复记忆**：写入前规范化 tags；服务端去重有阈值，不保证完全拦截。
+7. **例行 Dream**：Dream 会合并/软删原条，属于维护操作，不是普通写入。
+8. **MCP server 版本滞后**：升级 memrec 后需重启 MCP server，才能看到新增的 `vector_score` 等字段。
 
 ## 最佳实践
 
-1. **决策即记录** - 做出决策后立即记录
-2. **关键用critical** - 重要信息用critical标签
-3. **偏好用global** - 用户偏好标记为公共记忆
-4. **事实用fact** - 物理定律、数学公式用fact标签
-5. **检索优先search** - 用语义检索而非枚举
-6. **min_score默认0.75** - 过滤低相关度干扰项（可通过MEMREC_MIN_SCORE调整）
-7. **项目隔离自动** - 无需手动指定，自动检测git root
-8. **.mr_pid勿提交** - 添加到.gitignore，避免project_id冲突
-
----
+1. 决策即记录，内容自包含，保留数字、路径、命令、日期。
+2. 重要信息用 `critical`；客观事实用 `fact`；可复用模式用 `best-practice`。
+3. 用户偏好用 `preference` + `is_global`；项目结论不要全局化。
+4. 检索优先于枚举；`mr_list` 只用于盘点，不用于找答案。
+5. 关键结论必须 `mr_get` 核对原文与 `is_deleted` 后再使用。
+6. 不把 MemRec 当外部知识库；它只负责"你之前存过什么"。
