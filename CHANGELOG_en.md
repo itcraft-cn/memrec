@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > [中文](CHANGELOG.md) | English
 
+## [Unreleased]
+
+### Changed
+
+- **Hybrid scores are now interpretable absolute values**: `HybridStore` no longer min-max normalizes vector/BM25 scores within each result set and blends them with `alpha` (which pinned the top hit of a single-route result set to `alpha` or `1-alpha`, 0.5 by default, regardless of absolute relevance). The new score is `1 - (1 - vector_cos)(1 - coverage)`: vector-only hits use raw cosine, text-only hits use query-term coverage, and dual-route hits use noisy-OR. `min_score` now applies to this calibrated score.
+- `SearchHit` gains `vector_score`, `fts_score`, `coverage` and `rank_score` (all `serde(default)`, backward compatible) so callers can judge where a hit came from.
+
+### Fixed
+
+- **Unrelated queries receiving a confident 0.5**: a BM25-only hit matching a single word (e.g. "unrelated") previously normalized to exactly 0.5 and passed the default threshold. Text-only hits with coverage below 0.30 are now dropped, and after fusion at least one route must pass (raw cosine >= threshold or coverage >= 0.30), so lexical collisions no longer produce confident results.
+- **Stale targets in the retrieval golden set**: three golden memories had been soft-deleted, causing a false drop in `retrieval_gate.sh` hit@5. They were replaced with live equivalents, and the gate now includes negative queries (top1 must stay below 0.5).
+- **Wrong BGE-M3 download paths**: `tokenizer.json` / `config.json` / `tokenizer_config.json` pointed at the repository root while their recorded SHA256 values matched the `onnx/` subdirectory. Hash verification kept failing and deleting the files, leaving the model directory incomplete. All paths now use the `onnx/` prefix, with a regression test.
+- **Silent exit when model files are missing**: the daemon now validates required model files during startup preflight, writes an ERROR log, returns a non-zero exit code and prints a remediation command instead of failing silently deep in initialization.
+- **Infinite systemd restart loop**: the service unit now sets `StartLimitIntervalSec=60` / `StartLimitBurst=3`, so persistent startup failures stop restarting instead of flooding logs and processes.
+
 ## [0.10.0] - 2026-10-19
 
 ### Added

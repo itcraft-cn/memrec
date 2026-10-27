@@ -18,8 +18,8 @@
 - **LLM 接入** — 可选 OpenAI 兼容大模型，驱动 Dream 摘要（可选 LLM 语义边）
 - **写入去重** — 每次写入 ADD/UPDATE/NOOP 决策
 - **插件生态** — pi 扩展与 DeepSeek Harness 原生插件
-- **语义检索** — 本地ONNX模型 — MiniLM-L6-v2（384维）或 BGE-M3（1024维，多语言），零API费用
-- **智能评分** — 时间衰减、常青豁免、来源权重
+- **语义检索** — 本地ONNX模型 — BGE-M3（默认，1024维，多语言）或 MiniLM-L6-v2（384维，英文），零API费用
+- **可解释评分** — 校准相关度（向量余弦 / 查询词覆盖率 / noisy-OR），并透出 `vector_score` / `fts_score` / `coverage` / `rank_score`
 - **跨项目搜索** — `--all`标志发现跨项目关联知识
 - **AI-first设计** — 默认JSON输出，命令简洁，Skill集成
 - **高性能** — Rust实现，<1ms延迟，~118MB（MiniLM）/ ~1.5GB（BGE-M3）内存（含模型）
@@ -80,15 +80,15 @@ scripts/package/build-packages.sh        # 产物归档到 release/
 
 | 模型 | 维度 | 适用场景 | 磁盘空间 | 内存 |
 |------|------|----------|----------|------|
-| `minilm-l6-v2`（默认） | 384 | 纯英文 | ~90MB | ~118MB |
-| `bge-m3` | 1024 | 中文/多语言 | ~2.3GB | ~1.5GB |
+| `bge-m3`（默认） | 1024 | 中文/多语言 | ~2.3GB | ~1.5GB |
+| `minilm-l6-v2` | 384 | 纯英文、轻量 | ~90MB | ~118MB |
 
 ```bash
-# 默认：MiniLM-L6-v2（英文）
+# 默认：BGE-M3（中文/多语言）
 mr-install
 
-# BGE-M3（中文/多语言，中文用户推荐）
-mr-install --model bge-m3
+# MiniLM-L6-v2（英文、轻量）
+mr-install --model minilm-l6-v2
 ```
 
 模型下载镜像选项：
@@ -116,7 +116,7 @@ memrec search "中文搜索" --human         # 中文搜索支持
 # 其他
 memrec list --limit 20
 memrec list --limit 10 --skip 20        # 分页：跳过前 20 条
-memrec list --tag rust --type decision   # 按标签/类型过滤
+memrec list --tag rust --type-filter decision   # 按标签/类型过滤
 memrec list --deleted                    # 从 RocksDB 检索软删除的原始记录
 memrec get <id>
 memrec restore <id>                      # 恢复软删除记忆（重新入检索索引）
@@ -134,6 +134,8 @@ memrec dream --dry-run                    # 预演：不写库/不删数据/不�
 memrec dream-report --last 5              # 查看最近若干次 DreamRun 审计
 memrec eval dataset.jsonl --k 10          # 离线检索评测（JSONL）
 ```
+
+检索结果为校准相关度（0-1）：`score` 是最终分，`vector_score`（原始余弦）、`fts_score`（原始 BM25）、`coverage`（查询词覆盖率）、`rank_score`（RRF 名次分）用于判断命中来源；默认 `min_score=0.5`。
 
 ## 项目隔离
 
@@ -318,10 +320,10 @@ memrecd_log = "~/.memrec/logs/memrecd.log"  # 日志文件完整路径（本地�
 
 | 插件 | 平台 | 能力 |
 |------|------|------|
-| `pi-extensions/memrec.ts` | pi 编码代理 | 6 个 LLM 工具（`memrec_search`/`add`/`get`/`list`/`delete`/`stats`）+ agent 启动自动注入上下文；命令 `/memrec`、`/memrec-auto` |
+| `pi-extension/memrec.ts` | pi 编码代理 | 6 个 LLM 工具（`memrec_search`/`add`/`get`/`list`/`delete`/`stats`）+ agent 启动自动注入上下文；命令 `/memrec`、`/memrec-auto` |
 | `dsh-plugin/` | DeepSeek Harness | 7 个原生工具（`mr_add`/`mr_search`/`mr_get`/`mr_list`/`mr_delete`/`mr_stats`/`mr_dream`）+ 上下文注入 + 会话自动记录（LLM 提取） |
 
-- **pi**：将 `pi-extensions/memrec.ts` 复制到 `~/.pi/agent/extensions/`，然后 `/reload`
+- **pi**：将 `pi-extension/memrec.ts` 复制到 `~/.pi/agent/extensions/`，然后 `/reload`
 - **DSH**：详见 [dsh-plugin/README.md](dsh-plugin/README.md)
 
 ## 数据位置
@@ -332,14 +334,17 @@ memrecd_log = "~/.memrec/logs/memrecd.log"  # 日志文件完整路径（本地�
 ├── memrecd.sock          # Unix Socket
 ├── data/                 # RocksDB 记忆元数据
 ├── vectors/              # RocksDB 向量存储
+├── fts/                  # Tantivy 全文索引
+├── logs/                 # 日志（按本地日期滚存）
+│   └── memrecd.YYYY-MM-DD.log
 └── models/               # ONNX Embedding 模型
-    ├── Qdrant--all-MiniLM-L6-v2-onnx/   # MiniLM-L6-v2（默认）
+    ├── BAAI--bge-m3/     # BGE-M3（默认，中文/多语言）
     │   ├── model.onnx
+    │   ├── model.onnx_data
     │   ├── tokenizer.json
     │   └── ...
-    └── BAAI--bge-m3/                     # BGE-M3（多语言）
+    └── Qdrant--all-MiniLM-L6-v2-onnx/   # MiniLM-L6-v2（可选，英文/轻量）
         ├── model.onnx
-        ├── model.onnx_data
         ├── tokenizer.json
         └── ...
 ```
@@ -349,7 +354,7 @@ memrecd_log = "~/.memrec/logs/memrecd.log"  # 日志文件完整路径（本地�
 | 变量 | 用途 | 默认值 |
 |------|------|--------|
 | `MEMREC_MODEL_DIR` | 自定义模型路径 | `~/.memrec/models/<模型目录>/`（模型相关） |
-| `MEMREC_MIN_SCORE` | 语义搜索最低相似度 | `0.75（MiniLM）/ 0.5（BGE-M3）` |
+| `MEMREC_MIN_SCORE` | 语义搜索最低相关度 | `0.5`（MiniLM 建议显式设 `0.75`） |
 | `MEMREC_LLM_KEY` | LLM API Key（`[llm] api_key` 可引用 `"$MEMREC_LLM_KEY"`；systemd 服务经 `~/.memrec/memrecd.env` 加载） | 空 |
 | `RUST_LOG` | 日志级别 | `info` |
 
@@ -366,16 +371,19 @@ memrecd_log = "~/.memrec/logs/memrecd.log"  # 日志文件完整路径（本地�
 
 ```
 memrec/
-├── common/       # 共享类型和协议
-├── memrecd/      # 守护进程服务
-├── memrec/       # CLI工具
-├── mr-install/   # 安装器
-├── mr-ability/   # 核心能力库（检索/嵌入/Dream/LLM/去重/队列/空闲监控）
-├── mr-common/    # 共享类型
-├── mr-protocol/  # JSON-RPC 协议
-├── dsh-plugin/   # DeepSeek Harness 插件
-├── pi-extensions/# pi 扩展
-└── docs/         # 文档
+├── mr-common/     # 共享类型、配置与数据模型
+├── mr-protocol/   # JSON-RPC 请求/响应协议
+├── mr-ability/    # 核心能力库（检索/嵌入/Dream/LLM/去重/队列/空闲监控）
+├── memrecd/       # 守护进程服务
+├── memrec/        # CLI 与 MCP 工具
+├── mr-install/    # 安装器与服务注册
+├── dsh-plugin/    # DeepSeek Harness 插件
+├── pi-extension/  # pi 扩展
+├── eval/          # 检索评测金标集
+├── scripts/       # 构建、门禁、打包脚本
+├── packaging/     # deb/rpm 打包配置
+├── skills/        # Agent skills
+└── docs/          # 文档
 ```
 
 ## 许可证

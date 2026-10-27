@@ -36,20 +36,20 @@ mr-install
 
 ### Choosing an Embedding Model
 
-| Model | Dimension | Best For | Disk Space | Memory | Default min_score |
-|-------|-----------|----------|------------|--------|-------------------|
-| `minilm-l6-v2` (default) | 384 | English-only | ~90MB | ~118MB | 0.75 |
-| `bge-m3` | 1024 | Chinese/multilingual | ~2.3GB | ~1.5GB | 0.5 |
+| Model | Dimension | Best For | Disk Space | Memory | Suggested min_score |
+|-------|-----------|----------|------------|--------|---------------------|
+| `bge-m3` (default) | 1024 | Chinese/multilingual | ~2.3GB | ~1.5GB | 0.5 |
+| `minilm-l6-v2` | 384 | English-only, lightweight | ~90MB | ~118MB | 0.75 |
 
 ```bash
-# Default: MiniLM-L6-v2 (English)
+# Default: BGE-M3 (Chinese/multilingual)
 mr-install
 
-# BGE-M3 (Chinese/multilingual, recommended for Chinese users)
-mr-install --model bge-m3
+# MiniLM-L6-v2 (English, lightweight)
+mr-install --model minilm-l6-v2
 ```
 
-**Why different min_score defaults?** BGE-M3 produces inherently lower cosine similarity scores than MiniLM. With MiniLM, exact matches score >0.8; with BGE-M3, exact matches score ~0.74. The 0.5 default for BGE-M3 ensures relevant results are not filtered out.
+**About min_score:** The runtime default is `0.5` (override with `MEMREC_MIN_SCORE`). BGE-M3 cosine similarity is inherently lower than MiniLM; for MiniLM, set `0.75` explicitly. The table above lists suggested values, not automatically applied model defaults.
 
 ### Mirror Options (China)
 
@@ -219,14 +219,17 @@ memrec search "query" [options]
 
 #### Search Pipeline
 
-1. **KNN + BM25**: Parallel search, merge and normalize scores
-2. **Time Decay**: Recent memories ranked higher (knowledge/decision exempt)
-3. **Source Weighting**: User memories weighted higher than system/inferred
-4. **MMR Reranking**: Diverse results, reduce redundancy
+1. **KNN + BM25**: parallel vector-neighbor and full-text recall
+2. **Absolute calibration**: `score = 1 - (1 - vector_cos)(1 - coverage)`; vector-only hits use raw cosine, text-only hits use query-term coverage, dual-route hits use noisy-OR
+3. **Confidence gate**: text-only hits with coverage below 0.30 are dropped; after fusion at least one route must pass (raw cosine >= threshold or coverage >= 0.30)
+4. **Graph diffusion (optional)**: 1-hop graph hits via `retrieval_graph_*`, marked with `edge_hint`
+5. **MMR reranking**: diverse results, reduce redundancy
+
+> Time-decay and source-weight settings exist but are not wired into ranking yet.
 
 #### Chinese Text Support
 
-Chinese text search is supported via n-gram tokenizer (2-4 grams). No additional configuration needed.
+Chinese full-text search uses jieba word-level tokenization (search mode with overlapping tokens); no extra configuration is needed.
 
 ```bash
 memrec search "中文搜索" --human
@@ -250,15 +253,14 @@ memrec search "中文搜索" --human
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-k, --top-k` | Number of results | 10 |
-| `--min-score` | Minimum raw vector cosine similarity threshold (vector layer only; the fused score is relative and does not use this threshold) | 0.5 (BGE-M3) / 0.75 (MiniLM) |
+| `--min-score` | Minimum calibrated relevance (0-1); vector-only uses cosine, text-only uses coverage, dual-route uses noisy-OR | 0.5 |
 | `-p, --project` | Current project only | Inferred from `.mr_pid` |
 | `-g, --global` | Global memories only | Inferred from `.mr_pid` |
 | `-a, --all` | All projects | - |
 | `--mtype` | Filter by type | - |
 | `--human` | Human-readable output | - |
-| `--hybrid-alpha` | KNN vs BM25 weight (0=BM25 only, 1=KNN only) | 0.5 |
-| `--mmr-enabled` | Enable MMR reranking | true |
-| `--mmr-lambda` | MMR diversity (0=max diversity, 1=max relevance) | 0.7 |
+
+> CLI `search` does not expose `alpha`/MMR switches: defaults are `alpha=0.5`, MMR enabled with `lambda=0.5`. Use `memrec eval --alpha/--no-mmr` to isolate ranking behavior.
 
 #### Examples
 
@@ -285,25 +287,24 @@ memrec search "decision" --mtype decision
 memrec search "architecture" --human
 ```
 
-#### Similarity Scores
+#### Relevance Scores
 
-**MiniLM-L6-v2:**
-
-| Score Range | Meaning |
-|-------------|---------|
-| 0.9+ | Highly relevant, exact match |
-| 0.8-0.9 | Relevant, semantically similar |
-| 0.75-0.8 | Somewhat relevant |
-| < 0.75 | Likely irrelevant (filtered by default) |
-
-**BGE-M3:**
+The returned `score` is a calibrated relevance value (0-1), not a single model's raw cosine:
 
 | Score Range | Meaning |
 |-------------|---------|
-| 0.7+ | Highly relevant, exact match |
-| 0.5-0.7 | Relevant, semantically similar |
-| 0.4-0.5 | Somewhat relevant |
-| < 0.4 | Likely irrelevant (filtered by default) |
+| 0.8+ | Highly relevant (strong semantics or full query-term coverage) |
+| 0.5-0.8 | Relevant |
+| < 0.5 | Filtered by default `min_score` |
+
+Inspect the raw evidence fields to see where a hit came from:
+
+| Field | Meaning |
+|-------|---------|
+| `vector_score` | Raw vector cosine (vector route only; null means not vector-recalled) |
+| `fts_score` | Raw BM25 (text route only; not comparable across queries) |
+| `coverage` | Query-term coverage (text route only; single-route below 0.30 is dropped) |
+| `rank_score` | Weighted RRF rank score (tie-breaker) |
 
 **Adjusting the threshold:**
 
@@ -503,7 +504,12 @@ required = true
 socket_path = "~/.memrec/memrecd.sock"
 data_dir = "~/.memrec/data"
 vectors_dir = "~/.memrec/vectors"
-log_file = "~/.memrec/memrecd.log"
+
+[log]
+enabled = true
+level = "info"
+rotation_days = 7
+memrecd_log = "~/.memrec/logs/memrecd.log"
 ```
 
 **BGE-M3 config:**
@@ -536,15 +542,22 @@ required = true
 socket_path = "~/.memrec/memrecd.sock"
 data_dir = "~/.memrec/data"
 vectors_dir = "~/.memrec/vectors"
-log_file = "~/.memrec/memrecd.log"
+
+[log]
+enabled = true
+level = "info"
+rotation_days = 7
+memrecd_log = "~/.memrec/logs/memrecd.log"
 ```
+
+> For BGE-M3, `remote_path` for `tokenizer.json`, `config.json`, `special_tokens_map.json` and `tokenizer_config.json` must use the `onnx/` prefix to match the recorded SHA256; the same-named files at the repository root have different content and will fail hash verification.
 
 ### Environment Variables
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `MEMREC_MODEL_DIR` | Custom model path | `~/.memrec/models/<model-dir>/` |
-| `MEMREC_MIN_SCORE` | Min similarity score | 0.75 (MiniLM) / 0.5 (BGE-M3) |
+| `MEMREC_MIN_SCORE` | Minimum search relevance | 0.5 (set 0.75 explicitly for MiniLM) |
 | `MEMREC_LLM_KEY` | LLM API key (`[llm] api_key` may reference `"$MEMREC_LLM_KEY"`; systemd service loads it from `~/.memrec/memrecd.env`) | empty |
 | `RUST_LOG` | Log level | `info` |
 
@@ -619,26 +632,27 @@ memrecd_log = "~/.memrec/logs/memrecd.log"  # full log path (local-timezone time
 ~/.memrec/
 ├── config.toml           # Configuration
 ├── memrecd.sock          # Unix Socket (runtime)
-├── memrecd.log           # Service log
 ├── data/                 # RocksDB memory metadata
 ├── vectors/              # RocksDB vector storage
+├── fts/                  # Tantivy full-text index
+├── logs/                 # Logs (rotated by local date)
+│   └── memrecd.YYYY-MM-DD.log
 ├── models/               # ONNX Embedding models
-│   ├── Qdrant--all-MiniLM-L6-v2-onnx/   # MiniLM-L6-v2
+│   ├── BAAI--bge-m3/                     # BGE-M3 (default)
 │   │   ├── model.onnx
+│   │   ├── model.onnx_data
+│   │   ├── Constant_7_attr__value
 │   │   ├── tokenizer.json
 │   │   ├── config.json
 │   │   ├── special_tokens_map.json
-│   │   └── tokenizer_config.json
-│   └── BAAI--bge-m3/                     # BGE-M3
+│   │   ├── tokenizer_config.json
+│   │   └── sentencepiece.bpe.model
+│   └── Qdrant--all-MiniLM-L6-v2-onnx/    # MiniLM-L6-v2 (optional)
 │       ├── model.onnx
-│       ├── model.onnx_data
-│       ├── Constant_7_attr__value
 │       ├── tokenizer.json
 │       ├── config.json
 │       ├── special_tokens_map.json
-│       ├── tokenizer_config.json
-│       └── sentencepiece.bpe.model
-└── logs/                 # Log directory
+│       └── tokenizer_config.json
 ```
 
 ## Switching Models

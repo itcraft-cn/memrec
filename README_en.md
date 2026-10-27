@@ -17,8 +17,8 @@ Local memory persistence system for AI CLI tools, providing cross-session memory
 - **LLM Integration** — optional OpenAI-compatible LLM for Dream summaries (and optional LLM semantic edges)
 - **Write Dedup** — ADD/UPDATE/NOOP decision on every write, with an in-place update window
 - **Plugin Ecosystem** — pi extension & DeepSeek Harness native plugin
-- **Semantic Search** — Local ONNX model — MiniLM-L6-v2 (384d) or BGE-M3 (1024d, multilingual), zero API cost
-- **Smart Scoring** — Time decay, evergreen exemption, source weighting
+- **Semantic Search** — Local ONNX model — BGE-M3 (default, 1024d, multilingual) or MiniLM-L6-v2 (384d, English), zero API cost
+- **Interpretable Scoring** — Calibrated relevance (cosine / query-term coverage / noisy-OR) with raw `vector_score` / `fts_score` / `coverage` / `rank_score` exposed
 - **Cross-Project Search** — `--all` flag to discover related knowledge across projects
 - **AI-first Design** — JSON output by default, concise commands, Skill integration
 - **High Performance** — Rust, <1ms latency, ~118MB (MiniLM) / ~1.5GB (BGE-M3) memory (including model)
@@ -86,15 +86,15 @@ scripts/package/build-packages.sh        # artifacts are written to release/
 
 | Model | Dimension | Best For | Disk Space | Memory |
 |-------|-----------|----------|------------|--------|
-| `minilm-l6-v2` (default) | 384 | English-only | ~90MB | ~118MB |
-| `bge-m3` | 1024 | Chinese/multilingual | ~2.3GB | ~1.5GB |
+| `bge-m3` (default) | 1024 | Chinese/multilingual | ~2.3GB | ~1.5GB |
+| `minilm-l6-v2` | 384 | English-only, lightweight | ~90MB | ~118MB |
 
 ```bash
-# Default: MiniLM-L6-v2 (English)
+# Default: BGE-M3 (Chinese/multilingual)
 mr-install
 
-# BGE-M3 (Chinese/multilingual, recommended for Chinese users)
-mr-install --model bge-m3
+# MiniLM-L6-v2 (English, lightweight)
+mr-install --model minilm-l6-v2
 ```
 
 Mirror options for model download:
@@ -121,15 +121,15 @@ memrec search "中文搜索" --human            # Chinese text supported
 
 # Other commands
 memrec list --limit 20
-memrec list --limit 10 --skip 20        # 分页：跳过前 20 条
-memrec list --tag rust --type decision   # 按标签/类型过滤
-memrec list --deleted                    # 从 RocksDB 检索软删除的原始记录
+memrec list --limit 10 --skip 20        # pagination: skip the first 20
+memrec list --tag rust --type-filter decision   # filter by tag/type
+memrec list --deleted                    # list soft-deleted raw records from RocksDB
 memrec get <id>
-memrec restore <id>                      # 恢复软删除记忆（重新入检索索引）
+memrec restore <id>                      # restore a soft-deleted memory (re-indexed)
 memrec stats
 memrec version
 
-# L2 场景聚合
+# L2 scene aggregation
 memrec scene create "Rust coding standards" --tag rust
 memrec scene list --sort-by-heat
 memrec scene add-memory <scene-id> <memory-id>
@@ -140,6 +140,8 @@ memrec dream --dry-run                    # dry-run: write nothing, delete nothi
 memrec dream-report --last 5              # inspect recent DreamRun audit records
 memrec eval dataset.jsonl --k 10          # offline retrieval evaluation (JSONL)
 ```
+
+Search results use a calibrated relevance score (0-1): `score` is the final value; `vector_score` (raw cosine), `fts_score` (raw BM25), `coverage` (query-term coverage) and `rank_score` (RRF rank score) expose the evidence behind it. Default `min_score=0.5`.
 
 ## Project Isolation
 
@@ -324,10 +326,10 @@ memrecd_log = "~/.memrec/logs/memrecd.log"  # full log path (local-timezone time
 
 | Plugin | Platform | Capabilities |
 |--------|----------|--------------|
-| `pi-extensions/memrec.ts` | pi coding agent | 6 LLM tools (`memrec_search`/`add`/`get`/`list`/`delete`/`stats`) + auto context injection on agent start; commands `/memrec`, `/memrec-auto` |
+| `pi-extension/memrec.ts` | pi coding agent | 6 LLM tools (`memrec_search`/`add`/`get`/`list`/`delete`/`stats`) + auto context injection on agent start; commands `/memrec`, `/memrec-auto` |
 | `dsh-plugin/` | DeepSeek Harness | 7 native tools (`mr_add`/`mr_search`/`mr_get`/`mr_list`/`mr_delete`/`mr_stats`/`mr_dream`) + context injection + auto session recording (LLM-extracted) |
 
-- **pi**: copy `pi-extensions/memrec.ts` to `~/.pi/agent/extensions/`, then `/reload`
+- **pi**: copy `pi-extension/memrec.ts` to `~/.pi/agent/extensions/`, then `/reload`
 - **DSH**: see [dsh-plugin/README.md](dsh-plugin/README.md)
 
 ## Data Location
@@ -339,17 +341,16 @@ memrecd_log = "~/.memrec/logs/memrecd.log"  # full log path (local-timezone time
 ├── data/                 # RocksDB memory metadata
 ├── vectors/              # RocksDB vector storage
 ├── fts/                  # Tantivy full-text search index
-├── logs/                 # Log files
-│   ├── memrecd.log       # Daemon log (no ANSI colors)
-│   └── dream.log         # Dream consolidation job log
+├── logs/                 # Logs (rotated by local date)
+│   └── memrecd.YYYY-MM-DD.log
 └── models/               # ONNX Embedding model
-    ├── Qdrant--all-MiniLM-L6-v2-onnx/   # MiniLM-L6-v2 (default)
+    ├── BAAI--bge-m3/     # BGE-M3 (default, Chinese/multilingual)
     │   ├── model.onnx
+    │   ├── model.onnx_data
     │   ├── tokenizer.json
     │   └── ...
-    └── BAAI--bge-m3/                     # BGE-M3 (multilingual)
+    └── Qdrant--all-MiniLM-L6-v2-onnx/   # MiniLM-L6-v2 (optional, English/lightweight)
         ├── model.onnx
-        ├── model.onnx_data
         ├── tokenizer.json
         └── ...
 ```
@@ -359,7 +360,7 @@ memrecd_log = "~/.memrec/logs/memrecd.log"  # full log path (local-timezone time
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `MEMREC_MODEL_DIR` | Custom model path | `~/.memrec/models/<model-dir>/` (model-specific) |
-| `MEMREC_MIN_SCORE` | Min similarity score | `0.75 (MiniLM) / 0.5 (BGE-M3)` |
+| `MEMREC_MIN_SCORE` | Minimum search relevance | `0.5` (set `0.75` explicitly for MiniLM) |
 | `MEMREC_LLM_KEY` | LLM API key (`[llm] api_key` may reference `"$MEMREC_LLM_KEY"`; systemd service loads it from `~/.memrec/memrecd.env`) | empty |
 | `RUST_LOG` | Log level | `info` |
 
@@ -376,16 +377,19 @@ memrecd_log = "~/.memrec/logs/memrecd.log"  # full log path (local-timezone time
 
 ```
 memrec/
-├── common/       # Shared types and protocol
-├── memrecd/      # Daemon service
-├── memrec/       # CLI tool
-├── mr-install/   # Installer
-├── mr-ability/   # Core library (search/embedding/dream/llm/dedup/queue/idle)
-├── mr-common/    # Shared types
-├── mr-protocol/  # JSON-RPC protocol
-├── dsh-plugin/   # DeepSeek Harness plugin
-├── pi-extensions/# pi extension
-└── docs/         # Documentation
+├── mr-common/     # Shared types, config and data models
+├── mr-protocol/   # JSON-RPC request/response protocol
+├── mr-ability/    # Core library (retrieval/embedding/dream/llm/dedup/queue/idle)
+├── memrecd/       # Daemon service
+├── memrec/        # CLI and MCP tools
+├── mr-install/    # Installer and service registration
+├── dsh-plugin/    # DeepSeek Harness plugin
+├── pi-extension/  # pi extension
+├── eval/          # Retrieval golden set
+├── scripts/       # Build, gate and packaging scripts
+├── packaging/     # deb/rpm packaging config
+├── skills/        # Agent skills
+└── docs/          # Documentation
 ```
 
 ## License

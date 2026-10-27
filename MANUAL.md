@@ -35,20 +35,20 @@ mr-install
 
 ### 选择 Embedding 模型
 
-| 模型 | 维度 | 适用场景 | 磁盘空间 | 内存 | 默认 min_score |
+| 模型 | 维度 | 适用场景 | 磁盘空间 | 内存 | 建议 min_score |
 |------|------|----------|----------|------|----------------|
-| `minilm-l6-v2`（默认） | 384 | 纯英文 | ~90MB | ~118MB | 0.75 |
-| `bge-m3` | 1024 | 中文/多语言 | ~2.3GB | ~1.5GB | 0.5 |
+| `bge-m3`（默认） | 1024 | 中文/多语言 | ~2.3GB | ~1.5GB | 0.5 |
+| `minilm-l6-v2` | 384 | 纯英文、轻量 | ~90MB | ~118MB | 0.75 |
 
 ```bash
-# 默认：MiniLM-L6-v2（英文）
+# 默认：BGE-M3（中文/多语言）
 mr-install
 
-# BGE-M3（中文/多语言，中文用户推荐）
-mr-install --model bge-m3
+# MiniLM-L6-v2（英文、轻量）
+mr-install --model minilm-l6-v2
 ```
 
-**为什么 min_score 默认值不同？** BGE-M3 的余弦相似度分数天然低于 MiniLM。MiniLM 精确匹配 >0.8；BGE-M3 精确匹配约 0.74。BGE-M3 的 0.5 默认值确保相关结果不被过滤。
+**关于 min_score：** 运行时默认值为 `0.5`（可用 `MEMREC_MIN_SCORE` 覆盖）。BGE-M3 的余弦相似度天然低于 MiniLM；MiniLM 建议显式设为 `0.75`。上表是建议值，不是自动生效的模型默认值。
 
 ### 镜像选项（中国大陆）
 
@@ -218,14 +218,17 @@ memrec search "查询" [选项]
 
 #### 搜索流程
 
-1. **KNN + BM25**：并行搜索，合并归一化分数
-2. **时间衰减**：近期记忆权重更高（knowledge/decision 豁免）
-3. **来源权重**：用户记忆权重高于系统/推断
-4. **MMR 重排**：结果多样性，减少冗余
+1. **KNN + BM25**：并行召回向量近邻与全文命中
+2. **绝对分校准**：`score = 1 - (1 - vector_cos)(1 - coverage)`；向量单路取原始余弦，全文单路取查询词覆盖率，双路命中 noisy-OR 合成
+3. **可信门控**：全文单路覆盖率低于 0.30 丢弃；融合后要求"原始余弦达标或覆盖率达标"至少一路成立
+4. **图扩散（可选）**：按 `retrieval_graph_*` 配置补充 1 跳图命中，结果带 `edge_hint`
+5. **MMR 重排**：结果多样性，减少冗余
+
+> 时间衰减与来源权重配置存在，但当前未接入排序。
 
 #### 中文搜索
 
-通过 N-gram 分词器（2-4 字）支持中文全文检索，无需额外配置。
+通过 jieba 词级分词（搜索模式，含重叠词）支持中文全文检索，无需额外配置。
 
 ```bash
 memrec search "中文搜索" --human
@@ -248,15 +251,14 @@ memrec search "中文搜索" --human
 | 选项 | 说明 | 默认值 |
 |------|------|--------|
 | `-k, --top-k` | 返回结果数 | 10 |
-| `--min-score` | 最低原始向量余弦相似度阈值（仅约束向量层；融合分为相对量，不套用此阈值） | 0.5（BGE-M3）/ 0.75（MiniLM） |
+| `--min-score` | 最低校准相关度（0-1）；向量单路看余弦，全文单路看覆盖率，双路看 noisy-OR 合成分 | 0.5 |
 | `-p, --project` | 仅当前项目 | 按 `.mr_pid` 推断 |
 | `-g, --global` | 仅公共记忆 | 按 `.mr_pid` 推断 |
 | `-a, --all` | 跨所有项目 | - |
 | `--mtype` | 按类型过滤 | - |
 | `--human` | 人类可读输出 | - |
-| `--hybrid-alpha` | KNN与BM25权重（0=纯BM25，1=纯KNN） | 0.5 |
-| `--mmr-enabled` | 启用MMR重排 | true |
-| `--mmr-lambda` | MMR多样性（0=最大多样性，1=最大相关性） | 0.7 |
+
+> CLI `search` 未暴露 `alpha`/MMR 开关：默认 `alpha=0.5`、MMR 开启且 `lambda=0.5`。需要隔离验证时用 `memrec eval --alpha/--no-mmr`。
 
 #### 示例
 
@@ -283,25 +285,24 @@ memrec search "决策" --mtype decision
 memrec search "架构" --human
 ```
 
-#### 相似度评分
+#### 相关度评分
 
-**MiniLM-L6-v2：**
-
-| score 范围 | 含义 |
-|-----------|------|
-| 0.9+ | 高度相关，精确匹配 |
-| 0.8-0.9 | 相关，语义相近 |
-| 0.75-0.8 | 基本相关 |
-| < 0.75 | 可能不相关（被默认过滤） |
-
-**BGE-M3：**
+检索返回的 `score` 是校准相关度（0-1），不是单一模型的原始余弦：
 
 | score 范围 | 含义 |
 |-----------|------|
-| 0.7+ | 高度相关，精确匹配 |
-| 0.5-0.7 | 相关，语义相近 |
-| 0.4-0.5 | 基本相关 |
-| < 0.4 | 可能不相关（被默认过滤） |
+| 0.8+ | 高相关（语义强或查询词覆盖充分） |
+| 0.5-0.8 | 相关 |
+| < 0.5 | 默认被 `min_score` 过滤 |
+
+需要判断命中来源时看原始字段：
+
+| 字段 | 含义 |
+|------|------|
+| `vector_score` | 原始向量余弦（仅向量命中；为 null 表示不是向量召回） |
+| `fts_score` | 原始 BM25（仅全文命中；跨查询不可比） |
+| `coverage` | 查询词覆盖率（仅全文命中；单路低于 0.30 会被丢弃） |
+| `rank_score` | 加权 RRF 名次分（同分裁决用） |
 
 **调整阈值：**
 
@@ -500,7 +501,12 @@ required = true
 socket_path = "~/.memrec/memrecd.sock"
 data_dir = "~/.memrec/data"
 vectors_dir = "~/.memrec/vectors"
-log_file = "~/.memrec/logs/memrecd.log"
+
+[log]
+enabled = true
+level = "info"
+rotation_days = 7
+memrecd_log = "~/.memrec/logs/memrecd.log"
 ```
 
 **BGE-M3 配置：**
@@ -533,15 +539,22 @@ required = true
 socket_path = "~/.memrec/memrecd.sock"
 data_dir = "~/.memrec/data"
 vectors_dir = "~/.memrec/vectors"
-log_file = "~/.memrec/logs/memrecd.log"
+
+[log]
+enabled = true
+level = "info"
+rotation_days = 7
+memrecd_log = "~/.memrec/logs/memrecd.log"
 ```
+
+> BGE-M3 的 `tokenizer.json`、`config.json`、`special_tokens_map.json`、`tokenizer_config.json` 的 `remote_path` 必须使用 `onnx/` 前缀，与清单中的 SHA256 对应；仓库根目录同名文件内容不同，会导致哈希校验失败。
 
 ### 环境变量
 
 | 变量 | 用途 | 默认值 |
 |------|------|--------|
 | `MEMREC_MODEL_DIR` | 自定义模型路径 | `~/.memrec/models/<模型目录>/` |
-| `MEMREC_MIN_SCORE` | 语义搜索最低相似度 | 0.75（MiniLM）/ 0.5（BGE-M3） |
+| `MEMREC_MIN_SCORE` | 语义搜索最低相关度 | 0.5（MiniLM 建议显式设 0.75） |
 | `MEMREC_LLM_KEY` | LLM API Key（`[llm] api_key` 可引用 `"$MEMREC_LLM_KEY"`；systemd 服务经 `~/.memrec/memrecd.env` 加载） | 空 |
 | `RUST_LOG` | 日志级别 | `info` |
 
@@ -618,23 +631,24 @@ memrecd_log = "~/.memrec/logs/memrecd.log"  # 日志完整路径（本地时区�
 ├── memrecd.sock          # Unix Socket（运行时生成）
 ├── data/                 # RocksDB 记忆元数据
 ├── vectors/              # RocksDB 向量存储
+├── fts/                  # Tantivy 全文索引
+├── logs/                 # 日志（按本地日期滚存）
+│   └── memrecd.YYYY-MM-DD.log
 ├── models/               # ONNX Embedding 模型
-│   ├── Qdrant--all-MiniLM-L6-v2-onnx/   # MiniLM-L6-v2
+│   ├── BAAI--bge-m3/                     # BGE-M3（默认）
 │   │   ├── model.onnx
+│   │   ├── model.onnx_data
+│   │   ├── Constant_7_attr__value
 │   │   ├── tokenizer.json
 │   │   ├── config.json
 │   │   ├── special_tokens_map.json
 │   │   └── tokenizer_config.json
-│   └── BAAI--bge-m3/                     # BGE-M3
+│   └── Qdrant--all-MiniLM-L6-v2-onnx/    # MiniLM-L6-v2（可选）
 │       ├── model.onnx
-│       ├── model.onnx_data
-│       ├── Constant_7_attr__value
 │       ├── tokenizer.json
 │       ├── config.json
 │       ├── special_tokens_map.json
-│       ├── tokenizer_config.json
-│       └── sentencepiece.bpe.model
-└── logs/                 # 日志目录（memrecd.YYYY-MM-DD.log 按天滚存，默认保留 7 个）
+│       └── tokenizer_config.json
 ```
 
 ## 切换模型
