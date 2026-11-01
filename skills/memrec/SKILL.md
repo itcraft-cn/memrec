@@ -1,6 +1,6 @@
 ---
 name: memrec
-description: AI 记忆持久化系统。用 memrec 跨会话保存与检索项目决策、知识、上下文和用户偏好。支持 MCP（优先）与 CLI、项目隔离、混合检索（KNN+BM25）、中文分词、MMR 重排、软删除与 Dream 整合。触发场景：需要记录重要决策或知识、需要回忆历史结论/路径/数字、需要跨会话保持项目上下文、需要解释检索结果可信度。
+description: AI 记忆持久化系统。用 memrec 跨会话保存与检索项目决策、知识、上下文和用户偏好。支持 MCP（优先）与 CLI、项目隔离、混合检索（KNN+BM25）、中文分词、MMR 重排、时间线浏览、软删除与 Dream 整合。触发场景：需要记录重要决策或知识、需要回忆历史结论/路径/数字、需要按时间回看进展、需要跨会话保持项目上下文、需要解释检索结果可信度。
 ---
 
 # MemRec - AI 记忆持久化系统
@@ -91,6 +91,22 @@ MCP 不可用时再退回 CLI。两者共享同一守护进程与数据。
 
 - 只支持 `limit`（默认 20）与 `scope`；返回完整 `Memory`，可能较大。
 - 需要按标签/类型/分页时用 CLI（`--tag`、`--type-filter`、`--skip`、`--deleted`）。
+
+### timeline（仅 CLI）
+
+用于回答"最近发生了什么""上一轮做到哪了"，而不是按相关性找答案。
+
+```bash
+memrec timeline -l 20 --human              # 最近 20 条，按创建时间倒序
+memrec timeline -l 20 --skip 20 --human    # 继续往前翻
+memrec timeline -p --human                 # 仅当前项目
+memrec timeline -a --human                 # 跨所有项目
+memrec timeline --type-filter decision     # 只看决策
+```
+
+- 排序由服务端在过滤后、分页前完成，`created_at` 并列时以记忆 ID 保证翻页稳定，因此 `--skip` 不会漏条或重复。
+- 人类可读输出每条的格式为：本地时间、类型、单行内容预览，下一行是 ID、标签与重要性。
+- 没有对应 MCP 工具；需要时间线时直接调用 CLI。找具体结论仍应使用 `mr_search`，`timeline` 只提供时间维度。
 
 ### mr_delete / mr_stats
 
@@ -192,6 +208,7 @@ memrec scene create|get|list|delete|add-memory|remove-memory|update-heat ...
 - `add` 默认去重；`--no-dedup` 跳过。需要查看 `action`（added/skipped/updated）与 `duplicates` 时用默认 JSON 输出。
 - `search` 的范围三态互斥；默认按 `.mr_pid` 推断。`--mtype` 过滤记忆类型。
 - `list` 的 `--type-filter` 不是 `--type`；`--tag` 可重复且要求全部命中。
+- `timeline` 与 `list` 参数对齐，但固定按创建时间倒序；输出时间为本地时区。只读，不改变任何记忆。
 - `eval` 为只读评测：`--alpha` 控制向量权重（0=纯全文，1=纯向量），`--no-mmr` 关闭多样性重排。
 - `scene` 是主题聚合，按需使用，不影响主检索。
 
