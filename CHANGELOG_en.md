@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Retrieval golden set drift**: the 2026-11-01 Dream run soft-deleted the `dead-import`/`kalman`/`pnl-metric` targets, and five paraphrase queries no longer matched the current corpus, dropping `hit@5` to 0.68. Targets were refreshed to live Dream summaries (with multi-target labels) and module-oriented queries gained identifying anchors such as `BBG_QE_FX_O`, `cltspothk`, `svspot_o_dbtest` and `benches`. `hit@5` is back to 1.0 with MRR 0.898, and the gate passes again.
 - **Panic when a pipe closes early**: after quitting `memrec list | more`, writing to the closed stdout raised `EPIPE` and made `println!` panic with a backtrace. The CLI entry point now restores the default `SIGPIPE` disposition, so the process exits quietly when the pipe is gone.
 - **Unrelated queries receiving a confident 0.5**: a BM25-only hit matching a single word (e.g. "unrelated") previously normalized to exactly 0.5 and passed the default threshold. Text-only hits with coverage below 0.30 are now dropped, and after fusion at least one route must pass (raw cosine >= threshold or coverage >= 0.30), so lexical collisions no longer produce confident results.
 - **Stale targets in the retrieval golden set**: three golden memories had been soft-deleted, causing a false drop in `retrieval_gate.sh` hit@5. They were replaced with live equivalents, and the gate now includes negative queries (top1 must stay below 0.5).
