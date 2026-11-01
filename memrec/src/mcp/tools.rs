@@ -313,6 +313,7 @@ impl McpServer {
                     project_id,
                     include_deleted: false,
                     skip: 0,
+                    order: ListOrder::Storage,
                 })),
                 1,
             ))

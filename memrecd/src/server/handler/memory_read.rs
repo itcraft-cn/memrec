@@ -134,6 +134,7 @@ impl Router {
             memory_type,
             include_deleted,
             skip,
+            order,
         ) = match params {
             Some(RequestParams::List(p)) => (
                 p.limit,
@@ -144,8 +145,19 @@ impl Router {
                 p.memory_type,
                 p.include_deleted,
                 p.skip,
+                p.order,
             ),
-            _ => (20, false, false, None, Vec::new(), None, false, 0),
+            _ => (
+                20,
+                false,
+                false,
+                None,
+                Vec::new(),
+                None,
+                false,
+                0,
+                ListOrder::Storage,
+            ),
         };
 
         // 差分取数（P0/T1）：project/global 范围走 by_project 索引下推，
@@ -171,7 +183,7 @@ impl Router {
             self.storage.list(usize::MAX).await.unwrap_or_default()
         };
 
-        let filtered: Vec<Memory> = memories
+        let mut filtered: Vec<Memory> = memories
             .into_iter()
             .filter(|m| {
                 if !include_deleted && m.is_deleted {
@@ -203,6 +215,22 @@ impl Router {
                 }
             })
             .collect();
+
+        // 排序：必须在分页前完成，否则 skip/limit 在时间序下会取到错误切片。
+        // created_at 相同时以 id 作为稳定次序，避免同一时间戳的记忆在翻页间漂移。
+        match order {
+            ListOrder::Storage => {}
+            ListOrder::CreatedAsc => filtered.sort_by(|a, b| {
+                a.created_at
+                    .cmp(&b.created_at)
+                    .then_with(|| a.id.cmp(&b.id))
+            }),
+            ListOrder::CreatedDesc => filtered.sort_by(|a, b| {
+                b.created_at
+                    .cmp(&a.created_at)
+                    .then_with(|| b.id.cmp(&a.id))
+            }),
+        }
 
         // 分页：skip 跳过前 N 条，take 取 limit 条
         let total = filtered.len();

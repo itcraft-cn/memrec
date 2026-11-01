@@ -223,6 +223,23 @@ pub(super) fn default_top_k() -> usize {
     10
 }
 
+/// 列表排序方式。
+///
+/// 默认 `Storage` 保持存储层自然顺序（既有 `list` 行为不变）；
+/// `CreatedDesc` 供时间线视图使用。排序在过滤之后、分页之前执行，
+/// 保证 `skip`/`limit` 在指定顺序下分页语义正确。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ListOrder {
+    /// 存储层自然顺序（默认，向后兼容）
+    #[default]
+    Storage,
+    /// 创建时间升序
+    CreatedAsc,
+    /// 创建时间降序
+    CreatedDesc,
+}
+
 /// 列出记忆的参数。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListParams {
@@ -244,6 +261,9 @@ pub struct ListParams {
     /// 跳过前 N 条（与 limit 配合实现分页）；默认 0
     #[serde(default)]
     pub skip: usize,
+    /// 排序方式；默认存储层自然顺序
+    #[serde(default)]
+    pub order: ListOrder,
 }
 
 /// 恢复软删除记忆的参数。

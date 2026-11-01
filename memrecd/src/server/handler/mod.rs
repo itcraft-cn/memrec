@@ -32,7 +32,7 @@ use mr_common::{
 };
 use mr_protocol::{
     DreamReportResult, DreamResult, GetProjectInfoParams, JsonRpcError, JsonRpcRequest,
-    JsonRpcResponse, MemoryListResult, MemoryResult, ProjectInfoResult, RequestAction,
+    JsonRpcResponse, ListOrder, MemoryListResult, MemoryResult, ProjectInfoResult, RequestAction,
     RequestParams, ResponseResult, SceneListResult, SceneResult, SearchHit, SemanticSearchResult,
     StatsResult, SuccessResult, VersionResult,
 };

@@ -205,10 +205,15 @@ pub struct ListOptions {
     pub include_deleted: bool,
 }
 
-/// 列出记忆命令。
+/// 构造并发送 List 请求。
 ///
-/// 支持标签/类型过滤与 `skip` 分页，`include_deleted` 时从 RocksDB 检索软删除的原始记录。
-pub async fn list(client: &Client, opts: ListOptions, human: bool) -> Result<()> {
+/// `order` 决定服务端在分页前的排序方式；`list` 使用存储层自然顺序，
+/// `timeline` 使用创建时间倒序。
+async fn fetch_list(
+    client: &Client,
+    opts: ListOptions,
+    order: ListOrder,
+) -> Result<JsonRpcResponse> {
     let request = JsonRpcRequest::new(
         RequestAction::List,
         Some(RequestParams::List(ListParams {
@@ -223,11 +228,19 @@ pub async fn list(client: &Client, opts: ListOptions, human: bool) -> Result<()>
             project_id: opts.project_id,
             include_deleted: opts.include_deleted,
             skip: opts.skip,
+            order,
         })),
         1,
     );
 
-    let response = client.send(&request).await?;
+    client.send(&request).await
+}
+
+/// 列出记忆命令。
+///
+/// 支持标签/类型过滤与 `skip` 分页，`include_deleted` 时从 RocksDB 检索软删除的原始记录。
+pub async fn list(client: &Client, opts: ListOptions, human: bool) -> Result<()> {
+    let response = fetch_list(client, opts, ListOrder::Storage).await?;
 
     if human {
         if let Some(result) = response.result {
@@ -255,6 +268,60 @@ pub async fn list(client: &Client, opts: ListOptions, human: bool) -> Result<()>
     }
 
     Ok(())
+}
+
+/// 时间线命令：按创建时间倒序列出记忆。
+///
+/// 排序与分页均在服务端完成，`skip`/`limit` 在时间序下语义正确。
+/// 人类可读输出以本地时间开头，每条记忆压缩为单行预览，便于快速扫描。
+pub async fn timeline(client: &Client, opts: ListOptions, human: bool) -> Result<()> {
+    let response = fetch_list(client, opts, ListOrder::CreatedDesc).await?;
+
+    if human {
+        if let Some(result) = response.result {
+            match result {
+                ResponseResult::MemoryList(m) => {
+                    println!("Found {} memories (total: {})", m.memories.len(), m.total);
+                    for memory in m.memories {
+                        let created = memory
+                            .created_at
+                            .with_timezone(&chrono::Local)
+                            .format("%Y-%m-%d %H:%M:%S");
+                        println!(
+                            "\n{}  [{}] {}",
+                            created,
+                            memory.memory_type.to_string().to_uppercase(),
+                            preview_oneline(&memory.content, 80)
+                        );
+                        println!(
+                            "  ID: {}  Tags: {:?}  Importance: {:.2}",
+                            memory.id, memory.tags, memory.importance
+                        );
+                    }
+                }
+                _ => println!("Unexpected response type"),
+            }
+        } else if let Some(err) = response.error {
+            println!("Error: {}", err.message);
+        }
+    } else {
+        println!("{}", serde_json::to_string_pretty(&response)?);
+    }
+
+    Ok(())
+}
+
+/// 将正文压缩为单行预览：合并连续空白后按字符截断。
+///
+/// 记忆正文可能包含换行与缩进，直接截断会破坏时间线的单行结构，
+/// 因此先折叠空白再截断。
+fn preview_oneline(content: &str, max_chars: usize) -> String {
+    let normalized = content.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut preview: String = normalized.chars().take(max_chars).collect();
+    if normalized.chars().count() > max_chars {
+        preview.push_str("...");
+    }
+    preview
 }
 
 /// 删除记忆命令（软删除）。

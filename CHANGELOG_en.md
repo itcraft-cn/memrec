@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`memrec timeline`**: browse memories newest first, with `--limit`/`--skip` pagination, `-p/-g/-a` scopes and `--tag`/`--type-filter` filtering. Ordering runs server-side after filtering and before pagination, with memory ID as a stable tie-breaker across pages. The protocol-level `ListParams.order` (`storage`/`created_asc`/`created_desc`, default `storage`) is backward compatible.
+
 ### Changed
 
 - **Hybrid scores are now interpretable absolute values**: `HybridStore` no longer min-max normalizes vector/BM25 scores within each result set and blends them with `alpha` (which pinned the top hit of a single-route result set to `alpha` or `1-alpha`, 0.5 by default, regardless of absolute relevance). The new score is `1 - (1 - vector_cos)(1 - coverage)`: vector-only hits use raw cosine, text-only hits use query-term coverage, and dual-route hits use noisy-OR. `min_score` now applies to this calibrated score.
@@ -16,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Panic when a pipe closes early**: after quitting `memrec list | more`, writing to the closed stdout raised `EPIPE` and made `println!` panic with a backtrace. The CLI entry point now restores the default `SIGPIPE` disposition, so the process exits quietly when the pipe is gone.
 - **Unrelated queries receiving a confident 0.5**: a BM25-only hit matching a single word (e.g. "unrelated") previously normalized to exactly 0.5 and passed the default threshold. Text-only hits with coverage below 0.30 are now dropped, and after fusion at least one route must pass (raw cosine >= threshold or coverage >= 0.30), so lexical collisions no longer produce confident results.
 - **Stale targets in the retrieval golden set**: three golden memories had been soft-deleted, causing a false drop in `retrieval_gate.sh` hit@5. They were replaced with live equivalents, and the gate now includes negative queries (top1 must stay below 0.5).
 - **Wrong BGE-M3 download paths**: `tokenizer.json` / `config.json` / `tokenizer_config.json` pointed at the repository root while their recorded SHA256 values matched the `onnx/` subdirectory. Hash verification kept failing and deleting the files, leaving the model directory incomplete. All paths now use the `onnx/` prefix, with a regression test.

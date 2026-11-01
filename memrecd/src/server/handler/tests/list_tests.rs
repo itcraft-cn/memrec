@@ -34,6 +34,7 @@ use super::*;
                     project_id: None,
                     include_deleted: false,
                     skip: 0,
+                    order: ListOrder::Storage,
                 })),
                 3,
             ))
@@ -58,6 +59,7 @@ use super::*;
                     project_id: None,
                     include_deleted: false,
                     skip: 0,
+                    order: ListOrder::Storage,
                 })),
                 4,
             ))
@@ -107,6 +109,7 @@ use super::*;
                     project_id: None,
                     include_deleted: false,
                     skip: 0,
+                    order: ListOrder::Storage,
                 })),
                 3,
             ))
@@ -130,6 +133,7 @@ use super::*;
                     project_id: None,
                     include_deleted: true,
                     skip: 0,
+                    order: ListOrder::Storage,
                 })),
                 4,
             ))
@@ -250,6 +254,7 @@ use super::*;
                     project_id: None,
                     include_deleted: false,
                     skip: 0,
+                    order: ListOrder::Storage,
                 })),
                 99,
             ))
@@ -275,6 +280,7 @@ use super::*;
                     project_id: None,
                     include_deleted: false,
                     skip: 2,
+                    order: ListOrder::Storage,
                 })),
                 100,
             ))
@@ -304,6 +310,7 @@ use super::*;
                     project_id: None,
                     include_deleted: false,
                     skip: 4,
+                    order: ListOrder::Storage,
                 })),
                 101,
             ))
@@ -328,6 +335,7 @@ use super::*;
                     project_id: None,
                     include_deleted: false,
                     skip: 100,
+                    order: ListOrder::Storage,
                 })),
                 102,
             ))
@@ -338,5 +346,87 @@ use super::*;
         };
         assert!(list4.memories.is_empty());
         assert_eq!(list4.total, 5);
+    }
+
+    /// 时间线排序：created_at 倒序必须在分页前生效，且并列时间以 ID 稳定。
+    #[tokio::test]
+    async fn test_list_order_created_desc_pagination() {
+        let router = router_with_dedup(0.95, 0.80);
+
+        let mut ids = Vec::new();
+        for i in 0..3 {
+            let add = router
+                .route(add_request_dedup_off(
+                    &format!("timeline item {}", i),
+                    i as u64 + 1,
+                ))
+                .await;
+            match add.result {
+                Some(ResponseResult::Memory(m)) => ids.push(m.memory.id),
+                _ => panic!("expected memory result"),
+            }
+        }
+
+        // 构造明确的时间顺序：ids[0] 最旧，ids[2] 最新
+        let base = chrono::Utc::now() - chrono::Duration::hours(3);
+        for (i, id) in ids.iter().enumerate() {
+            if let Ok(Some(mut m)) = router.storage.get(id).await {
+                m.created_at = base + chrono::Duration::hours(i as i64);
+                router.storage.update(&m).await.unwrap();
+            }
+        }
+        let expected = vec![ids[2], ids[1], ids[0]];
+
+        // 第一页：最新 2 条
+        let resp = router
+            .route(JsonRpcRequest::new(
+                RequestAction::List,
+                Some(RequestParams::List(ListParams {
+                    tags: Vec::new(),
+                    memory_type: None,
+                    limit: 2,
+                    project_only: false,
+                    global_only: false,
+                    project_id: None,
+                    include_deleted: false,
+                    skip: 0,
+                    order: ListOrder::CreatedDesc,
+                })),
+                200,
+            ))
+            .await;
+        let page1 = match resp.result {
+            Some(ResponseResult::MemoryList(l)) => l,
+            _ => panic!("expected memory list"),
+        };
+        assert_eq!(page1.total, 3);
+        let page1_ids: Vec<_> = page1.memories.iter().map(|m| m.id).collect();
+        assert_eq!(page1_ids, expected[..2]);
+
+        // 第二页：第 3 条，与第一页不重叠
+        let resp = router
+            .route(JsonRpcRequest::new(
+                RequestAction::List,
+                Some(RequestParams::List(ListParams {
+                    tags: Vec::new(),
+                    memory_type: None,
+                    limit: 2,
+                    project_only: false,
+                    global_only: false,
+                    project_id: None,
+                    include_deleted: false,
+                    skip: 2,
+                    order: ListOrder::CreatedDesc,
+                })),
+                201,
+            ))
+            .await;
+        let page2 = match resp.result {
+            Some(ResponseResult::MemoryList(l)) => l,
+            _ => panic!("expected memory list"),
+        };
+        let page2_ids: Vec<_> = page2.memories.iter().map(|m| m.id).collect();
+        assert_eq!(page2_ids, expected[2..]);
+        assert!(page1_ids.iter().all(|id| !page2_ids.contains(id)));
     }
 

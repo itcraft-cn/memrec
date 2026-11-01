@@ -7,8 +7,9 @@ use crate::client::Client;
 use anyhow::Result;
 use mr_common::MemoryType;
 use mr_protocol::{
-    AddParams, DeleteParams, DreamParams, DreamReportParams, GetParams, JsonRpcRequest, ListParams,
-    RequestAction, RequestParams, ResponseResult, RestoreParams,
+    AddParams, DeleteParams, DreamParams, DreamReportParams, GetParams, JsonRpcRequest,
+    JsonRpcResponse, ListOrder, ListParams, RequestAction, RequestParams, ResponseResult,
+    RestoreParams,
 };
 
 /// 单块最大字节数，留余量给 JSON 序列化开销
@@ -18,7 +19,9 @@ mod chunk;
 mod crud;
 mod dream;
 
-pub use crud::{add, delete, get, list, restore, stats, version, AddOptions, ListOptions};
+pub use crud::{
+    add, delete, get, list, restore, stats, timeline, version, AddOptions, ListOptions,
+};
 pub use dream::{dream, dream_report};
 
 #[cfg(test)]

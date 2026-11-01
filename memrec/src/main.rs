@@ -7,6 +7,7 @@
 //! - `add`：添加记忆（支持自动分块）
 //! - `get`：获取记忆（支持分块合并）
 //! - `list`：列出记忆
+//! - `timeline`：按创建时间倒序浏览记忆
 //! - `delete`：删除记忆
 //! - `search`：语义搜索
 //! - `stats`：统计信息
@@ -28,7 +29,7 @@ use uuid::Uuid;
 use client::Client;
 use commands::{
     add, delete, dream, dream_report, eval_retrieval, get, list, restore, scene, search_execute,
-    stats, version, AddOptions, ListOptions, SearchArgs,
+    stats, timeline, version, AddOptions, ListOptions, SearchArgs,
 };
 use commands::{detect_working_dir, read_project_uuid, resolve_scope, Scope};
 
@@ -95,6 +96,29 @@ enum Commands {
         /// 包含已删除（软删除）的原始记录
         #[arg(long)]
         deleted: bool,
+    },
+    /// 按创建时间倒序浏览记忆（时间线视图）
+    Timeline {
+        #[arg(short, long, default_value = "20")]
+        limit: usize,
+        /// 跳过前 N 条（与 limit 配合分页）
+        #[arg(long, default_value_t = 0)]
+        skip: usize,
+        /// 仅当前项目（未指定时按 .mr_pid 是否存在推断）
+        #[arg(short = 'p', long, group = "timeline_scope")]
+        project: bool,
+        /// 仅公共记忆（未指定时按 .mr_pid 是否存在推断）
+        #[arg(short = 'g', long, group = "timeline_scope")]
+        global: bool,
+        /// 跨所有项目
+        #[arg(short = 'a', long, group = "timeline_scope")]
+        all: bool,
+        /// 按标签过滤（可多个，全部命中）
+        #[arg(long)]
+        tag: Vec<String>,
+        /// 按记忆类型过滤（decision/knowledge/context/preference/conversation）
+        #[arg(long)]
+        type_filter: Option<String>,
     },
     Delete {
         id: String,
@@ -174,8 +198,51 @@ enum SceneCommands {
     },
 }
 
+/// 将 `list`/`timeline` 的三态范围参数解析为协议字段。
+///
+/// 显式参数优先；均未指定时按 `.mr_pid` 是否存在推断默认范围。
+/// 返回 `(project_only, global_only, project_id)`，其中 `project_id`
+/// 仅在当前项目范围内解析 `.mr_pid` 得到的 UUID。
+fn resolve_list_scope(
+    project: bool,
+    global: bool,
+    all: bool,
+) -> Result<(bool, bool, Option<Uuid>)> {
+    let scope = resolve_scope(project, global, all);
+    Ok(match scope {
+        Scope::Project => {
+            // 解析 .mr_pid 中的项目 UUID，将查询限定到当前项目
+            let root = std::path::PathBuf::from(detect_working_dir()?);
+            (true, false, read_project_uuid(&root))
+        }
+        Scope::Global => (false, true, None),
+        Scope::All => (false, false, None),
+    })
+}
+
+/// 恢复 `SIGPIPE` 的系统默认处置。
+///
+/// Rust 运行时默认忽略 `SIGPIPE`，当 stdout 的读端提前关闭（如
+/// `memrec list | more` 中途退出）时，`println!` 会收到 `EPIPE` 并 panic，
+/// 打印无意义的堆栈。CLI 是短生命周期客户端，无需信号清理，恢复默认处置
+/// 后由内核在管道断开时安静终止进程，符合 Unix 工具惯例。
+#[cfg(unix)]
+fn restore_sigpipe_default() {
+    // SAFETY: signal() 仅设置进程级信号处置，SIG_DFL 是合法处置值。
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
+/// 非 Unix 平台无需处理 `SIGPIPE`。
+#[cfg(not(unix))]
+fn restore_sigpipe_default() {}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    // 必须在任何输出之前设置，确保管道提前关闭时不会触发 panic
+    restore_sigpipe_default();
+
     let cli = Cli::parse();
 
     if cli.mcp {
@@ -231,17 +298,8 @@ async fn main() -> Result<()> {
             type_filter,
             deleted,
         } => {
-            // 显式三态参数优先，未指定时按 .mr_pid 是否存在推断默认范围
-            let scope = resolve_scope(project, global, all);
-            let (project_only, global_only, project_id) = match scope {
-                Scope::Project => {
-                    // 解析 .mr_pid 中的项目 UUID，将 list 限定到当前项目
-                    let root = std::path::PathBuf::from(detect_working_dir()?);
-                    (true, false, read_project_uuid(&root))
-                }
-                Scope::Global => (false, true, None),
-                Scope::All => (false, false, None),
-            };
+            let (project_only, global_only, project_id) =
+                resolve_list_scope(project, global, all)?;
             list(
                 &client,
                 ListOptions {
@@ -253,6 +311,33 @@ async fn main() -> Result<()> {
                     tags: tag,
                     memory_type: type_filter,
                     include_deleted: deleted,
+                },
+                human,
+            )
+            .await?;
+        }
+        Commands::Timeline {
+            limit,
+            skip,
+            project,
+            global,
+            all,
+            tag,
+            type_filter,
+        } => {
+            let (project_only, global_only, project_id) =
+                resolve_list_scope(project, global, all)?;
+            timeline(
+                &client,
+                ListOptions {
+                    limit,
+                    skip,
+                    project_only,
+                    global_only,
+                    project_id,
+                    tags: tag,
+                    memory_type: type_filter,
+                    include_deleted: false,
                 },
                 human,
             )

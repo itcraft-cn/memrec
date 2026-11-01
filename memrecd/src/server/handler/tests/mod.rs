@@ -11,7 +11,7 @@
     use mr_common::DreamConfig;
     use mr_protocol::{
         default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda, AddParams,
-        GetProjectInfoParams, ListParams, SearchMemoryParams,
+        GetProjectInfoParams, ListOrder, ListParams, SearchMemoryParams,
     };
     use tempfile::tempdir;
 

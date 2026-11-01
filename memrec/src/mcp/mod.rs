@@ -30,7 +30,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use mr_protocol::{
     AddParams, DeleteParams, DreamParams, DreamReportParams, GetParams, GetProjectInfoParams,
-    JsonRpcRequest, ListParams, RequestAction, RequestParams, SearchMemoryParams,
+    JsonRpcRequest, ListOrder, ListParams, RequestAction, RequestParams, SearchMemoryParams,
 };
 
 use crate::commands::{default_scope, detect_working_dir, read_project_uuid, Scope};

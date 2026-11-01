@@ -124,6 +124,8 @@ memrec list --limit 20
 memrec list --limit 10 --skip 20        # pagination: skip the first 20
 memrec list --tag rust --type-filter decision   # filter by tag/type
 memrec list --deleted                    # list soft-deleted raw records from RocksDB
+memrec timeline                          # browse recent memories, newest first
+memrec timeline --limit 50 --skip 50     # paginate the timeline
 memrec get <id>
 memrec restore <id>                      # restore a soft-deleted memory (re-indexed)
 memrec stats

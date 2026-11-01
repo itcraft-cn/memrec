@@ -9,7 +9,8 @@ mod search;
 
 pub use eval::eval_retrieval;
 pub use memory::{
-    add, delete, dream, dream_report, get, list, restore, stats, version, AddOptions, ListOptions,
+    add, delete, dream, dream_report, get, list, restore, stats, timeline, version, AddOptions,
+    ListOptions,
 };
 pub use search::{search_execute, SearchArgs};
 

@@ -118,6 +118,8 @@ memrec list --limit 20
 memrec list --limit 10 --skip 20        # 分页：跳过前 20 条
 memrec list --tag rust --type-filter decision   # 按标签/类型过滤
 memrec list --deleted                    # 从 RocksDB 检索软删除的原始记录
+memrec timeline                          # 按创建时间倒序浏览最近记忆
+memrec timeline --limit 50 --skip 50     # 时间线分页
 memrec get <id>
 memrec restore <id>                      # 恢复软删除记忆（重新入检索索引）
 memrec stats

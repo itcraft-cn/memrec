@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **`memrec timeline`**：按创建时间倒序浏览记忆，支持 `--limit`/`--skip` 分页、`-p/-g/-a` 范围、`--tag`/`--type-filter` 过滤；排序在服务端过滤后、分页前完成，并列时间以记忆 ID 保证翻页稳定。协议层 `ListParams.order`（`storage`/`created_asc`/`created_desc`，默认 `storage`）向后兼容。
+
 ### 变更
 
 - **检索分数改为可解释的绝对校准分**：`HybridStore` 不再对向量/BM25 做本次结果集内的 min-max 归一化后按 `alpha` 加权（该方式使单路命中顶项恒为 `alpha` 或 `1-alpha`，默认均为 0.5，与绝对相关性无关）。改为 `score = 1 - (1 - vector_cos)(1 - coverage)`：向量单路取原始余弦，全文单路取查询词覆盖率，双路命中 noisy-OR 合成；`min_score` 重新作用于校准分。
@@ -16,6 +20,7 @@
 
 ### 修复
 
+- **管道提前关闭触发 panic**：`memrec list | more` 中途退出后，写已关闭的 stdout 会因 `EPIPE` 触发 `println!` panic 并打印堆栈。CLI 入口现在恢复 `SIGPIPE` 系统默认处置，管道断开时安静退出。
 - **无关查询获得 0.5 高置信结果**：纯 BM25 单路命中（如仅撞上"无关"一词）此前经 min-max 归一化后固定得到 0.5，恰好通过默认阈值。现全文单路覆盖率低于 0.30 直接丢弃，并在融合后要求"原始余弦达阈值或覆盖率达标"至少一路成立，避免字词碰撞返回高置信结果。
 - **检索门禁金标集悬空目标**：3 条金标记忆已被软删，导致 `retrieval_gate.sh` 的 hit@5 假性下降；替换为仍存活的同类记忆，并新增无关查询负例门禁（top1 必须低于 0.5）。
 - **BGE-M3 模型下载路径错误**：`tokenizer.json` / `config.json` / `tokenizer_config.json` 的 `remote_path` 指向仓库根目录，但记录的 SHA256 对应 `onnx/` 子目录版本，导致哈希校验反复失败并删除文件、模型目录始终不完整。统一改为 `onnx/` 前缀并补回归测试。

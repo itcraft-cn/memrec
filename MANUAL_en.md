@@ -113,6 +113,7 @@ With BGE-M3, model loading + vector rebuild takes ~75-90 seconds before the sock
 | `memrec search` | Semantic search |
 | `memrec get` | Get a single memory |
 | `memrec list` | List memories |
+| `memrec timeline` | Browse memories newest first (pagination and filters supported) |
 | `memrec delete` | Delete a memory |
 | `memrec restore` | Restore a soft-deleted memory (re-added to the index) |
 | `memrec stats` | Statistics |
@@ -374,6 +375,18 @@ memrec list --limit 50       # List 50
 memrec list -p               # Current project only (default when .mr_pid exists)
 memrec list -g               # Global memories only (default without .mr_pid)
 memrec list -a               # All projects
+```
+
+### Timeline
+
+`timeline` lists memories newest first. Ordering and pagination happen server-side, so pages stay consistent.
+
+```bash
+memrec timeline                       # 20 most recent memories
+memrec timeline --limit 50            # 50 most recent memories
+memrec timeline --skip 50 --limit 50  # paginate the timeline
+memrec timeline -p --type-filter decision   # decisions in the current project
+memrec timeline -a --tag rust         # across projects, filtered by tag
 ```
 
 ### Delete Memory

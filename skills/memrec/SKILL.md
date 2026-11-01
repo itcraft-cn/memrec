@@ -16,6 +16,7 @@ description: AI 记忆持久化系统。用 memrec 跨会话保存与检索项�
 | 需要用户偏好或跨项目通用约定 | `mr_search` + `scope: global` |
 | 需要完整原文或分块合并 | `mr_get`（先确认 `is_deleted`） |
 | 需要盘点、统计、查看 Dream 运行 | `mr_list` / `mr_stats` / `mr_dream_report` |
+| 按时间顺序回看最近发生了什么 | CLI `memrec timeline` |
 | 用户明确要求整合/清理旧记忆 | `mr_dream`（先 `dry_run`） |
 | 误删恢复 | CLI `memrec restore <id>` |
 
@@ -173,6 +174,7 @@ memrec add "内容" --mtype <type> [--tag <tag>]... [--global] [--source <source
 memrec search "关键词" [-p|-g|-a] [-k <num>] [--min-score <f>] [--mtype <type>] [--human]
 memrec get <id> [--merge] [--human]
 memrec list [-l <num>] [--skip <num>] [-p|-g|-a] [--tag <tag>]... [--type-filter <type>] [--deleted] [--human]
+memrec timeline [-l <num>] [--skip <num>] [-p|-g|-a] [--tag <tag>]... [--type-filter <type>] [--human]
 memrec delete <id> [--human]
 memrec restore <id> [--human]
 memrec stats

@@ -112,6 +112,7 @@ systemctl --user restart memrecd   # 或直接：memrecd
 | `memrec search` | 语义检索 |
 | `memrec get` | 获取单条记忆 |
 | `memrec list` | 列出记忆 |
+| `memrec timeline` | 按创建时间倒序浏览记忆（支持分页与过滤） |
 | `memrec delete` | 删除记忆 |
 | `memrec restore` | 恢复软删除记忆（重新加入检索索引） |
 | `memrec stats` | 统计信息 |
@@ -372,6 +373,18 @@ memrec list --limit 50       # 列出50条
 memrec list -p               # 仅当前项目（有 .mr_pid 时默认）
 memrec list -g               # 仅公共记忆（无 .mr_pid 时默认）
 memrec list -a               # 跨所有项目
+```
+
+### 时间线浏览
+
+`timeline` 按创建时间倒序列出记忆，排序与分页在服务端完成，翻页顺序稳定。
+
+```bash
+memrec timeline                       # 最近的 20 条
+memrec timeline --limit 50            # 最近 50 条
+memrec timeline --skip 50 --limit 50  # 时间线分页
+memrec timeline -p --type-filter decision   # 当前项目的决策记录
+memrec timeline -a --tag rust         # 跨项目、按标签过滤
 ```
 
 ### 删除记忆
