@@ -1,6 +1,6 @@
 ---
 name: memrec
-description: AI 记忆持久化系统。用 memrec 跨会话保存与检索项目决策、知识、上下文和用户偏好。支持 MCP（优先）与 CLI、项目隔离、混合检索（KNN+BM25）、中文分词、MMR 重排、时间线浏览、软删除与 Dream 整合。触发场景：需要记录重要决策或知识、需要回忆历史结论/路径/数字、需要按时间回看进展、需要跨会话保持项目上下文、需要解释检索结果可信度。
+description: AI 记忆持久化系统。用 memrec 跨会话保存与检索项目决策、知识、上下文和用户偏好。支持 MCP（优先）与 CLI、项目隔离、混合检索（KNN+BM25）、中文分词、MMR 重排、时间线浏览、原始记录查看、软删除与 Dream 整合。触发场景：需要记录重要决策或知识、需要回忆历史结论/路径/数字、需要按时间回看进展、需要跨会话保持项目上下文、需要解释检索结果可信度。
 ---
 
 # MemRec - AI 记忆持久化系统
@@ -17,6 +17,7 @@ description: AI 记忆持久化系统。用 memrec 跨会话保存与检索项�
 | 需要完整原文或分块合并 | `mr_get`（先确认 `is_deleted`） |
 | 需要盘点、统计、查看 Dream 运行 | `mr_list` / `mr_stats` / `mr_dream_report` |
 | 按时间顺序回看最近发生了什么 | CLI `memrec timeline` |
+| 抽取工作记录、导出被 Dream 融合前的原始条目 | CLI `memrec list --raw` / `memrec timeline --raw` |
 | 用户明确要求整合/清理旧记忆 | `mr_dream`（先 `dry_run`） |
 | 误删恢复 | CLI `memrec restore <id>` |
 
@@ -91,6 +92,7 @@ MCP 不可用时再退回 CLI。两者共享同一守护进程与数据。
 
 - 只支持 `limit`（默认 20）与 `scope`；返回 `MemoryView` 列表，单条已不含向量，但批量结果仍建议按需取用。
 - 需要按标签/类型/分页时用 CLI（`--tag`、`--type-filter`、`--skip`、`--deleted`）。
+- 需要原始记录视图时用 CLI `memrec list --raw`；MCP 未暴露 raw 参数。
 
 ### timeline（仅 CLI）
 
@@ -102,9 +104,12 @@ memrec timeline -l 20 --skip 20 --human    # 继续往前翻
 memrec timeline -p --human                 # 仅当前项目
 memrec timeline -a --human                 # 跨所有项目
 memrec timeline --type-filter decision     # 只看决策
+memrec timeline --raw --human              # 原始记录时间线：含被融合软删的源记录
+memrec timeline --raw --with-dream --human # 原始记录 + Dream 融合产出
 ```
 
 - 排序由服务端在过滤后、分页前完成，`created_at` 并列时以记忆 ID 保证翻页稳定，因此 `--skip` 不会漏条或重复。
+- `--raw` 直读存储层，适合抽取工作记录等需要逐条原始数据的场景；默认排除 `metadata.source_ids` 标记的融合产出，`--with-dream` 可一并返回。
 - 人类可读输出每条的格式为：本地时间、类型、单行内容预览，下一行是 ID、标签与重要性。
 - 没有对应 MCP 工具；需要时间线时直接调用 CLI。找具体结论仍应使用 `mr_search`，`timeline` 只提供时间维度。
 
@@ -228,10 +233,11 @@ memrec scene create|get|list|delete|add-memory|remove-memory|update-heat ...
 2. **把 `fts_score` 当相似度**：BM25 无固定量纲；判断相关性看 `score` 与 `coverage`。
 3. **把 0.5 当"中等相关"**：0.5 只是默认阈值；边界命中应换词重查，而不是直接采信。
 4. **期望 `summary` 一定有值**：只有 Dream 整合等流程会生成摘要；普通记忆没有该字段，判断内容以 `content` 为准。
-5. **把软删记录当证据**：`is_deleted: true` 的记录不可用于结论；必要时先恢复。
-6. **重复标签/重复记忆**：写入前规范化 tags；服务端去重有阈值，不保证完全拦截。
-7. **例行 Dream**：Dream 会合并/软删原条，属于维护操作，不是普通写入。
-8. **MCP server 版本滞后**：升级 memrec 后需重启 MCP server，才能看到新增的 `vector_score` 等字段。
+5. **把软删记录当证据**：`is_deleted: true` 的记录不可用于结论；必要时先恢复。`--raw` 结果天然包含软删记录（人类输出带 `[DELETED]`），导出后需按 `is_deleted` 过滤。
+6. **混淆 raw 与普通视图**：`--raw` 默认排除融合产出，看到的是原始逐条记录；需要融合摘要时用普通 `list`/`timeline`，需要完整链路时加 `--with-dream`。
+7. **重复标签/重复记忆**：写入前规范化 tags；服务端去重有阈值，不保证完全拦截。
+8. **例行 Dream**：Dream 会合并/软删原条，属于维护操作，不是普通写入。
+9. **MCP server 版本滞后**：升级 memrec 后需重启 MCP server，才能看到新增的 `vector_score` 等字段。
 
 ## 最佳实践
 
@@ -241,3 +247,4 @@ memrec scene create|get|list|delete|add-memory|remove-memory|update-heat ...
 4. 检索优先于枚举；`mr_list` 只用于盘点，不用于找答案。
 5. 关键结论必须 `mr_get` 核对原文与 `is_deleted` 后再使用。
 6. 不把 MemRec 当外部知识库；它只负责"你之前存过什么"。
+7. 抽取工作记录时用 `memrec timeline --raw`：它保留融合前的逐条原始记录；导出后按 `is_deleted` 过滤，需要融合摘要时另用普通时间线。
