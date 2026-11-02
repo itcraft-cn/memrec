@@ -15,7 +15,7 @@ description: AI 记忆持久化系统。用 memrec 跨会话保存与检索项�
 | 开始任务，需要历史结论、命令、路径、数字 | `mr_search` 先检索 |
 | 需要用户偏好或跨项目通用约定 | `mr_search` + `scope: global` |
 | 需要完整原文或分块合并 | `mr_get`（先确认 `is_deleted`） |
-| 需要盘点、统计、查看 Dream 运行 | `mr_list` / `mr_stats` / `mr_dream_report` |
+| 需要盘点、统计、查看 Dream 运行 | `mr_list` / `mr_timeline` / `mr_stats` / `mr_dream_report` |
 | 按时间顺序回看最近发生了什么 | CLI `memrec timeline` |
 | 抽取工作记录、导出被 Dream 融合前的原始条目 | CLI `memrec list --raw` / `memrec timeline --raw` |
 | 用户明确要求整合/清理旧记忆 | `mr_dream`（先 `dry_run`） |
@@ -44,7 +44,8 @@ MCP 不可用时再退回 CLI。两者共享同一守护进程与数据。
 | `mr_add` | 写入记忆 | `content`、`memory_type`、`tags`、`is_global` |
 | `mr_search` | 混合检索 | `query`、`top_k`、`min_score`、`scope`、`memory_type` |
 | `mr_get` | 取单条完整记忆 | `id`、`merge` |
-| `mr_list` | 枚举记忆 | `limit`、`scope` |
+| `mr_list` | 枚举记忆 | `limit`、`skip`、`scope`、`tags`、`memory_type`、`include_deleted`、`raw`、`with_dream` |
+| `mr_timeline` | 按创建时间倒序浏览 | `limit`、`skip`、`scope`、`tags`、`memory_type`、`raw`、`with_dream` |
 | `mr_delete` | 软删除 | `id` |
 | `mr_stats` | 统计 | 无 |
 | `mr_dream` | 触发 Dream 整合 | `force`、`dry_run` |
@@ -88,13 +89,14 @@ MCP 不可用时再退回 CLI。两者共享同一守护进程与数据。
 - 返回可能带 `is_deleted: true`。软删除记录不能作为证据；需要时先用 CLI `memrec restore <id>`。
 - `merge: true` 用于分块记忆，按 `chunk_index` 拼接全文。
 
-### mr_list
+### mr_list / mr_timeline
 
-- 只支持 `limit`（默认 20）与 `scope`；返回 `MemoryView` 列表，单条已不含向量，但批量结果仍建议按需取用。
-- 需要按标签/类型/分页时用 CLI（`--tag`、`--type-filter`、`--skip`、`--deleted`）。
-- 需要原始记录视图时用 CLI `memrec list --raw`；MCP 未暴露 raw 参数。
+- 参数：`limit`（默认 20）、`skip`、`scope`、`tags`、`memory_type`、`include_deleted`、`raw`、`with_dream`；返回 `MemoryView` 列表，单条已不含向量。
+- `mr_list` 按存储顺序；`mr_timeline` 固定按 `created_at` 倒序，与 CLI `timeline` 语义一致。
+- `raw=true` 直读存储层、保留被 Dream 融合软删的源记录，默认按 `metadata.source_ids` 排除融合产出；`with_dream=true` 一并返回。
+- 需要人类可读的单行时间线输出时用 CLI `memrec timeline`。
 
-### timeline（仅 CLI）
+### timeline / mr_timeline
 
 用于回答"最近发生了什么""上一轮做到哪了"，而不是按相关性找答案。
 
@@ -111,7 +113,8 @@ memrec timeline --raw --with-dream --human # 原始记录 + Dream 融合产出
 - 排序由服务端在过滤后、分页前完成，`created_at` 并列时以记忆 ID 保证翻页稳定，因此 `--skip` 不会漏条或重复。
 - `--raw` 直读存储层，适合抽取工作记录等需要逐条原始数据的场景；默认排除 `metadata.source_ids` 标记的融合产出，`--with-dream` 可一并返回。
 - 人类可读输出每条的格式为：本地时间、类型、单行内容预览，下一行是 ID、标签与重要性。
-- 没有对应 MCP 工具；需要时间线时直接调用 CLI。找具体结论仍应使用 `mr_search`，`timeline` 只提供时间维度。
+- MCP 用 `mr_timeline`（参数与 `mr_list` 对齐），CLI 用 `memrec timeline`；两者都只提供时间维度，找具体结论仍应使用 `mr_search`。
+- 需要存储层原始逐条记录时，两者都支持 `raw` / `raw + with_dream`。
 
 ### mr_delete / mr_stats
 

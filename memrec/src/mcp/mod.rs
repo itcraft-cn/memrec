@@ -6,7 +6,7 @@
 //! ## 支持的 MCP 方法
 //!
 //! - `initialize`：协议握手
-//! - `tools/list`：列出可用工具（mr_add, mr_search, mr_get, mr_list, mr_delete, mr_stats, mr_dream）
+//! - `tools/list`：列出可用工具（mr_add, mr_search, mr_get, mr_list, mr_timeline, mr_delete, mr_stats, mr_dream, mr_dream_report）
 //! - `tools/call`：调用工具
 //! - `resources/list`：列出资源（stats, project）
 //! - `resources/read`：读取资源
@@ -19,10 +19,12 @@
 //! | `mr_add` | 添加记忆 |
 //! | `mr_search` | 语义搜索 |
 //! | `mr_get` | 获取记忆 |
-//! | `mr_list` | 列出记忆 |
+//! | `mr_list` | 列出记忆（支持原始记录视图） |
+//! | `mr_timeline` | 按创建时间倒序浏览记忆 |
 //! | `mr_delete` | 删除记忆 |
 //! | `mr_stats` | 统计信息 |
 //! | `mr_dream` | 记忆整合 |
+//! | `mr_dream_report` | Dream 审计报告 |
 
 use anyhow::{Context, Result};
 use serde_json::{json, Value};

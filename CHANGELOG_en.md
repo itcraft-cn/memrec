@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`memrec timeline`**: browse memories newest first, with `--limit`/`--skip` pagination, `-p/-g/-a` scopes and `--tag`/`--type-filter` filtering. Ordering runs server-side after filtering and before pagination, with memory ID as a stable tie-breaker across pages. The protocol-level `ListParams.order` (`storage`/`created_asc`/`created_desc`, default `storage`) is backward compatible.
 - **Raw record view `--raw`**: `list`/`timeline` gain `--raw`, which reads the RocksDB `memories` column family directly and keeps source records soft-deleted by Dream fusion. Fusion outputs are excluded by default (detected via `metadata.source_ids`); add `--with-dream` to include them. Intended for exporting per-record raw data such as work logs. Protocol-level `ListParams.raw`/`with_dream` default to `false` and are backward compatible; the storage layer gains `MemoryStorage::list_raw`.
+- **MCP timeline and list parity**: add the `mr_timeline` tool (newest first, same parameters as `mr_list`); `mr_list` gains `skip`/`tags`/`memory_type`/`include_deleted`/`raw`/`with_dream`, so agents can browse the timeline and read raw records directly over MCP.
 
 ### Changed
 

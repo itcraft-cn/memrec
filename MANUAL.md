@@ -711,7 +711,8 @@ memrec --mcp    # 以 stdio 模式启动 MCP 服务器
 | `mr_add` | 添加记忆 |
 | `mr_search` | 语义检索 |
 | `mr_get` | 获取记忆详情 |
-| `mr_list` | 列出记忆 |
+| `mr_list` | 列出记忆（支持 `skip`/`tags`/`memory_type`/`include_deleted`/`raw`/`with_dream`） |
+| `mr_timeline` | 按创建时间倒序浏览记忆（参数同 `mr_list`，支持 `raw`/`with_dream`） |
 | `mr_delete` | 删除记忆 |
 | `mr_stats` | 获取统计信息 |
 | `mr_dream` | 触发 Dream 整合（`force`、`dry_run`） |

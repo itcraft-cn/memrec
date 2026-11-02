@@ -3,7 +3,7 @@
 use super::*;
 
 impl McpServer {
-    /// 处理 `tools/list` 方法，返回 6 个可用工具的 schema。
+    /// 处理 `tools/list` 方法，返回可用工具的 schema。
     pub(super) fn handle_tools_list(&self, id: Option<Value>) -> Value {
         self.make_result(id, json!({
             "tools": [
@@ -66,16 +66,58 @@ impl McpServer {
                 },
                 {
                     "name": "mr_list",
-                    "description": "List memories with optional filtering. Scope: 'project'=current project only, 'global'=global memories only, 'all'=all projects. When scope is omitted it is inferred from the .mr_pid marker in the project root (project if present, else global).",
+                    "description": "List memories with optional filtering. Scope: 'project'=current project only, 'global'=global memories only, 'all'=all projects. When scope is omitted it is inferred from the .mr_pid marker in the project root (project if present, else global). Set raw=true to read raw records directly from storage, including sources soft-deleted by Dream fusion; raw excludes fusion outputs by default, set with_dream=true to include them. Uses storage order.",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
                             "limit": { "type": "integer", "description": "Max memories to return", "default": 20 },
+                            "skip": { "type": "integer", "description": "Number of records to skip for pagination", "default": 0 },
                             "scope": {
                                 "type": "string",
                                 "enum": ["project", "global", "all"],
                                 "description": "List scope. Default: inferred from .mr_pid (project if present, else global)"
-                            }
+                            },
+                            "tags": {
+                                "type": "array",
+                                "items": { "type": "string" },
+                                "description": "Filter by tags; all tags must match"
+                            },
+                            "memory_type": {
+                                "type": "string",
+                                "enum": ["decision", "knowledge", "context", "preference", "conversation"],
+                                "description": "Filter by memory type"
+                            },
+                            "include_deleted": { "type": "boolean", "description": "Return only soft-deleted records", "default": false },
+                            "raw": { "type": "boolean", "description": "Raw record mode: read storage directly and keep records soft-deleted by Dream fusion", "default": false },
+                            "with_dream": { "type": "boolean", "description": "In raw mode, also include Dream fusion outputs (metadata.source_ids); ignored otherwise", "default": false }
+                        }
+                    }
+                },
+                {
+                    "name": "mr_timeline",
+                    "description": "Browse memories by creation time (newest first) with pagination and filtering. Same scope/filter semantics as mr_list. Set raw=true to read raw records directly from storage, including sources soft-deleted by Dream fusion; raw excludes fusion outputs by default, set with_dream=true to include them.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "limit": { "type": "integer", "description": "Max memories to return", "default": 20 },
+                            "skip": { "type": "integer", "description": "Number of records to skip for pagination", "default": 0 },
+                            "scope": {
+                                "type": "string",
+                                "enum": ["project", "global", "all"],
+                                "description": "Timeline scope. Default: inferred from .mr_pid (project if present, else global)"
+                            },
+                            "tags": {
+                                "type": "array",
+                                "items": { "type": "string" },
+                                "description": "Filter by tags; all tags must match"
+                            },
+                            "memory_type": {
+                                "type": "string",
+                                "enum": ["decision", "knowledge", "context", "preference", "conversation"],
+                                "description": "Filter by memory type"
+                            },
+                            "raw": { "type": "boolean", "description": "Raw record mode: read storage directly and keep records soft-deleted by Dream fusion", "default": false },
+                            "with_dream": { "type": "boolean", "description": "In raw mode, also include Dream fusion outputs (metadata.source_ids); ignored otherwise", "default": false }
                         }
                     }
                 },
@@ -130,6 +172,7 @@ impl McpServer {
             "mr_search" => self.tool_search(&arguments).await,
             "mr_get" => self.tool_get(&arguments).await,
             "mr_list" => self.tool_list(&arguments).await,
+            "mr_timeline" => self.tool_timeline(&arguments).await,
             "mr_delete" => self.tool_delete(&arguments).await,
             "mr_stats" => self.tool_stats().await,
             "mr_dream" => self.tool_dream(&arguments).await,
@@ -283,13 +326,68 @@ impl McpServer {
         Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
     }
 
-    /// `mr_list` 工具实现：列出记忆。
+    /// `mr_list` 工具实现：按存储顺序列出记忆。
     ///
     /// `scope` 三态参数与 CLI 的 `-p/-g/-a` 对齐；未指定时按 `.mr_pid` 推断。
-    /// project 范围时解析 `.mr_pid` 的项目 UUID 传入，精确限定当前项目。
+    /// `raw=true` 时直读存储层并保留被 Dream 融合软删的记录。
     async fn tool_list(&self, args: &Value) -> Result<String, String> {
+        self.list_common(args, ListOrder::Storage).await
+    }
+
+    /// `mr_timeline` 工具实现：按创建时间倒序列出记忆。
+    ///
+    /// 参数与 `mr_list` 对齐，排序固定为 `created_desc`，供 AI 回看进展；
+    /// 同样支持 `raw` / `with_dream` 原始记录视图。
+    async fn tool_timeline(&self, args: &Value) -> Result<String, String> {
+        self.list_common(args, ListOrder::CreatedDesc).await
+    }
+
+    /// `mr_list` / `mr_timeline` 共享实现：构造 List 请求并调用守护进程。
+    async fn list_common(&self, args: &Value, order: ListOrder) -> Result<String, String> {
+        let params = Self::build_list_params(args, order)?;
+        let resp = self
+            .call_daemon(JsonRpcRequest::new(
+                RequestAction::List,
+                Some(RequestParams::List(params)),
+                1,
+            ))
+            .await?;
+
+        Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
+    }
+
+    /// 解析 `list`/`timeline` 的公共参数。
+    ///
+    /// `order` 由调用方指定：`list` 用存储顺序，`timeline` 用创建时间倒序。
+    /// project 范围解析 `.mr_pid` 得到项目 UUID，精确限定当前项目；
+    /// `raw`/`with_dream`/`include_deleted` 直接透传给服务端。
+    pub(super) fn build_list_params(args: &Value, order: ListOrder) -> Result<ListParams, String> {
         let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(20);
+        let skip = args.get("skip").and_then(|v| v.as_u64()).unwrap_or(0);
         let scope = parse_scope(args.get("scope").and_then(|v| v.as_str()));
+        let tags: Vec<String> = args
+            .get("tags")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let memory_type = args
+            .get("memory_type")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(parse_memory_type);
+        let include_deleted = args
+            .get("include_deleted")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let raw = args.get("raw").and_then(|v| v.as_bool()).unwrap_or(false);
+        let with_dream = args
+            .get("with_dream")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         let (project_only, global_only, project_id) = match scope {
             Scope::Project => {
@@ -301,27 +399,19 @@ impl McpServer {
             Scope::All => (false, false, None),
         };
 
-        let resp = self
-            .call_daemon(JsonRpcRequest::new(
-                RequestAction::List,
-                Some(RequestParams::List(ListParams {
-                    tags: vec![],
-                    memory_type: None,
-                    limit: limit as usize,
-                    project_only,
-                    global_only,
-                    project_id,
-                    include_deleted: false,
-                    skip: 0,
-                    order: ListOrder::Storage,
-                    raw: false,
-                    with_dream: false,
-                })),
-                1,
-            ))
-            .await?;
-
-        Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
+        Ok(ListParams {
+            tags,
+            memory_type,
+            limit: limit as usize,
+            project_only,
+            global_only,
+            project_id,
+            include_deleted,
+            skip: skip as usize,
+            order,
+            raw,
+            with_dream,
+        })
     }
 
     /// `mr_delete` 工具实现：删除记忆。

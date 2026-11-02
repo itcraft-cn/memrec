@@ -715,7 +715,8 @@ memrec --mcp    # Start MCP server in stdio mode
 | `mr_add` | Add a memory |
 | `mr_search` | Semantic search |
 | `mr_get` | Get memory details |
-| `mr_list` | List memories |
+| `mr_list` | List memories (`skip`/`tags`/`memory_type`/`include_deleted`/`raw`/`with_dream`) |
+| `mr_timeline` | Browse memories newest first (same parameters as `mr_list`, including `raw`/`with_dream`) |
 | `mr_delete` | Delete a memory |
 | `mr_stats` | Get statistics |
 | `mr_dream` | Trigger Dream consolidation (`force`, `dry_run`) |

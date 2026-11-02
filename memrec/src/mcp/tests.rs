@@ -33,6 +33,7 @@ use super::*;
         assert!(tool_names.contains(&"mr_search"));
         assert!(tool_names.contains(&"mr_get"));
         assert!(tool_names.contains(&"mr_list"));
+        assert!(tool_names.contains(&"mr_timeline"));
         assert!(tool_names.contains(&"mr_delete"));
         assert!(tool_names.contains(&"mr_stats"));
     }
@@ -148,12 +149,64 @@ use super::*;
             .collect();
         assert_eq!(enum_values, vec!["project", "global", "all"]);
         // 旧布尔参数已移除，仅保留 scope
-        assert!(mr_list["inputSchema"]["properties"]
-            .get("project_only")
-            .is_none());
-        assert!(mr_list["inputSchema"]["properties"]
-            .get("global_only")
-            .is_none());
+        let props = &mr_list["inputSchema"]["properties"];
+        assert!(props.get("project_only").is_none());
+        assert!(props.get("global_only").is_none());
+        // 原始记录视图与分页/过滤参数已暴露
+        assert!(props.get("skip").is_some());
+        assert!(props.get("tags").is_some());
+        assert!(props.get("memory_type").is_some());
+        assert!(props.get("include_deleted").is_some());
+        assert!(props.get("raw").is_some());
+        assert!(props.get("with_dream").is_some());
+    }
+
+    #[test]
+    fn test_mr_timeline_tool_schema() {
+        let server = make_server();
+        let result = server.handle_tools_list(Some(1.into()));
+
+        let mr_timeline = result["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == "mr_timeline")
+            .unwrap();
+
+        let props = &mr_timeline["inputSchema"]["properties"];
+        assert!(props.get("limit").is_some());
+        assert!(props.get("skip").is_some());
+        assert!(props.get("scope").is_some());
+        assert!(props.get("tags").is_some());
+        assert!(props.get("memory_type").is_some());
+        assert!(props.get("raw").is_some());
+        assert!(props.get("with_dream").is_some());
+    }
+
+    #[test]
+    fn test_build_list_params_raw_and_order() {
+        let args = json!({
+            "limit": 5,
+            "skip": 10,
+            "scope": "all",
+            "tags": ["rust", "fact"],
+            "memory_type": "decision",
+            "include_deleted": true,
+            "raw": true,
+            "with_dream": true
+        });
+
+        let params = McpServer::build_list_params(&args, ListOrder::CreatedDesc).unwrap();
+        assert_eq!(params.limit, 5);
+        assert_eq!(params.skip, 10);
+        assert_eq!(params.tags, vec!["rust", "fact"]);
+        assert_eq!(params.memory_type, Some(mr_common::MemoryType::Decision));
+        assert!(params.include_deleted);
+        assert!(params.raw);
+        assert!(params.with_dream);
+        assert_eq!(params.order, ListOrder::CreatedDesc);
+        assert!(!params.project_only);
+        assert!(!params.global_only);
     }
 
     #[test]
