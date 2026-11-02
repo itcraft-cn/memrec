@@ -169,7 +169,6 @@ pub async fn get(client: &Client, id: String, merge: bool, human: bool) -> Resul
                     println!("Importance: {:.2}", m.memory.importance);
                     println!("Tags: {:?}", m.memory.tags);
                     println!("Created: {}", m.memory.created_at);
-                    println!("Access count: {}", m.memory.access_count);
                     if m.memory.is_deleted {
                         println!("Status: DELETED");
                     }

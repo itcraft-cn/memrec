@@ -113,6 +113,7 @@
 #### 方案
 
 1. `mr_get` 增加 `include_embedding`，默认 false；服务端序列化时剔除 embedding。
+   - 已完成（0.11.0）：协议响应统一改用 `MemoryView`，`Add`/`Get`/`List` 均不再返回 `embedding`，无需开关。
 2. `mr_get` 默认对已删除记录返回明确状态标记（例如 `deleted: true` 且附 `deleted_at`），或提供 `allow_deleted` 参数。
 3. `mr_search` 的 preview 长度可配置（默认 500，上限 2000），或增加 `snippet` 字段返回命中片段而非固定头部。
 4. CLI 增加对应参数，保持默认低消耗。

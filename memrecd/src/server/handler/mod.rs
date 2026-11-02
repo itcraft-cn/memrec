@@ -32,9 +32,9 @@ use mr_common::{
 };
 use mr_protocol::{
     DreamReportResult, DreamResult, GetProjectInfoParams, JsonRpcError, JsonRpcRequest,
-    JsonRpcResponse, ListOrder, MemoryListResult, MemoryResult, ProjectInfoResult, RequestAction,
-    RequestParams, ResponseResult, SceneListResult, SceneResult, SearchHit, SemanticSearchResult,
-    StatsResult, SuccessResult, VersionResult,
+    JsonRpcResponse, ListOrder, MemoryListResult, MemoryResult, MemoryView, ProjectInfoResult,
+    RequestAction, RequestParams, ResponseResult, SceneListResult, SceneResult, SearchHit,
+    SemanticSearchResult, StatsResult, SuccessResult, VersionResult,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

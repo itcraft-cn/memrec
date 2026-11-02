@@ -48,7 +48,7 @@ impl Router {
 
                 JsonRpcResponse::success(
                     ResponseResult::Memory(MemoryResult {
-                        memory,
+                        memory: memory.into(),
                         action: "added".to_string(),
                         duplicates: Vec::new(),
                     }),
@@ -119,7 +119,7 @@ impl Router {
                 );
                 Some(JsonRpcResponse::success(
                     ResponseResult::Memory(MemoryResult {
-                        memory: new_memory.clone(),
+                        memory: new_memory.clone().into(),
                         action: "skipped".to_string(),
                         duplicates: decision.candidates,
                     }),
@@ -161,7 +161,7 @@ impl Router {
                         tracing::info!("Add updated existing memory {:?}", target_id);
                         Some(JsonRpcResponse::success(
                             ResponseResult::Memory(MemoryResult {
-                                memory: updated,
+                                memory: updated.into(),
                                 action: "updated".to_string(),
                                 duplicates: decision.candidates,
                             }),

@@ -234,7 +234,12 @@ impl Router {
 
         // 分页：skip 跳过前 N 条，take 取 limit 条
         let total = filtered.len();
-        let page: Vec<Memory> = filtered.into_iter().skip(skip).take(limit).collect();
+        let page: Vec<MemoryView> = filtered
+            .into_iter()
+            .skip(skip)
+            .take(limit)
+            .map(MemoryView::from)
+            .collect();
 
         JsonRpcResponse::success(
             ResponseResult::MemoryList(MemoryListResult {

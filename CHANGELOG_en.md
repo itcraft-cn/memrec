@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Hybrid scores are now interpretable absolute values**: `HybridStore` no longer min-max normalizes vector/BM25 scores within each result set and blends them with `alpha` (which pinned the top hit of a single-route result set to `alpha` or `1-alpha`, 0.5 by default, regardless of absolute relevance). The new score is `1 - (1 - vector_cos)(1 - coverage)`: vector-only hits use raw cosine, text-only hits use query-term coverage, and dual-route hits use noisy-OR. `min_score` now applies to this calibrated score.
 - `SearchHit` gains `vector_score`, `fts_score`, `coverage` and `rank_score` (all `serde(default)`, backward compatible) so callers can judge where a hit came from.
+- **Protocol memory payload decoupled from the persistence model**: `memory`/`memories` in JSON-RPC responses now use `MemoryView` instead of the full `Memory`. Internal fields such as `embedding` (1024-dim with BGE-M3), `last_accessed`, `access_count` and `metadata` are no longer returned, and empty optional fields (`summary`, `deleted_at`, `chunk_*`) are omitted. This applies to `Add`/`Get`/`List`/`timeline` and the MCP tools, so batch outputs like `timeline -a -l N` no longer carry vectors.
 
 ### Fixed
 

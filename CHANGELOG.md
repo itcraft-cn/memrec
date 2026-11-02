@@ -17,6 +17,7 @@
 
 - **检索分数改为可解释的绝对校准分**：`HybridStore` 不再对向量/BM25 做本次结果集内的 min-max 归一化后按 `alpha` 加权（该方式使单路命中顶项恒为 `alpha` 或 `1-alpha`，默认均为 0.5，与绝对相关性无关）。改为 `score = 1 - (1 - vector_cos)(1 - coverage)`：向量单路取原始余弦，全文单路取查询词覆盖率，双路命中 noisy-OR 合成；`min_score` 重新作用于校准分。
 - `SearchHit` 新增 `vector_score`、`fts_score`、`coverage`、`rank_score`（均 `serde(default)`，向后兼容），便于调用方判断命中来源与可信度。
+- **协议记忆载荷与持久化模型解耦**：JSON-RPC 响应中的 `memory`/`memories` 由完整 `Memory` 改为 `MemoryView`，不再返回 `embedding`（BGE-M3 下达 1024 维）、`last_accessed`、`access_count`、`metadata` 等内部字段；`summary`、`deleted_at`、`chunk_*` 等可选字段无值时直接省略。`Add`/`Get`/`List`/`timeline` 与 MCP 工具同步生效，`embedding` 也不再随 `timeline -a -l N` 等批量输出放大体积。
 
 ### 修复
 

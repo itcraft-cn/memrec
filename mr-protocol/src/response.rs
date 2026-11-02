@@ -18,8 +18,8 @@ use uuid::Uuid;
 
 use super::error::JsonRpcError;
 use mr_common::{
-    DreamRun, Memory, MemoryType, PhaseResultRecord, Project, QualityMetrics, Scene, SimilarMemory,
-    SummaryClues, TieredSearchResult,
+    DreamRun, Memory, MemoryScope, MemorySource, MemoryType, PhaseResultRecord, Project,
+    QualityMetrics, Scene, SimilarMemory, SummaryClues, TieredSearchResult,
 };
 
 /// JSON-RPC 2.0 标准响应对象。
@@ -85,13 +85,87 @@ pub enum ResponseResult {
     SceneList(SceneListResult),
 }
 
+/// 对外暴露的记忆视图。
+///
+/// 这是 JSON-RPC 协议中唯一允许出现的记忆结构：`Memory` 作为领域模型兼
+/// 持久化结构，包含 `embedding`、`last_accessed`、`access_count`、`metadata`
+/// 等内部实现字段，这些字段对调用方没有判断价值，且 `embedding` 在不同写入
+/// 路径下可能为 `None` 或上千维数组，容易被误读为"是否已建索引"的状态位。
+///
+/// 因此协议层与存储层解耦：存储仍使用 `Memory`，响应统一转换为
+/// [`MemoryView`]，只保留调用方判断内容与归属所需的字段。
+///
+/// 可选字段在无值时直接省略（不输出 `null`），避免响应中出现无意义占位。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryView {
+    pub id: Uuid,
+    pub memory_type: MemoryType,
+    /// 记忆正文；分块记忆为当前分块内容
+    pub content: String,
+    /// 摘要，仅当记忆被 Dream 整合等流程生成摘要时存在
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    /// 重要性（0-1）
+    pub importance: f32,
+    pub created_at: DateTime<Utc>,
+    pub tags: Vec<String>,
+    /// 所属项目；`None` 表示全局记忆
+    pub project_id: Option<Uuid>,
+    /// 是否已软删除；`mr_get` 等读取路径需要据此排除无效证据
+    pub is_deleted: bool,
+    /// 软删除时间，仅已删除记录返回
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<DateTime<Utc>>,
+    /// 分块组 ID，仅分块记忆返回
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunk_group_id: Option<Uuid>,
+    /// 分块序号（从 0 开始），仅分块记忆返回
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunk_index: Option<u32>,
+    /// 分块总数，仅分块记忆返回
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunk_total: Option<u32>,
+    /// 记忆来源
+    pub source: MemorySource,
+    /// 作用域（项目/全局）
+    pub scope: MemoryScope,
+}
+
+impl From<&Memory> for MemoryView {
+    fn from(memory: &Memory) -> Self {
+        Self {
+            id: memory.id,
+            memory_type: memory.memory_type,
+            content: memory.content.clone(),
+            summary: memory.summary.clone(),
+            importance: memory.importance,
+            created_at: memory.created_at,
+            tags: memory.tags.clone(),
+            project_id: memory.project_id,
+            is_deleted: memory.is_deleted,
+            deleted_at: memory.deleted_at,
+            chunk_group_id: memory.chunk_group_id,
+            chunk_index: memory.chunk_index,
+            chunk_total: memory.chunk_total,
+            source: memory.source,
+            scope: memory.scope,
+        }
+    }
+}
+
+impl From<Memory> for MemoryView {
+    fn from(memory: Memory) -> Self {
+        Self::from(&memory)
+    }
+}
+
 /// 单条记忆操作结果，用于 Add/Get/Update 等操作。
 ///
 /// `action` 描述写入决策：`added`（正常新增）/ `skipped`（重复跳过）/ `updated`（合并更新）；
 /// `duplicates` 携带命中的相似记忆候选（去重检测开启时）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryResult {
-    pub memory: Memory,
+    pub memory: MemoryView,
     /// 写入动作：`added` / `skipped` / `updated`
     #[serde(default = "default_add_action")]
     pub action: String,
@@ -108,7 +182,7 @@ impl MemoryResult {
     /// 构造默认动作（`added`）的结果。
     pub fn new(memory: Memory) -> Self {
         Self {
-            memory,
+            memory: memory.into(),
             action: default_add_action(),
             duplicates: Vec::new(),
         }
@@ -119,7 +193,7 @@ impl MemoryResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryListResult {
     /// 匹配的记忆列表
-    pub memories: Vec<Memory>,
+    pub memories: Vec<MemoryView>,
     /// 总匹配数（可能大于返回数量）
     pub total: usize,
 }
@@ -127,7 +201,7 @@ pub struct MemoryListResult {
 /// 精确搜索结果，用于 Search 操作。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
-    pub memories: Vec<Memory>,
+    pub memories: Vec<MemoryView>,
     pub total: usize,
     /// 搜索耗时（毫秒）
     pub elapsed_ms: u64,
@@ -340,6 +414,31 @@ mod tests {
         let parsed: JsonRpcResponse = serde_json::from_str(&json).unwrap();
 
         assert_eq!(resp.id, parsed.id);
+    }
+
+    #[test]
+    fn test_memory_view_omits_internal_fields() {
+        let mut memory = Memory::new("test content".to_string(), MemoryType::Knowledge);
+        memory.embedding = Some(vec![0.1, 0.2]);
+        memory
+            .metadata
+            .insert("source_ids".to_string(), "x".to_string());
+
+        let value = serde_json::to_value(MemoryView::from(&memory)).unwrap();
+
+        // 内部字段不得出现在协议载荷中
+        assert!(value.get("embedding").is_none());
+        assert!(value.get("last_accessed").is_none());
+        assert!(value.get("access_count").is_none());
+        assert!(value.get("metadata").is_none());
+        // 可选字段无值时省略，避免 null 占位
+        assert!(value.get("summary").is_none());
+        assert!(value.get("deleted_at").is_none());
+        assert!(value.get("chunk_group_id").is_none());
+        // 调用方判断内容与归属所需字段保留
+        assert_eq!(value["content"], "test content");
+        assert_eq!(value["source"], "user");
+        assert_eq!(value["scope"], "project");
     }
 
     #[test]

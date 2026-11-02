@@ -83,13 +83,13 @@ MCP 不可用时再退回 CLI。两者共享同一守护进程与数据。
 
 ### mr_get
 
-- 返回完整 `Memory`，包含 `embedding`（BGE-M3 为 1024 维）。这个字段对判断内容没有帮助，忽略即可，不要把它带入后续推理。
+- 返回 `MemoryView`（对外协议视图），只含正文、类型、摘要、标签、重要性、时间、归属、分块与软删状态；`embedding`、`access_count`、`last_accessed`、`metadata` 等内部字段不再返回。
 - 返回可能带 `is_deleted: true`。软删除记录不能作为证据；需要时先用 CLI `memrec restore <id>`。
 - `merge: true` 用于分块记忆，按 `chunk_index` 拼接全文。
 
 ### mr_list
 
-- 只支持 `limit`（默认 20）与 `scope`；返回完整 `Memory`，可能较大。
+- 只支持 `limit`（默认 20）与 `scope`；返回 `MemoryView` 列表，单条已不含向量，但批量结果仍建议按需取用。
 - 需要按标签/类型/分页时用 CLI（`--tag`、`--type-filter`、`--skip`、`--deleted`）。
 
 ### timeline（仅 CLI）
@@ -225,7 +225,7 @@ memrec scene create|get|list|delete|add-memory|remove-memory|update-heat ...
 1. **默认读取范围是 global**：未注册 `.mr_pid` 的目录里，检索默认只查全局记忆；用 `scope: all` 或先完成一次非全局写入，避免漏掉项目记忆。
 2. **把 `fts_score` 当相似度**：BM25 无固定量纲；判断相关性看 `score` 与 `coverage`。
 3. **把 0.5 当"中等相关"**：0.5 只是默认阈值；边界命中应换词重查，而不是直接采信。
-4. **`mr_get` 带入 embedding**：1024 维数组会浪费上下文；只取需要的字段/内容。
+4. **期望 `summary` 一定有值**：只有 Dream 整合等流程会生成摘要；普通记忆没有该字段，判断内容以 `content` 为准。
 5. **把软删记录当证据**：`is_deleted: true` 的记录不可用于结论；必要时先恢复。
 6. **重复标签/重复记忆**：写入前规范化 tags；服务端去重有阈值，不保证完全拦截。
 7. **例行 Dream**：Dream 会合并/软删原条，属于维护操作，不是普通写入。
