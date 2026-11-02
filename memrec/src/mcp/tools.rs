@@ -314,6 +314,8 @@ impl McpServer {
                     include_deleted: false,
                     skip: 0,
                     order: ListOrder::Storage,
+                    raw: false,
+                    with_dream: false,
                 })),
                 1,
             ))

@@ -35,6 +35,27 @@ use super::*;
         assert_eq!(memories.len(), 5);
     }
 
+    #[tokio::test]
+    async fn test_memory_list_raw_includes_deleted() {
+        let dir = tempdir().unwrap();
+        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let store = MemoryStore::new(std::sync::Arc::new(rocksdb));
+
+        let active = Memory::new("active".to_string(), MemoryType::Knowledge);
+        let removed = Memory::new("removed".to_string(), MemoryType::Knowledge);
+        store.save(&active).await.unwrap();
+        store.save(&removed).await.unwrap();
+        store.delete(&removed.id).await.unwrap();
+
+        // 普通列表隐藏软删记录
+        assert_eq!(store.list(10).await.unwrap().len(), 1);
+
+        // 原始列表直读主列族，保留软删记录
+        let raw = store.list_raw(10).await.unwrap();
+        assert_eq!(raw.len(), 2);
+        assert!(raw.iter().any(|m| m.id == removed.id && m.is_deleted));
+    }
+
     /// 构造指定创建时间与项目的记忆（created_at 直接覆写，用于下推查询测试）。
     fn backdated_memory(content: &str, hours_ago: i64, project_id: Option<uuid::Uuid>) -> Memory {
         let mut memory = Memory::new(content.to_string(), MemoryType::Knowledge);

@@ -172,6 +172,10 @@ impl MemoryStorage for IndexingStorage {
         self.inner.list(limit).await
     }
 
+    async fn list_raw(&self, limit: usize) -> Result<Vec<Memory>> {
+        self.inner.list_raw(limit).await
+    }
+
     async fn list_by_type(&self, memory_type: MemoryType, limit: usize) -> Result<Vec<Memory>> {
         self.inner.list_by_type(memory_type, limit).await
     }

@@ -96,6 +96,12 @@ enum Commands {
         /// 包含已删除（软删除）的原始记录
         #[arg(long)]
         deleted: bool,
+        /// 原始记录模式：直读存储层，包含被融合软删的源记录
+        #[arg(long)]
+        raw: bool,
+        /// 原始模式下同时包含 Dream 融合产出（仅与 --raw 联用）
+        #[arg(long)]
+        with_dream: bool,
     },
     /// 按创建时间倒序浏览记忆（时间线视图）
     Timeline {
@@ -119,6 +125,12 @@ enum Commands {
         /// 按记忆类型过滤（decision/knowledge/context/preference/conversation）
         #[arg(long)]
         type_filter: Option<String>,
+        /// 原始记录模式：直读存储层，包含被融合软删的源记录
+        #[arg(long)]
+        raw: bool,
+        /// 原始模式下同时包含 Dream 融合产出（仅与 --raw 联用）
+        #[arg(long)]
+        with_dream: bool,
     },
     Delete {
         id: String,
@@ -297,6 +309,8 @@ async fn main() -> Result<()> {
             tag,
             type_filter,
             deleted,
+            raw,
+            with_dream,
         } => {
             let (project_only, global_only, project_id) =
                 resolve_list_scope(project, global, all)?;
@@ -311,6 +325,8 @@ async fn main() -> Result<()> {
                     tags: tag,
                     memory_type: type_filter,
                     include_deleted: deleted,
+                    raw,
+                    with_dream,
                 },
                 human,
             )
@@ -324,6 +340,8 @@ async fn main() -> Result<()> {
             all,
             tag,
             type_filter,
+            raw,
+            with_dream,
         } => {
             let (project_only, global_only, project_id) =
                 resolve_list_scope(project, global, all)?;
@@ -338,6 +356,8 @@ async fn main() -> Result<()> {
                     tags: tag,
                     memory_type: type_filter,
                     include_deleted: false,
+                    raw,
+                    with_dream,
                 },
                 human,
             )

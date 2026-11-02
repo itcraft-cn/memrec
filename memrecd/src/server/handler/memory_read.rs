@@ -124,6 +124,9 @@ impl Router {
     }
 
     /// 处理 List 请求：列出记忆，支持项目/全局过滤。
+    ///
+    /// `raw=true` 时切换到原始记录模式：直读主列族、保留软删除记录，
+    /// 并按 `with_dream` 决定是否包含 Dream 融合产出。
     pub(super) async fn handle_list(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
         let (
             limit,
@@ -135,6 +138,8 @@ impl Router {
             include_deleted,
             skip,
             order,
+            raw,
+            with_dream,
         ) = match params {
             Some(RequestParams::List(p)) => (
                 p.limit,
@@ -146,6 +151,8 @@ impl Router {
                 p.include_deleted,
                 p.skip,
                 p.order,
+                p.raw,
+                p.with_dream,
             ),
             _ => (
                 20,
@@ -157,13 +164,19 @@ impl Router {
                 false,
                 0,
                 ListOrder::Storage,
+                false,
+                false,
             ),
         };
 
         // 差分取数（P0/T1）：project/global 范围走 by_project 索引下推，
         // 避免全量加载后过滤；project_only 无具体项目、include_deleted 时
         // 无法用单一索引表达，回退全量（需要精确 total 以支撑分页）。
-        let memories = if include_deleted {
+        // raw 为审计路径，直读主列族并保留软删除记录，故与索引下推互斥。
+        let memories = if raw {
+            // 原始记录模式：直读 memories 列族，含被 Dream 融合软删的源记录
+            self.storage.list_raw(usize::MAX).await.unwrap_or_default()
+        } else if include_deleted {
             // 从 RocksDB cf_deleted 列族检索原始记录（含软删除）
             self.storage.list_deleted().await.unwrap_or_default()
         } else if project_only {
@@ -186,7 +199,13 @@ impl Router {
         let mut filtered: Vec<Memory> = memories
             .into_iter()
             .filter(|m| {
-                if !include_deleted && m.is_deleted {
+                if !raw && !include_deleted && m.is_deleted {
+                    return false;
+                }
+
+                // 原始记录模式默认排除 Dream 融合产出（以 metadata.source_ids
+                // 标记）；with_dream=true 时一并返回，供审计完整链路。
+                if raw && !with_dream && m.metadata.contains_key("source_ids") {
                     return false;
                 }
 

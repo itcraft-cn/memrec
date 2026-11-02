@@ -35,6 +35,8 @@ use super::*;
                     include_deleted: false,
                     skip: 0,
                     order: ListOrder::Storage,
+                    raw: false,
+                    with_dream: false,
                 })),
                 3,
             ))
@@ -60,6 +62,8 @@ use super::*;
                     include_deleted: false,
                     skip: 0,
                     order: ListOrder::Storage,
+                    raw: false,
+                    with_dream: false,
                 })),
                 4,
             ))
@@ -110,6 +114,8 @@ use super::*;
                     include_deleted: false,
                     skip: 0,
                     order: ListOrder::Storage,
+                    raw: false,
+                    with_dream: false,
                 })),
                 3,
             ))
@@ -134,6 +140,8 @@ use super::*;
                     include_deleted: true,
                     skip: 0,
                     order: ListOrder::Storage,
+                    raw: false,
+                    with_dream: false,
                 })),
                 4,
             ))
@@ -146,6 +154,101 @@ use super::*;
             list.memories.iter().any(|m| m.id == mem_id && m.is_deleted),
             "include_deleted 应返回软删除记录"
         );
+    }
+
+    #[tokio::test]
+    async fn test_list_raw_includes_soft_deleted_and_filters_dream() {
+        let router = router_with_dedup(0.95, 0.80);
+
+        // 直接写存储，避免去重逻辑干预本用例的三条记录
+        let active = mr_common::Memory::new(
+            "active raw work log entry".to_string(),
+            mr_common::MemoryType::Conversation,
+        );
+        let source = mr_common::Memory::new(
+            "source work log before fusion".to_string(),
+            mr_common::MemoryType::Conversation,
+        );
+        let active_id = active.id;
+        let source_id = source.id;
+        router.storage.save(&active).await.unwrap();
+        router.storage.save(&source).await.unwrap();
+
+        // 被 Dream 融合软删的源记录
+        router
+            .route(JsonRpcRequest::new(
+                RequestAction::Delete,
+                Some(RequestParams::Delete(mr_protocol::DeleteParams {
+                    id: source_id,
+                    force: false,
+                })),
+                3,
+            ))
+            .await;
+
+        // Dream 融合产出：以 metadata.source_ids 标记
+        let mut fused = mr_common::Memory::new(
+            "fused summary of work logs".to_string(),
+            mr_common::MemoryType::Knowledge,
+        );
+        fused
+            .metadata
+            .insert("source_ids".to_string(), format!("[\"{}\"]", source_id));
+        router.storage.save(&fused).await.unwrap();
+
+        let request = |raw: bool, with_dream: bool| {
+            JsonRpcRequest::new(
+                RequestAction::List,
+                Some(RequestParams::List(ListParams {
+                    tags: Vec::new(),
+                    memory_type: None,
+                    limit: 20,
+                    project_only: false,
+                    global_only: false,
+                    project_id: None,
+                    include_deleted: false,
+                    skip: 0,
+                    order: ListOrder::Storage,
+                    raw,
+                    with_dream,
+                })),
+                4,
+            )
+        };
+
+        // 普通视图：活跃记录（含融合产出），不含软删源记录
+        let resp = router.route(request(false, false)).await;
+        let list = match resp.result {
+            Some(ResponseResult::MemoryList(l)) => l,
+            _ => panic!("expected memory list"),
+        };
+        assert_eq!(list.memories.len(), 2);
+        assert!(list.memories.iter().any(|m| m.id == active_id));
+        assert!(list.memories.iter().any(|m| m.id == fused.id));
+        assert!(list.memories.iter().all(|m| m.id != source_id));
+
+        // 原始模式：活跃 + 软删源记录，默认排除融合产出
+        let resp = router.route(request(true, false)).await;
+        let list = match resp.result {
+            Some(ResponseResult::MemoryList(l)) => l,
+            _ => panic!("expected memory list"),
+        };
+        assert_eq!(list.memories.len(), 2, "raw 应包含活跃与被软删的源记录");
+        assert!(list.memories.iter().any(|m| m.id == active_id));
+        assert!(list
+            .memories
+            .iter()
+            .any(|m| m.id == source_id && m.is_deleted));
+        assert!(list.memories.iter().all(|m| m.id != fused.id));
+
+        // with_dream=true：额外包含融合产出
+        let resp = router.route(request(true, true)).await;
+        let list = match resp.result {
+            Some(ResponseResult::MemoryList(l)) => l,
+            _ => panic!("expected memory list"),
+        };
+        assert_eq!(list.memories.len(), 3);
+        assert!(list.memories.iter().any(|m| m.id == fused.id));
     }
 
     #[tokio::test]
@@ -255,6 +358,8 @@ use super::*;
                     include_deleted: false,
                     skip: 0,
                     order: ListOrder::Storage,
+                    raw: false,
+                    with_dream: false,
                 })),
                 99,
             ))
@@ -281,6 +386,8 @@ use super::*;
                     include_deleted: false,
                     skip: 2,
                     order: ListOrder::Storage,
+                    raw: false,
+                    with_dream: false,
                 })),
                 100,
             ))
@@ -311,6 +418,8 @@ use super::*;
                     include_deleted: false,
                     skip: 4,
                     order: ListOrder::Storage,
+                    raw: false,
+                    with_dream: false,
                 })),
                 101,
             ))
@@ -336,6 +445,8 @@ use super::*;
                     include_deleted: false,
                     skip: 100,
                     order: ListOrder::Storage,
+                    raw: false,
+                    with_dream: false,
                 })),
                 102,
             ))
@@ -391,6 +502,8 @@ use super::*;
                     include_deleted: false,
                     skip: 0,
                     order: ListOrder::CreatedDesc,
+                    raw: false,
+                    with_dream: false,
                 })),
                 200,
             ))
@@ -417,6 +530,8 @@ use super::*;
                     include_deleted: false,
                     skip: 2,
                     order: ListOrder::CreatedDesc,
+                    raw: false,
+                    with_dream: false,
                 })),
                 201,
             ))

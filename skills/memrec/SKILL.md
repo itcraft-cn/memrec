@@ -181,6 +181,7 @@ memrec timeline --type-filter decision     # 只看决策
 
 - `mr_delete` / `memrec delete` 为软删除；`memrec restore <id>` 恢复并重新加入检索索引。
 - `memrec list --deleted` 查看软删除原始记录。
+- `memrec list --raw` 查看原始全集：活跃记录 + 被 Dream 融合软删的源记录，默认排除融合产出；加 `--with-dream` 连同融合产出一起返回。`timeline` 同样支持。
 - `memrec get` 可能返回已删除记录；使用前检查 `is_deleted`。
 
 ## CLI 参考
@@ -189,8 +190,8 @@ memrec timeline --type-filter decision     # 只看决策
 memrec add "内容" --mtype <type> [--tag <tag>]... [--global] [--source <source>] [--scope <scope>] [--no-dedup] [--human]
 memrec search "关键词" [-p|-g|-a] [-k <num>] [--min-score <f>] [--mtype <type>] [--human]
 memrec get <id> [--merge] [--human]
-memrec list [-l <num>] [--skip <num>] [-p|-g|-a] [--tag <tag>]... [--type-filter <type>] [--deleted] [--human]
-memrec timeline [-l <num>] [--skip <num>] [-p|-g|-a] [--tag <tag>]... [--type-filter <type>] [--human]
+memrec list [-l <num>] [--skip <num>] [-p|-g|-a] [--tag <tag>]... [--type-filter <type>] [--deleted] [--raw] [--with-dream] [--human]
+memrec timeline [-l <num>] [--skip <num>] [-p|-g|-a] [--tag <tag>]... [--type-filter <type>] [--raw] [--with-dream] [--human]
 memrec delete <id> [--human]
 memrec restore <id> [--human]
 memrec stats
@@ -209,6 +210,7 @@ memrec scene create|get|list|delete|add-memory|remove-memory|update-heat ...
 - `search` 的范围三态互斥；默认按 `.mr_pid` 推断。`--mtype` 过滤记忆类型。
 - `list` 的 `--type-filter` 不是 `--type`；`--tag` 可重复且要求全部命中。
 - `timeline` 与 `list` 参数对齐，但固定按创建时间倒序；输出时间为本地时区。只读，不改变任何记忆。
+- `--raw` 直读存储层、保留软删记录；`--with-dream` 仅在 `--raw` 下生效，用于包含 Dream 融合产出。人类可读输出对软删记录标记 `[DELETED]`。
 - `eval` 为只读评测：`--alpha` 控制向量权重（0=纯全文，1=纯向量），`--no-mmr` 关闭多样性重排。
 - `scene` 是主题聚合，按需使用，不影响主检索。
 

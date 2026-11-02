@@ -58,6 +58,9 @@
             let map = self.memories.lock().await;
             Ok(map.values().take(limit).cloned().collect())
         }
+        async fn list_raw(&self, limit: usize) -> Result<Vec<Memory>> {
+            self.list(limit).await
+        }
         async fn list_by_type(
             &self,
             _memory_type: MemoryType,

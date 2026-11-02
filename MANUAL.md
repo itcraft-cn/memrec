@@ -375,6 +375,13 @@ memrec list -g               # 仅公共记忆（无 .mr_pid 时默认）
 memrec list -a               # 跨所有项目
 ```
 
+`--deleted` 只返回被软删除的记录；需要“原始全集”（活跃记录 + 被 Dream 融合软删的源记录）时使用 `--raw`。`--raw` 默认排除 Dream 融合产出，加 `--with-dream` 可一并包含。
+
+```bash
+memrec list --raw                  # 原始记录：含被融合软删的源记录，排除融合产出
+memrec list --raw --with-dream     # 原始记录 + 融合产出
+```
+
 ### 时间线浏览
 
 `timeline` 按创建时间倒序列出记忆，排序与分页在服务端完成，翻页顺序稳定。
@@ -385,6 +392,7 @@ memrec timeline --limit 50            # 最近 50 条
 memrec timeline --skip 50 --limit 50  # 时间线分页
 memrec timeline -p --type-filter decision   # 当前项目的决策记录
 memrec timeline -a --tag rust         # 跨项目、按标签过滤
+memrec timeline --raw                 # 原始记录时间线（含融合软删的源记录）
 ```
 
 ### 删除记忆

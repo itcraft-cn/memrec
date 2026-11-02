@@ -42,6 +42,14 @@ use super::*;
     }
 
     #[test]
+    fn test_list_params_raw_defaults() {
+        // 旧客户端不携带 raw/with_dream 时应回退为普通视图
+        let params: ListParams = serde_json::from_str("{}").unwrap();
+        assert!(!params.raw);
+        assert!(!params.with_dream);
+    }
+
+    #[test]
     fn test_search_params_defaults() {
         let params = SearchParams {
             text: None,

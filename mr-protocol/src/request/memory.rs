@@ -264,6 +264,19 @@ pub struct ListParams {
     /// 排序方式；默认存储层自然顺序
     #[serde(default)]
     pub order: ListOrder,
+    /// 原始记录模式：直读存储层主列族，包含被软删除的记录。
+    ///
+    /// 用于审计/导出场景（如抽取工作记录）。Dream 融合会把源记忆软删除但
+    /// 保留在库中，普通列表会隐藏它们；`raw=true` 时这些记录重新可见。
+    #[serde(default)]
+    pub raw: bool,
+    /// 原始记录模式下是否包含 Dream 融合产出。
+    ///
+    /// 融合产出以 `metadata.source_ids` 标记。默认 `false`，即只返回用户
+    /// 原始记录（含被融合软删的源记录）；置 `true` 时同时返回融合产物。
+    /// 仅在 `raw=true` 时生效。
+    #[serde(default)]
+    pub with_dream: bool,
 }
 
 /// 恢复软删除记忆的参数。

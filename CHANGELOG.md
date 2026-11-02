@@ -12,6 +12,7 @@
 ### 新增
 
 - **`memrec timeline`**：按创建时间倒序浏览记忆，支持 `--limit`/`--skip` 分页、`-p/-g/-a` 范围、`--tag`/`--type-filter` 过滤；排序在服务端过滤后、分页前完成，并列时间以记忆 ID 保证翻页稳定。协议层 `ListParams.order`（`storage`/`created_asc`/`created_desc`，默认 `storage`）向后兼容。
+- **原始记录视图 `--raw`**：`list`/`timeline` 新增 `--raw`，直读 RocksDB `memories` 列族并保留被 Dream 融合软删的源记录；默认按 `metadata.source_ids` 排除融合产出，追加 `--with-dream` 可一并返回。适用于抽取工作记录等需要原始逐条数据的场景。协议层 `ListParams.raw`/`with_dream` 默认 `false`，向后兼容；存储层新增 `MemoryStorage::list_raw`。
 
 ### 变更
 

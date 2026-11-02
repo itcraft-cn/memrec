@@ -202,6 +202,10 @@ pub struct ListOptions {
     pub memory_type: Option<String>,
     /// 包含已删除（软删除）的原始记录
     pub include_deleted: bool,
+    /// 原始记录模式：直读存储层、含软删除记录
+    pub raw: bool,
+    /// 原始记录模式下是否包含 Dream 融合产出
+    pub with_dream: bool,
 }
 
 /// 构造并发送 List 请求。
@@ -228,6 +232,8 @@ async fn fetch_list(
             include_deleted: opts.include_deleted,
             skip: opts.skip,
             order,
+            raw: opts.raw,
+            with_dream: opts.with_dream,
         })),
         1,
     );
@@ -247,9 +253,11 @@ pub async fn list(client: &Client, opts: ListOptions, human: bool) -> Result<()>
                 ResponseResult::MemoryList(m) => {
                     println!("Found {} memories (total: {})", m.memories.len(), m.total);
                     for memory in m.memories {
+                        let deleted = if memory.is_deleted { " [DELETED]" } else { "" };
                         println!(
-                            "\n[{:?}] {}...",
+                            "\n[{:?}]{} {}...",
                             memory.memory_type,
+                            deleted,
                             memory.content.chars().take(50).collect::<String>()
                         );
                         println!("  ID: {}", memory.id);
@@ -286,10 +294,12 @@ pub async fn timeline(client: &Client, opts: ListOptions, human: bool) -> Result
                             .created_at
                             .with_timezone(&chrono::Local)
                             .format("%Y-%m-%d %H:%M:%S");
+                        let deleted = if memory.is_deleted { " [DELETED]" } else { "" };
                         println!(
-                            "\n{}  [{}] {}",
+                            "\n{}  [{}]{} {}",
                             created,
                             memory.memory_type.to_string().to_uppercase(),
+                            deleted,
                             preview_oneline(&memory.content, 80)
                         );
                         println!(

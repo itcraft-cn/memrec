@@ -47,6 +47,14 @@ pub trait MemoryStorage: Send + Sync {
     async fn restore(&self, id: &Uuid) -> Result<Option<Memory>>;
 
     async fn list(&self, limit: usize) -> Result<Vec<Memory>>;
+
+    /// 列出 `memories` 列族的全部物理记录（含软删除），不做任何过滤。
+    ///
+    /// 仅服务于 `list/timeline --raw` 审计路径：Dream 融合会把源记忆标记为
+    /// 软删除但仍保留在列族中，普通 [`list`](Self::list) 会隐藏它们。
+    /// 调用方需自行按 `is_deleted` / `metadata` 判断记录来源。
+    async fn list_raw(&self, limit: usize) -> Result<Vec<Memory>>;
+
     async fn list_by_type(&self, memory_type: MemoryType, limit: usize) -> Result<Vec<Memory>>;
     async fn list_by_tag(&self, tag: &str, limit: usize) -> Result<Vec<Memory>>;
 

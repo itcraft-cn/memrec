@@ -377,6 +377,13 @@ memrec list -g               # Global memories only (default without .mr_pid)
 memrec list -a               # All projects
 ```
 
+`--deleted` returns only soft-deleted records. Use `--raw` for the complete raw set (active records plus sources soft-deleted by Dream fusion). `--raw` excludes Dream fusion outputs by default; add `--with-dream` to include them.
+
+```bash
+memrec list --raw                  # raw records incl. fusion-soft-deleted sources
+memrec list --raw --with-dream     # raw records + fusion outputs
+```
+
 ### Timeline
 
 `timeline` lists memories newest first. Ordering and pagination happen server-side, so pages stay consistent.
@@ -387,6 +394,7 @@ memrec timeline --limit 50            # 50 most recent memories
 memrec timeline --skip 50 --limit 50  # paginate the timeline
 memrec timeline -p --type-filter decision   # decisions in the current project
 memrec timeline -a --tag rust         # across projects, filtered by tag
+memrec timeline --raw                 # raw timeline (incl. fusion-soft-deleted sources)
 ```
 
 ### Delete Memory
