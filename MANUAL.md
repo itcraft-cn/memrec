@@ -409,6 +409,35 @@ memrec delete <memory-id>
 memrec stats
 ```
 
+`memrec stats` 输出总量/活跃/删除，并在 DreamRun 审计可用时补充：
+
+- **活跃构成**：原始记录数（raw）与 Dream 产出数，及各自占比；
+- **Dream 时间线**：最近一次成功整合时间、最近一次运行记录（状态与门控原因）；
+- **累计 Dream**：总记录、实际执行、成功/失败/无候选、门控跳过、dry-run、运行中，以及累计整合记忆、软删源、边、传播、候选/簇、LLM 调用与 token。
+
+```text
+Memory Statistics:
+  Total memories: 4006
+  Active memories: 2453
+  Deleted memories: 1553
+
+  Active composition:
+    Raw records:    1431 (58.3%)
+    Dream outputs:  1022 (41.7%)
+
+  Dream:
+    Last success:   2026-11-03 20:13:20 +08:00
+    Last attempt:   2026-11-04 10:38:03 +08:00 (no_op, gate=too_soon)
+    Runs:           1659 total = 15 actual (11 success / 4 no-op / 0 failed / 0 running), 1644 gate-skipped
+    Integrated:     1776 memories
+    Sources removed: 894
+    Edges:          12114
+    Propagations:   9763
+    Candidates:     894 (clusters: 132)
+```
+
+> 累计项包含历史运行，数字可能大于当前活跃量；例如整合记忆可能在后续轮次被软删。raw/Dream 构成基于活跃记忆扫描。LLM 调用/token 仅在 DreamRun 上报用量时显示。
+
 ### Dream 整合与审计
 
 Dream 在系统空闲时自动触发，也可手动执行；整合采用两段式管线（Stage F 融合 + Stage N 成网），详见 README「Dream 记忆整合」。每次运行（含门控拦截、dry-run、失败）都会落库一条 `DreamRun` 审计记录。

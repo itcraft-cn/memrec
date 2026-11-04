@@ -8,7 +8,11 @@ impl Router {
     /// 处理 Get 请求：获取单条记忆。
     ///
     /// 若 `merge=true` 且记忆为分块记忆，合并所有分块返回完整内容。
-    pub(super) async fn handle_get(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+    pub(super) async fn handle_get(
+        &self,
+        params: Option<RequestParams>,
+        id: u64,
+    ) -> JsonRpcResponse {
         match params {
             Some(RequestParams::Get(p)) => {
                 if p.merge {
@@ -127,7 +131,11 @@ impl Router {
     ///
     /// `raw=true` 时切换到原始记录模式：直读主列族、保留软删除记录，
     /// 并按 `with_dream` 决定是否包含 Dream 融合产出。
-    pub(super) async fn handle_list(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+    pub(super) async fn handle_list(
+        &self,
+        params: Option<RequestParams>,
+        id: u64,
+    ) -> JsonRpcResponse {
         let (
             limit,
             project_only,
@@ -272,7 +280,11 @@ impl Router {
     /// 处理 Delete 请求：删除记忆。
     ///
     /// 返回消息区分硬删除（已过恢复期）和软删除。
-    pub(super) async fn handle_delete(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+    pub(super) async fn handle_delete(
+        &self,
+        params: Option<RequestParams>,
+        id: u64,
+    ) -> JsonRpcResponse {
         match params {
             Some(RequestParams::Delete(p)) => match self.storage.delete(&p.id).await {
                 Ok(deleted) => {
@@ -319,7 +331,11 @@ impl Router {
     /// 恢复软删除记忆：置为活跃并重新加入混合检索索引。
     ///
     /// 仅能恢复软删除记录（`is_deleted=true`）；已硬删除的记录无法恢复。
-    pub(super) async fn handle_restore(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+    pub(super) async fn handle_restore(
+        &self,
+        params: Option<RequestParams>,
+        id: u64,
+    ) -> JsonRpcResponse {
         let target_id = match params {
             Some(RequestParams::Restore(p)) => p.id,
             _ => {
@@ -371,27 +387,60 @@ impl Router {
     }
 
     /// 处理 Stats 请求：返回记忆统计信息。
+    ///
+    /// 在原有 total/active/deleted 之外，补充：
+    /// - 活跃记忆的 raw / Dream 构成（基于 `Memory::is_dream_generated`）；
+    /// - 最近一次 Dream 运行/成功时间；
+    /// - DreamRun 累计聚合（执行次数、门控跳过、整合/软删/边/传播/LLM 用量）。
     pub(super) async fn handle_stats(&self, id: u64) -> JsonRpcResponse {
-        match (
-            self.storage.count().await,
-            self.storage.count_deleted().await,
-        ) {
-            (Ok(total), Ok(deleted)) => JsonRpcResponse::success(
-                ResponseResult::Stats(StatsResult {
-                    total_memories: total + deleted,
-                    active_memories: total,
-                    deleted_memories: deleted,
-                }),
-                id,
-            ),
-            (Err(e), _) | (_, Err(e)) => JsonRpcResponse::error(
-                JsonRpcError {
-                    code: -32000,
-                    message: e.to_string(),
-                    data: None,
-                },
-                id,
-            ),
-        }
+        let memories = match self.storage.list(usize::MAX).await {
+            Ok(memories) => memories,
+            Err(e) => {
+                return JsonRpcResponse::error(
+                    JsonRpcError {
+                        code: -32000,
+                        message: e.to_string(),
+                        data: None,
+                    },
+                    id,
+                )
+            }
+        };
+        let active = memories.len();
+        let dream_active = memories.iter().filter(|m| m.is_dream_generated()).count();
+        let raw_active = active.saturating_sub(dream_active);
+
+        let deleted = match self.storage.count_deleted().await {
+            Ok(deleted) => deleted,
+            Err(e) => {
+                return JsonRpcResponse::error(
+                    JsonRpcError {
+                        code: -32000,
+                        message: e.to_string(),
+                        data: None,
+                    },
+                    id,
+                )
+            }
+        };
+
+        let dream = match &self.dream_run_store {
+            Some(store) => store
+                .list_runs(usize::MAX, 0)
+                .await
+                .ok()
+                .map(|runs| DreamStats::from_runs(raw_active, dream_active, &runs)),
+            None => None,
+        };
+
+        JsonRpcResponse::success(
+            ResponseResult::Stats(StatsResult {
+                total_memories: active + deleted,
+                active_memories: active,
+                deleted_memories: deleted,
+                dream,
+            }),
+            id,
+        )
     }
 }

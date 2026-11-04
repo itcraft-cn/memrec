@@ -16,7 +16,7 @@ pub use request::{
     SceneUpdateHeatParams, SearchMemoryParams, TieredSearchParams,
 };
 pub use response::{
-    DreamReportResult, DreamResult, JsonRpcResponse, MemoryListResult, MemoryResult, MemoryView,
-    ProjectInfoResult, ResponseResult, SceneListResult, SceneResult, SearchHit,
+    DreamReportResult, DreamResult, DreamStats, JsonRpcResponse, MemoryListResult, MemoryResult,
+    MemoryView, ProjectInfoResult, ResponseResult, SceneListResult, SceneResult, SearchHit,
     SemanticSearchResult, StatsResult, SuccessResult, VersionResult,
 };

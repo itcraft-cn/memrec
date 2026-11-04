@@ -417,6 +417,65 @@ pub async fn stats(client: &Client, human: bool) -> Result<()> {
                     println!("  Total memories: {}", s.total_memories);
                     println!("  Active memories: {}", s.active_memories);
                     println!("  Deleted memories: {}", s.deleted_memories);
+
+                    if let Some(d) = s.dream {
+                        println!();
+                        println!("  Active composition:");
+                        println!(
+                            "    Raw records:    {} ({:.1}%)",
+                            d.active_raw,
+                            d.raw_ratio * 100.0
+                        );
+                        println!(
+                            "    Dream outputs:  {} ({:.1}%)",
+                            d.active_dream,
+                            d.dream_ratio * 100.0
+                        );
+
+                        println!();
+                        println!("  Dream:");
+                        match d.last_success_at {
+                            Some(t) => println!("    Last success:   {}", format_local_ts(t)),
+                            None => println!("    Last success:   never"),
+                        }
+                        if let Some(t) = d.last_run_at {
+                            let status = d.last_run_status.as_deref().unwrap_or("unknown");
+                            let gate = d.last_run_gate.as_deref().unwrap_or("unknown");
+                            println!(
+                                "    Last attempt:   {} ({}, gate={})",
+                                format_local_ts(t),
+                                status,
+                                gate
+                            );
+                        }
+                        println!(
+                            "    Runs:           {} total = {} actual ({} success / {} no-op / {} failed / {} running), {} gate-skipped",
+                            d.total_runs,
+                            d.actual_runs,
+                            d.success_runs,
+                            d.noop_runs.saturating_sub(d.gate_skipped_runs),
+                            d.failed_runs,
+                            d.running_runs,
+                            d.gate_skipped_runs
+                        );
+                        if d.dry_run_runs > 0 {
+                            println!("    Dry-run:        {}", d.dry_run_runs);
+                        }
+                        println!("    Integrated:     {} memories", d.total_integrated);
+                        println!("    Sources removed: {}", d.total_deleted_sources);
+                        println!("    Edges:          {}", d.total_edges);
+                        println!("    Propagations:   {}", d.total_propagations);
+                        println!(
+                            "    Candidates:     {} (clusters: {})",
+                            d.total_candidates, d.total_clusters
+                        );
+                        if d.total_llm_calls > 0 || d.total_llm_tokens > 0 {
+                            println!(
+                                "    LLM:            {} calls / {} tokens",
+                                d.total_llm_calls, d.total_llm_tokens
+                            );
+                        }
+                    }
                 }
                 _ => println!("Unexpected response type"),
             }
@@ -428,6 +487,13 @@ pub async fn stats(client: &Client, human: bool) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// 将 UTC 时间格式化为本地时区（含偏移），用于统计与审计展示。
+fn format_local_ts(ts: chrono::DateTime<chrono::Utc>) -> String {
+    ts.with_timezone(&chrono::Local)
+        .format("%Y-%m-%d %H:%M:%S %:z")
+        .to_string()
 }
 
 /// 版本号命令，对比 CLI 和守护进程版本。
@@ -480,4 +546,3 @@ fn parse_memory_type(s: &str) -> Result<MemoryType> {
         _ => Err(anyhow::anyhow!("Invalid memory type: {}", s)),
     }
 }
-

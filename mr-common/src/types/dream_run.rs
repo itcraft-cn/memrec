@@ -66,6 +66,19 @@ pub enum GateOutcome {
     LlmNotConfigured,
 }
 
+impl GateOutcome {
+    /// 稳定的 snake_case 标签，用于统计输出与审计展示。
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Allowed => "allowed",
+            Self::Disabled => "disabled",
+            Self::TooSoon => "too_soon",
+            Self::NotEnoughNew => "not_enough_new",
+            Self::LlmNotConfigured => "llm_not_configured",
+        }
+    }
+}
+
 /// DreamRun 终态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -79,6 +92,18 @@ pub enum DreamRunStatus {
     Failed,
     /// 成功执行但无候选（无事可做）
     NoOp,
+}
+
+impl DreamRunStatus {
+    /// 稳定的 snake_case 标签，用于统计输出与审计展示。
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Success => "success",
+            Self::Failed => "failed",
+            Self::NoOp => "no_op",
+        }
+    }
 }
 
 /// 单个阶段的执行记录（DreamRun 内的可序列化快照）。

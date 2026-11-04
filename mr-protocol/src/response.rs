@@ -18,8 +18,9 @@ use uuid::Uuid;
 
 use super::error::JsonRpcError;
 use mr_common::{
-    DreamRun, Memory, MemoryScope, MemorySource, MemoryType, PhaseResultRecord, Project,
-    QualityMetrics, Scene, SimilarMemory, SummaryClues, TieredSearchResult,
+    DreamRun, DreamRunStatus, GateOutcome, Memory, MemoryScope, MemorySource, MemoryType,
+    PhaseResultRecord, Project, QualityMetrics, Scene, SimilarMemory, SummaryClues,
+    TieredSearchResult,
 };
 
 /// JSON-RPC 2.0 标准响应对象。
@@ -354,6 +355,134 @@ pub struct StatsResult {
     pub total_memories: usize,
     pub active_memories: usize,
     pub deleted_memories: usize,
+    /// Dream/raw 构成与累计 Dream 运行统计；未注入 DreamRun 存储时为 None。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dream: Option<DreamStats>,
+}
+
+/// 活跃记忆构成与累计 Dream 运行统计。
+///
+/// `active_raw` / `active_dream` 基于活跃记忆扫描：Dream 产出由
+/// [`mr_common::Memory::is_dream_generated`] 判定（融合产出的 `source_ids`
+/// 或 Dream 阶段摘要标签）。`*_runs` 与累计量来自 `DreamRun` 审计记录。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DreamStats {
+    /// 活跃记忆中的原始记录数（非 Dream 产出）。
+    pub active_raw: usize,
+    /// 活跃记忆中的 Dream 产出数。
+    pub active_dream: usize,
+    /// 原始记录占活跃记忆比例（0-1）。
+    pub raw_ratio: f32,
+    /// Dream 产出占活跃记忆比例（0-1）。
+    pub dream_ratio: f32,
+    /// 最近一次 Dream 记录时间（优先 `finished_at`，回退 `started_at`）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_run_at: Option<DateTime<Utc>>,
+    /// 最近一次运行状态（running/success/failed/no_op）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_run_status: Option<String>,
+    /// 最近一次门控结果（allowed/disabled/too_soon/not_enough_new/llm_not_configured）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_run_gate: Option<String>,
+    /// 最近一次成功整合时间。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_success_at: Option<DateTime<Utc>>,
+    /// 累计记录数（含门控跳过、失败、dry-run）。
+    pub total_runs: usize,
+    /// 实际执行数（通过门控；含成功/失败/无候选）。
+    pub actual_runs: usize,
+    pub success_runs: usize,
+    pub failed_runs: usize,
+    /// 终态为 no_op 的记录数（含门控跳过）。
+    pub noop_runs: usize,
+    /// 因门控未执行（gate_outcome != allowed）的记录数。
+    pub gate_skipped_runs: usize,
+    pub dry_run_runs: usize,
+    pub running_runs: usize,
+    pub total_candidates: usize,
+    pub total_clusters: usize,
+    pub total_integrated: usize,
+    pub total_deleted_sources: usize,
+    pub total_edges: usize,
+    pub total_propagations: usize,
+    /// 累计 LLM 调用次数（当前管线未上报用量时恒为 0）。
+    pub total_llm_calls: u64,
+    /// 累计 LLM token 数（当前管线未上报用量时恒为 0）。
+    pub total_llm_tokens: u64,
+}
+
+impl DreamStats {
+    /// 由活跃记忆构成与 DreamRun 列表聚合统计。
+    pub fn from_runs(active_raw: usize, active_dream: usize, runs: &[DreamRun]) -> Self {
+        let active_total = active_raw + active_dream;
+        let mut stats = Self {
+            active_raw,
+            active_dream,
+            raw_ratio: ratio(active_raw, active_total),
+            dream_ratio: ratio(active_dream, active_total),
+            ..Default::default()
+        };
+
+        let mut last_run: Option<&DreamRun> = None;
+        let mut last_success_at: Option<DateTime<Utc>> = None;
+
+        for run in runs {
+            stats.total_runs += 1;
+            match run.status {
+                DreamRunStatus::Success => stats.success_runs += 1,
+                DreamRunStatus::Failed => stats.failed_runs += 1,
+                DreamRunStatus::NoOp => stats.noop_runs += 1,
+                DreamRunStatus::Running => stats.running_runs += 1,
+            }
+            if run.gate_outcome != GateOutcome::Allowed {
+                stats.gate_skipped_runs += 1;
+            }
+            if run.dry_run {
+                stats.dry_run_runs += 1;
+            }
+
+            stats.total_candidates += run.candidate_count;
+            stats.total_clusters += run.cluster_count;
+            stats.total_integrated += run.integrated_memory_ids.len();
+            stats.total_deleted_sources += run.deleted_source_ids.len();
+            stats.total_edges += run.edge_count;
+            stats.total_propagations += run.propagation_count;
+            stats.total_llm_calls += run.llm_calls;
+            stats.total_llm_tokens += run.llm_tokens;
+
+            let at = run_time(run);
+            if last_run.is_none_or(|prev| at > run_time(prev)) {
+                last_run = Some(run);
+            }
+            if run.status == DreamRunStatus::Success && last_success_at.is_none_or(|prev| at > prev)
+            {
+                last_success_at = Some(at);
+            }
+        }
+
+        stats.actual_runs = stats.success_runs
+            + stats.failed_runs
+            + stats.noop_runs.saturating_sub(stats.gate_skipped_runs);
+        if let Some(run) = last_run {
+            stats.last_run_at = Some(run_time(run));
+            stats.last_run_status = Some(run.status.as_str().to_string());
+            stats.last_run_gate = Some(run.gate_outcome.as_str().to_string());
+        }
+        stats.last_success_at = last_success_at;
+        stats
+    }
+}
+
+fn ratio(part: usize, total: usize) -> f32 {
+    if total == 0 {
+        0.0
+    } else {
+        part as f32 / total as f32
+    }
+}
+
+fn run_time(run: &DreamRun) -> DateTime<Utc> {
+    run.finished_at.unwrap_or(run.started_at)
 }
 
 /// 通用成功/失败结果。
@@ -471,6 +600,48 @@ mod tests {
         let parsed: SemanticSearchResult = serde_json::from_str(&json).unwrap();
 
         assert_eq!(result.total, parsed.total);
+    }
+
+    #[test]
+    fn test_dream_stats_from_runs() {
+        let mut success = DreamRun::running(true, false);
+        success.started_at = Utc::now() - chrono::Duration::seconds(10);
+        success.candidate_count = 10;
+        success.cluster_count = 3;
+        success.integrated_memory_ids = vec![Uuid::new_v4(), Uuid::new_v4()];
+        success.deleted_source_ids = vec![Uuid::new_v4()];
+        success.edge_count = 4;
+        success.propagation_count = 5;
+        success.llm_calls = 2;
+        success.llm_tokens = 300;
+        success.finish(DreamRunStatus::Success);
+
+        let mut skipped = DreamRun::running(false, false);
+        skipped.started_at = Utc::now() - chrono::Duration::seconds(1);
+        skipped.gate_outcome = GateOutcome::TooSoon;
+        skipped.status = DreamRunStatus::NoOp;
+        skipped.finish(DreamRunStatus::NoOp);
+
+        let stats = DreamStats::from_runs(7, 3, &[skipped, success]);
+
+        assert_eq!(stats.active_raw, 7);
+        assert_eq!(stats.active_dream, 3);
+        assert!((stats.dream_ratio - 0.3).abs() < 1e-6);
+        assert!((stats.raw_ratio - 0.7).abs() < 1e-6);
+        assert_eq!(stats.total_runs, 2);
+        assert_eq!(stats.success_runs, 1);
+        assert_eq!(stats.noop_runs, 1);
+        assert_eq!(stats.gate_skipped_runs, 1);
+        assert_eq!(stats.actual_runs, 1);
+        assert_eq!(stats.total_integrated, 2);
+        assert_eq!(stats.total_deleted_sources, 1);
+        assert_eq!(stats.total_edges, 4);
+        assert_eq!(stats.total_propagations, 5);
+        assert_eq!(stats.total_llm_calls, 2);
+        assert_eq!(stats.total_llm_tokens, 300);
+        assert_eq!(stats.last_run_status.as_deref(), Some("no_op"));
+        assert_eq!(stats.last_run_gate.as_deref(), Some("too_soon"));
+        assert!(stats.last_success_at.is_some());
     }
 }
 

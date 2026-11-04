@@ -411,6 +411,35 @@ Deletion is soft — memories are marked as `is_deleted=true`.
 memrec stats
 ```
 
+`memrec stats` reports total/active/deleted and, when DreamRun audit data is available, adds:
+
+- **Active composition**: raw records vs. Dream outputs, with counts and ratios;
+- **Dream timeline**: last successful consolidation time and the latest run record (status and gate reason);
+- **Cumulative Dream**: total records, actual runs, success/failure/no-op, gate-skipped, dry-run, running, plus cumulative integrated memories, deleted sources, edges, propagations, candidates/clusters and LLM calls/tokens.
+
+```text
+Memory Statistics:
+  Total memories: 4006
+  Active memories: 2453
+  Deleted memories: 1553
+
+  Active composition:
+    Raw records:    1431 (58.3%)
+    Dream outputs:  1022 (41.7%)
+
+  Dream:
+    Last success:   2026-11-03 20:13:20 +08:00
+    Last attempt:   2026-11-04 10:38:03 +08:00 (no_op, gate=too_soon)
+    Runs:           1659 total = 15 actual (11 success / 4 no-op / 0 failed / 0 running), 1644 gate-skipped
+    Integrated:     1776 memories
+    Sources removed: 894
+    Edges:          12114
+    Propagations:   9763
+    Candidates:     894 (clusters: 132)
+```
+
+> Cumulative values cover historical runs and may exceed current active counts (for example, integrated memories may be soft-deleted by later runs). The raw/Dream composition is computed from active memories. LLM calls/tokens are shown only when a DreamRun reports usage.
+
 ### Dream Consolidation & Audit
 
 Dream is triggered automatically when the system is idle, or manually. Consolidation uses a two-stage pipeline (Stage F fusion + Stage N networking); see the README "Dream Consolidation" section. Every run (including gate rejection, dry-run and failure) is persisted as a `DreamRun` audit record.

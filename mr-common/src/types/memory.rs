@@ -247,6 +247,29 @@ impl Memory {
     pub fn is_chunked(&self) -> bool {
         self.chunk_group_id.is_some()
     }
+
+    /// 判断该记忆是否为 Dream 融合产出（相对于用户原始记录）。
+    ///
+    /// 判据：
+    /// - 融合事实/摘要：`metadata.source_ids` 存在（由 Dream 管线写入）；
+    /// - 阶段摘要（跨项目共性、个人画像）：`source = System` 且带 Dream 专属标签；
+    /// - 兼容旧数据：`source = System` 且带 `dream-integrated` / `dream-fact` 标签。
+    ///
+    /// 仅用于统计与视图分层，不改变检索过滤行为。
+    pub fn is_dream_generated(&self) -> bool {
+        if self.metadata.contains_key("source_ids") {
+            return true;
+        }
+        if self.source != MemorySource::System {
+            return false;
+        }
+        self.tags.iter().any(|tag| {
+            matches!(
+                tag.as_str(),
+                "dream-integrated" | "dream-fact" | "cross-project" | "personal-summary"
+            )
+        })
+    }
 }
 
 #[cfg(test)]
@@ -413,5 +436,32 @@ mod tests {
         let memory: Memory = serde_json::from_str(json).unwrap();
         assert_eq!(memory.source, MemorySource::User);
         assert_eq!(memory.scope, MemoryScope::Project);
+    }
+
+    #[test]
+    fn test_is_dream_generated_by_source_ids() {
+        let mut memory = Memory::new("dream fact".to_string(), MemoryType::Knowledge);
+        memory
+            .metadata
+            .insert("source_ids".to_string(), "[]".to_string());
+        assert!(memory.is_dream_generated());
+    }
+
+    #[test]
+    fn test_is_dream_generated_by_system_tag() {
+        let mut memory = Memory::new("summary".to_string(), MemoryType::Knowledge)
+            .with_tags(vec!["cross-project".to_string()])
+            .with_source(MemorySource::System);
+        assert!(memory.is_dream_generated());
+
+        // 用户记录即使误带同名标签，也不应算 Dream 产出。
+        memory.source = MemorySource::User;
+        assert!(!memory.is_dream_generated());
+    }
+
+    #[test]
+    fn test_is_dream_generated_false_for_raw() {
+        let memory = Memory::new("raw".to_string(), MemoryType::Knowledge);
+        assert!(!memory.is_dream_generated());
     }
 }

@@ -31,7 +31,7 @@ use mr_common::{
     DedupConfig, Memory, MemoryType, RepresentationTier, SimilarMemory, TierThresholds,
 };
 use mr_protocol::{
-    DreamReportResult, DreamResult, GetProjectInfoParams, JsonRpcError, JsonRpcRequest,
+    DreamReportResult, DreamResult, DreamStats, GetProjectInfoParams, JsonRpcError, JsonRpcRequest,
     JsonRpcResponse, ListOrder, MemoryListResult, MemoryResult, MemoryView, ProjectInfoResult,
     RequestAction, RequestParams, ResponseResult, SceneListResult, SceneResult, SearchHit,
     SemanticSearchResult, StatsResult, SuccessResult, VersionResult,
