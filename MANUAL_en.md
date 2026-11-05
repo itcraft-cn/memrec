@@ -377,7 +377,7 @@ memrec list -g               # Global memories only (default without .mr_pid)
 memrec list -a               # All projects
 ```
 
-`--deleted` returns only soft-deleted records. Use `--raw` for the complete raw set (active records plus sources soft-deleted by Dream fusion). `--raw` excludes Dream fusion outputs by default; add `--with-dream` to include them.
+`--deleted` returns only soft-deleted records. Use `--raw` for the complete raw set (active records plus historically soft-deleted and processed sources). `--raw` excludes Dream fusion outputs by default; add `--with-dream` to include them.
 
 ```bash
 memrec list --raw                  # raw records incl. fusion-soft-deleted sources
@@ -431,14 +431,15 @@ Memory Statistics:
     Last success:   2026-11-03 20:13:20 +08:00
     Last attempt:   2026-11-04 10:38:03 +08:00 (no_op, gate=too_soon)
     Runs:           1659 total = 15 actual (11 success / 4 no-op / 0 failed / 0 running), 1644 gate-skipped
-    Integrated:     1776 memories
-    Sources removed: 894
+    Input processed: 100 source memories
+    Produced:       24 memories
+    Sources marked: 100 (not deleted)
     Edges:          12114
     Propagations:   9763
     Candidates:     894 (clusters: 132)
 ```
 
-> Cumulative values cover historical runs and may exceed current active counts (for example, integrated memories may be soft-deleted by later runs). The raw/Dream composition is computed from active memories. LLM calls/tokens are shown only when a DreamRun reports usage.
+> Cumulative values cover historical runs and may exceed current active counts (for example, Dream outputs may be replaced or cleaned by later runs). The raw/Dream composition is computed from active memories. LLM calls/tokens are shown only when a DreamRun reports usage.
 
 ### Dream Consolidation & Audit
 
@@ -639,6 +640,8 @@ integration_preserve_importance = 0.85  # preserve high-importance memories
 integration_preserve_tags = ["critical"]  # preserve matching tags
 integration_preserve_types = ["preference", "context"]  # preserved types (as-is; context details are irrecoverable)
 integration_min_content_len = 10      # filter short test/placeholder records (chars)
+dream_out_size = 30         # total output budget per run (facts + summaries)
+max_facts_per_cluster = 3   # hard per-cluster fact cap
 
 # Retrieval graph diffusion (1 hop; graph hits carry an EdgeHint)
 retrieval_graph_enabled = true   # route retrieval through graph diffusion
@@ -658,7 +661,7 @@ networking_propagation_enabled = true   # edge propagation
 
 # Upstream dedup (Stage F produced facts)
 fusion_dedup_enabled = true     # dedup near-duplicate produced facts
-fusion_dedup_threshold = 0.97   # near-duplicate threshold (cosine)
+fusion_dedup_threshold = 0.92   # near-duplicate threshold (cosine)
 
 [dedup]                     # write dedup (ADD/UPDATE/NOOP)
 enabled = true

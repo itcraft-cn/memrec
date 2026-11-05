@@ -21,7 +21,11 @@ pub async fn dream(client: &Client, force: bool, dry_run: bool, human: bool) -> 
                     } else {
                         println!("Dream completed:");
                     }
-                    println!("  Integrated: {} memories", d.integrated_count);
+                    println!(
+                        "  Input: {} source memories",
+                        d.input_count.max(d.integrated_count)
+                    );
+                    println!("  Produced: {} memories", d.produced_count);
                     println!("  Clusters: {}", d.cluster_count);
                     println!("  Edges: {}", d.edge_count);
                     println!("  Propagations: {}", d.propagation_count);

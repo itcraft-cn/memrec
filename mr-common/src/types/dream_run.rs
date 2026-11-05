@@ -192,10 +192,16 @@ pub struct DreamRun {
     /// 本次写入的整合记忆（含事实条与摘要）
     #[serde(default)]
     pub integrated_memory_ids: Vec<Uuid>,
+    /// 本次实际产出的记忆数（facts + summaries）
+    #[serde(default)]
+    pub produced_count: usize,
     /// 主题摘要记忆
     #[serde(default)]
     pub summary_memory_id: Option<Uuid>,
-    /// 本次软删的源
+    /// 本次标记为已处理的源记忆（不再作为未来 Dream 候选，但仍保留）
+    #[serde(default)]
+    pub processed_source_ids: Vec<Uuid>,
+    /// 历史字段：旧版本 Dream 软删的源记忆 id（仅用于旧记录统计）
     #[serde(default)]
     pub deleted_source_ids: Vec<Uuid>,
     /// 各阶段执行结果
@@ -246,7 +252,9 @@ impl DreamRun {
             candidate_count: 0,
             cluster_count: 0,
             integrated_memory_ids: Vec::new(),
+            produced_count: 0,
             summary_memory_id: None,
+            processed_source_ids: Vec::new(),
             deleted_source_ids: Vec::new(),
             phase_results: Vec::new(),
             edge_count: 0,

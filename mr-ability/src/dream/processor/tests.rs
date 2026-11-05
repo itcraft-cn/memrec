@@ -133,6 +133,8 @@
         let result = DreamResult {
             run_id: None,
             integrated_count: 5,
+            input_count: 5,
+            produced_count: 2,
             created_memory_id: Some(Uuid::nil()),
             summary: "test summary".to_string(),
             summary_clues: SummaryClues::default(),
@@ -265,7 +267,7 @@
 
     #[tokio::test]
     async fn test_integration_preserves_high_value_memories() {
-        // P4: critical 标签 / 高 importance / preference 类型不参与整合与删除
+        // P4: critical 标签 / 高 importance / preference 类型不参与整合
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
         let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
@@ -318,12 +320,19 @@
         assert!(alive.iter().any(|m| m.id == critical.id));
         assert!(alive.iter().any(|m| m.id == high.id));
         assert!(alive.iter().any(|m| m.id == pref.id));
-        assert!(!alive.iter().any(|m| m.id == normal.id));
+        let normal_alive = alive
+            .iter()
+            .find(|m| m.id == normal.id)
+            .expect("整合源应保留原文");
+        assert!(
+            normal_alive.tags.iter().any(|t| t == "dream-processed"),
+            "整合源应标记为 dream-processed"
+        );
     }
 
     #[tokio::test]
     async fn test_integration_skips_already_integrated_sources() {
-        // P5: 已整合源记忆（metadata.source_ids 命中）被排除，且残留被补删
+        // P5: 已整合源记忆（metadata.source_ids 命中）被排除，并标记为已处理（保留原文）
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
         let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
@@ -366,13 +375,21 @@
         let result = processor.execute(true).await;
         assert!(result.is_ok());
         let dream_result = result.unwrap();
-        // 仅整合 fresh（leftover 已被排除并补删）
+        // 仅整合 fresh（leftover 已被排除并标记为已处理）
         assert_eq!(dream_result.integrated_count, 1);
 
         let all = storage.list(100).await.unwrap();
         let alive: Vec<_> = all.into_iter().filter(|m| !m.is_deleted).collect();
-        assert!(!alive.iter().any(|m| m.id == leftover.id));
-        assert!(!alive.iter().any(|m| m.id == fresh.id));
+        let leftover_alive = alive
+            .iter()
+            .find(|m| m.id == leftover.id)
+            .expect("已整合源应保留，仅标记");
+        assert!(leftover_alive.tags.iter().any(|t| t == "dream-processed"));
+        let fresh_alive = alive
+            .iter()
+            .find(|m| m.id == fresh.id)
+            .expect("本次输入应保留，仅标记");
+        assert!(fresh_alive.tags.iter().any(|t| t == "dream-processed"));
     }
 
     #[tokio::test]
@@ -428,7 +445,52 @@
         let alive: Vec<_> = all.into_iter().filter(|m| !m.is_deleted).collect();
         assert!(alive.iter().any(|m| m.id == ctx.id), "context 应保留");
         assert!(alive.iter().any(|m| m.id == junk.id), "过短内容应保留");
-        assert!(!alive.iter().any(|m| m.id == knowledge.id));
+        let knowledge_alive = alive
+            .iter()
+            .find(|m| m.id == knowledge.id)
+            .expect("整合源应保留原文");
+        assert!(knowledge_alive.tags.iter().any(|t| t == "dream-processed"));
+    }
+
+    #[tokio::test]
+    async fn test_integration_caps_output_size() {
+        // dream_out_size 作为总产出预算：1 簇 + 1 条 summary + 最多 2 条 facts。
+        let dir = tempdir().unwrap();
+        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let storage = Arc::new(MemoryStore::new(std::sync::Arc::new(rocksdb)));
+
+        let config = DreamConfig {
+            enabled: true,
+            requires_llm: false,
+            min_memories: 1,
+            max_age_hours: 100,
+            dream_out_size: 3,
+            max_facts_per_cluster: 3,
+            fusion_cluster_enabled: false,
+            phase_cross_project: false,
+            phase_personal_summary: false,
+            phase_cleanup: false,
+            ..Default::default()
+        };
+        let processor = DreamProcessor::new(config, dir.path(), storage.clone());
+
+        for i in 0..5 {
+            let mut memory = Memory::new(
+                format!("memory {} content for output cap test", i),
+                MemoryType::Knowledge,
+            );
+            memory.created_at = Utc::now() - chrono::Duration::hours(200);
+            memory.importance = 0.5;
+            storage.save(&memory).await.unwrap();
+        }
+
+        let result = processor.execute(true).await.unwrap();
+        assert_eq!(result.input_count, 5);
+        assert!(
+            result.produced_count <= 3,
+            "产出应受 dream_out_size 约束，实际 {}",
+            result.produced_count
+        );
     }
 
     #[tokio::test]

@@ -15,9 +15,12 @@
 - **原始记录视图 `--raw`**：`list`/`timeline` 新增 `--raw`，直读 RocksDB `memories` 列族并保留被 Dream 融合软删的源记录；默认按 `metadata.source_ids` 排除融合产出，追加 `--with-dream` 可一并返回。适用于抽取工作记录等需要原始逐条数据的场景。协议层 `ListParams.raw`/`with_dream` 默认 `false`，向后兼容；存储层新增 `MemoryStorage::list_raw`。
 - **MCP 时间线与列表能力对齐**：新增 `mr_timeline` 工具（按创建时间倒序，参数与 `mr_list` 对齐）；`mr_list` 扩展 `skip`/`tags`/`memory_type`/`include_deleted`/`raw`/`with_dream` 参数，使 AI 可通过 MCP 直接浏览时间线与读取原始记录。
 - **`memrec stats` / `mr_stats` 增强**：活跃记忆的 raw / Dream 构成与占比、最近一次 Dream 成功与运行记录（状态、门控原因）、累计 DreamRun 统计（实际执行、成功/失败/无候选/门控跳过/dry-run，以及整合记忆、软删源、边、传播、候选/簇、LLM 调用与 token）。
+- **Dream 产出预算**：新增 `dream_out_size`（默认 30，单次 facts+summaries 总预算）与 `max_facts_per_cluster`（默认 3）；每簇 facts 上限由预算动态推导并作为参数写入提炼提示词，要求合并相似事实、优先结论/数据/路径，禁止逐条复述；事实去重阈值默认由 0.97 收紧到 0.92。
 
 ### 变更
 
+- **Dream 源记忆保留**：不再软删输入源；处理后追加 `dream-processed` 标签（含 `dream_processed_at`/`dream_processed_run_id` 元数据），仅表示不再作为未来 Dream 候选，原文仍可检索；已整合源残留改为标记而非补删。
+- **Dream 口径修正**：`DreamResult`/`DreamRun` 新增 `input_count`、`produced_count`，日志与 CLI/MCP 输出改为“输入 → 产出”；`integrated_count` 保留为输入数的兼容字段。`DreamRun` 新增 `processed_source_ids`，旧 `deleted_source_ids` 仅用于历史统计。
 - **检索分数改为可解释的绝对校准分**：`HybridStore` 不再对向量/BM25 做本次结果集内的 min-max 归一化后按 `alpha` 加权（该方式使单路命中顶项恒为 `alpha` 或 `1-alpha`，默认均为 0.5，与绝对相关性无关）。改为 `score = 1 - (1 - vector_cos)(1 - coverage)`：向量单路取原始余弦，全文单路取查询词覆盖率，双路命中 noisy-OR 合成；`min_score` 重新作用于校准分。
 - `SearchHit` 新增 `vector_score`、`fts_score`、`coverage`、`rank_score`（均 `serde(default)`，向后兼容），便于调用方判断命中来源与可信度。
 - **协议记忆载荷与持久化模型解耦**：JSON-RPC 响应中的 `memory`/`memories` 由完整 `Memory` 改为 `MemoryView`，不再返回 `embedding`（BGE-M3 下达 1024 维）、`last_accessed`、`access_count`、`metadata` 等内部字段；`summary`、`deleted_at`、`chunk_*` 等可选字段无值时直接省略。`Add`/`Get`/`List`/`timeline` 与 MCP 工具同步生效，`embedding` 也不再随 `timeline -a -l N` 等批量输出放大体积。

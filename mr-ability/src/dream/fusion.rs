@@ -273,29 +273,41 @@ pub async fn extract_cluster(
     llm: Option<&Arc<dyn LlmClient>>,
     memories: &[Memory],
     use_llm: bool,
+    max_facts: usize,
 ) -> Result<ClusterExtraction, LlmError> {
     if use_llm {
         if let Some(llm) = llm {
-            let user = build_extract_prompt(memories);
+            let user = build_extract_prompt(memories, max_facts);
+            let system = format!(
+                "{EXTRACT_SYSTEM_PROMPT}\n\
+                 6. 本簇最多输出 {max_facts} 条 facts；必须合并相似内容，优先保留结论、数字、路径与命令，禁止逐条复述输入；\
+                 若上限为 0，facts 必须为空数组。"
+            );
             let messages = vec![
-                LlmMessage::system(EXTRACT_SYSTEM_PROMPT),
+                LlmMessage::system(system),
                 LlmMessage::user(user),
             ];
             let raw = llm
                 .chat_with_think(&messages, mr_common::ThinkLevel::Off)
                 .await?;
-            if let Some(parsed) = parse_extraction(&raw) {
+            if let Some(mut parsed) = parse_extraction(&raw) {
+                parsed.facts.truncate(max_facts);
                 return Ok(parsed);
             }
             warn!(target: "dream", "Fusion extraction JSON parse failed, falling back");
         }
     }
-    Ok(fallback_extraction(memories))
+    let mut fallback = fallback_extraction(memories);
+    fallback.facts.truncate(max_facts);
+    Ok(fallback)
 }
 
 /// 构造分簇提炼的用户提示。
-fn build_extract_prompt(memories: &[Memory]) -> String {
-    let mut s = String::from("待提炼的同主题记忆（按顺序编号，下标从 0 开始）：\n\n");
+fn build_extract_prompt(memories: &[Memory], max_facts: usize) -> String {
+    let mut s = format!(
+        "本簇 facts 上限：{max_facts} 条（0 表示只输出 summary）。\n\
+         待提炼的同主题记忆（按顺序编号，下标从 0 开始）：\n\n"
+    );
     for (i, m) in memories.iter().enumerate() {
         s.push_str(&format!(
             "[{}] ({}, tags: [{}], importance: {}) {}\n",
@@ -440,8 +452,18 @@ mod tests {
     #[tokio::test]
     async fn test_extract_fallback_without_llm() {
         let m = mem_with("hello world content", 0.5);
-        let x = extract_cluster(None, &[m], true).await.unwrap();
+        let x = extract_cluster(None, &[m], true, 3).await.unwrap();
         assert_eq!(x.facts.len(), 1);
+        assert!(!x.summary.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_extract_fallback_respects_max_facts() {
+        let memories: Vec<_> = (0..5)
+            .map(|i| mem_with(&format!("fact content {i}"), 0.5))
+            .collect();
+        let x = extract_cluster(None, &memories, true, 0).await.unwrap();
+        assert!(x.facts.is_empty(), "max_facts=0 should emit no facts");
         assert!(!x.summary.is_empty());
     }
 }

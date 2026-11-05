@@ -375,10 +375,10 @@ memrec list -g               # 仅公共记忆（无 .mr_pid 时默认）
 memrec list -a               # 跨所有项目
 ```
 
-`--deleted` 只返回被软删除的记录；需要“原始全集”（活跃记录 + 被 Dream 融合软删的源记录）时使用 `--raw`。`--raw` 默认排除 Dream 融合产出，加 `--with-dream` 可一并包含。
+`--deleted` 只返回被软删除的记录；需要“原始全集”（活跃记录 + 历史软删记录与已处理源记录）时使用 `--raw`。`--raw` 默认排除 Dream 融合产出，加 `--with-dream` 可一并包含。
 
 ```bash
-memrec list --raw                  # 原始记录：含被融合软删的源记录，排除融合产出
+memrec list --raw                  # 原始记录：含历史软删记录与已处理源记录，排除融合产出
 memrec list --raw --with-dream     # 原始记录 + 融合产出
 ```
 
@@ -392,7 +392,7 @@ memrec timeline --limit 50            # 最近 50 条
 memrec timeline --skip 50 --limit 50  # 时间线分页
 memrec timeline -p --type-filter decision   # 当前项目的决策记录
 memrec timeline -a --tag rust         # 跨项目、按标签过滤
-memrec timeline --raw                 # 原始记录时间线（含融合软删的源记录）
+memrec timeline --raw                 # 原始记录时间线（含历史软删记录与已处理源记录）
 ```
 
 ### 删除记忆
@@ -413,7 +413,7 @@ memrec stats
 
 - **活跃构成**：原始记录数（raw）与 Dream 产出数，及各自占比；
 - **Dream 时间线**：最近一次成功整合时间、最近一次运行记录（状态与门控原因）；
-- **累计 Dream**：总记录、实际执行、成功/失败/无候选、门控跳过、dry-run、运行中，以及累计整合记忆、软删源、边、传播、候选/簇、LLM 调用与 token。
+- **累计 Dream**：总记录、实际执行、成功/失败/无候选、门控跳过、dry-run、运行中，以及累计输入/产出、已处理源、历史软删源、边、传播、候选/簇、LLM 调用与 token。
 
 ```text
 Memory Statistics:
@@ -429,14 +429,15 @@ Memory Statistics:
     Last success:   2026-11-03 20:13:20 +08:00
     Last attempt:   2026-11-04 10:38:03 +08:00 (no_op, gate=too_soon)
     Runs:           1659 total = 15 actual (11 success / 4 no-op / 0 failed / 0 running), 1644 gate-skipped
-    Integrated:     1776 memories
-    Sources removed: 894
+    Input processed: 100 source memories
+    Produced:       24 memories
+    Sources marked: 100 (not deleted)
     Edges:          12114
     Propagations:   9763
     Candidates:     894 (clusters: 132)
 ```
 
-> 累计项包含历史运行，数字可能大于当前活跃量；例如整合记忆可能在后续轮次被软删。raw/Dream 构成基于活跃记忆扫描。LLM 调用/token 仅在 DreamRun 上报用量时显示。
+> 累计项包含历史运行，数字可能大于当前活跃量；例如 Dream 产出可能在后续轮次被替换或清理。raw/Dream 构成基于活跃记忆扫描。LLM 调用/token 仅在 DreamRun 上报用量时显示。
 
 ### Dream 整合与审计
 
@@ -636,6 +637,8 @@ integration_preserve_importance = 0.85  # 高重要性记忆保留（不整合�
 integration_preserve_tags = ["critical"]  # 命中标签保留
 integration_preserve_types = ["preference", "context"]  # 保留的记忆类型（原文，context 压缩后细节不可恢复）
 integration_min_content_len = 10      # 过滤过短测试/占位记录（字符）
+dream_out_size = 30         # 单次总产出上限（facts + summaries）
+max_facts_per_cluster = 3   # 单簇 facts 硬上限
 
 # 检索图扩散（1 跳；图命中带 EdgeHint）
 retrieval_graph_enabled = true   # 检索是否走图扩散
@@ -655,7 +658,7 @@ networking_propagation_enabled = true   # 是否启用边传播
 
 # 上游去重（Stage F 事实条近重复）
 fusion_dedup_enabled = true     # 对融合产出事实条做近重复去重
-fusion_dedup_threshold = 0.97   # 近重复判定阈值（余弦）
+fusion_dedup_threshold = 0.92   # 近重复判定阈值（余弦）
 
 [dedup]                     # 写入去重（ADD/UPDATE/NOOP）
 enabled = true

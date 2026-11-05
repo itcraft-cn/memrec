@@ -124,11 +124,11 @@ memrec list --limit 20
 memrec list --limit 10 --skip 20        # pagination: skip the first 20
 memrec list --tag rust --type-filter decision   # filter by tag/type
 memrec list --deleted                    # list soft-deleted raw records from RocksDB
-memrec list --raw                        # raw records: includes sources soft-deleted by Dream fusion
+memrec list --raw                        # raw records: includes historically soft-deleted and processed sources
 memrec list --raw --with-dream           # raw records + Dream fusion outputs
 memrec timeline                          # browse recent memories, newest first
 memrec timeline --limit 50 --skip 50     # paginate the timeline
-memrec timeline --raw                    # raw timeline (includes sources soft-deleted by fusion)
+memrec timeline --raw                    # raw timeline (includes historically soft-deleted and processed sources)
 memrec get <id>
 memrec restore <id>                      # restore a soft-deleted memory (re-indexed)
 memrec stats
@@ -234,7 +234,7 @@ On every `add`, MemRec searches similar memories (cosine similarity) and decides
 - `update_threshold <= score < duplicate_threshold` → **update** existing memory (merge tags, new content)
 - otherwise → **add** as new memory
 
-`update_window_mins` bounds when an update applies in place: within the window a match updates in place; outside the window MemRec adds a new record and marks the old one `superseded` (merging and soft-deletion are done only by Dream).
+`update_window_mins` bounds when an update applies in place: within the window a match updates in place; outside the window MemRec adds a new record and marks the old one `superseded` (merging is done by Dream; sources are marked processed instead of soft-deleted).
 
 ```toml
 [dedup]
@@ -270,8 +270,13 @@ Gate conditions: at least `min_memories` (20) consolidatable memories, oldest me
 - `integration_preserve_types` (`preference` + `context`) — user preferences and config/environment info stay as-is (context details are irrecoverable after compression)
 - `integration_min_content_len` (10 chars) — filters out short test/placeholder garbage
 - `integration_max_memories` (100) — input cap per run, selected by ascending importance, prevents LLM token overflow
+- `dream_out_size` (30) — total output budget per run (facts + summaries); derives the per-cluster fact cap
+- `max_facts_per_cluster` (3) — hard per-cluster fact cap
+- `fusion_dedup_threshold` (0.92) — near-duplicate fact threshold; matches are merged to reduce redundant cards
 
-**Robustness**: `dream.state` is updated only on success (retries are immediate after LLM outages); the integration memory records `metadata.source_ids` for idempotency (crash leftovers are auto-cleaned); phases 1-4 run only after a successful LLM integration; summaries are produced via a strongly-constrained template (`## Topic`/`## Key Points`/`## Conclusion`, no filler).
+**Source retention**: Dream no longer soft-deletes input sources. After a run, each source gets a `dream-processed` tag (plus `dream_processed_at`/`dream_processed_run_id` metadata), meaning "not a future Dream candidate"; the original text remains retrievable. `integrated_count`/`input_count` is the input count; `produced_count` is the actual output count.
+
+**Robustness**: `dream.state` is updated only on success (retries are immediate after LLM outages); the integration memory records `metadata.source_ids` for idempotency (crash leftovers are marked processed); phases 1-4 run only after a successful LLM integration; summaries are produced via a strongly-constrained template (`## Topic`/`## Key Points`/`## Conclusion`, no filler).
 
 ```toml
 [dream]
@@ -286,6 +291,8 @@ integration_preserve_importance = 0.85  # preserve high-importance memories
 integration_preserve_tags = ["critical"]  # preserve matching tags
 integration_preserve_types = ["preference", "context"]  # preserved memory types (as-is)
 integration_min_content_len = 10      # filter short content (chars)
+dream_out_size = 30         # total output budget per run (facts + summaries)
+max_facts_per_cluster = 3   # hard per-cluster fact cap
 cleanup_inactive_days = 90  # Phase 3: inactive days threshold
 cleanup_importance_threshold = 0.1    # Phase 3: cleanup importance floor
 phase_vector_regen = false # Phase 4, resource-heavy, off by default
@@ -308,7 +315,7 @@ networking_propagation_enabled = true   # edge propagation
 
 # Upstream dedup (Stage F produced facts)
 fusion_dedup_enabled = true     # dedup near-duplicate produced facts
-fusion_dedup_threshold = 0.97   # near-duplicate threshold (cosine)
+fusion_dedup_threshold = 0.92   # near-duplicate threshold (cosine)
 
 [idle]
 enabled = true             # idle monitor

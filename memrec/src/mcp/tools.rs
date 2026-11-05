@@ -455,8 +455,16 @@ impl McpServer {
             .await?;
 
         if let Some(result) = resp.get("result") {
-            if let Some(d) = result.get("integrated_count") {
-                let count = d.as_u64().unwrap_or(0);
+            if result.get("integrated_count").is_some() {
+                let input = result
+                    .get("input_count")
+                    .or_else(|| result.get("integrated_count"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let produced = result
+                    .get("produced_count")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
                 let summary = result.get("summary").and_then(|v| v.as_str()).unwrap_or("");
                 let clusters = result
                     .get("cluster_count")
@@ -476,8 +484,8 @@ impl McpServer {
                     "Dream completed"
                 };
                 return Ok(format!(
-                    "{}: {} memories integrated, {} clusters, {} edges, {} propagations\nSummary: {}",
-                    mode, count, clusters, edges, propagations, summary
+                    "{}: input {} -> produced {}, {} clusters, {} edges, {} propagations\nSummary: {}",
+                    mode, input, produced, clusters, edges, propagations, summary
                 ));
             }
         }

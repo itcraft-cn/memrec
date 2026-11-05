@@ -297,7 +297,14 @@ pub struct VersionResult {
 /// 新增字段用于 DreamReport 治理与 dry-run 展示。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DreamResult {
+    /// 历史字段：本次输入的源记忆数（等价于 `input_count`）
     pub integrated_count: usize,
+    /// 本次输入的源记忆数
+    #[serde(default)]
+    pub input_count: usize,
+    /// 本次实际产出的记忆数（facts + summaries）
+    #[serde(default)]
+    pub produced_count: usize,
     pub created_memory_id: Option<Uuid>,
     pub summary: String,
     /// 本次运行审计 ID
@@ -378,9 +385,12 @@ pub struct DreamStats {
     /// 最近一次 Dream 记录时间（优先 `finished_at`，回退 `started_at`）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_run_at: Option<DateTime<Utc>>,
-    /// 最近一次运行状态（running/success/failed/no_op）。
+    /// 最近一次运行状态（running/success/failed/no_op/dry_run）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_run_status: Option<String>,
+    /// 最近一次记录是否为 dry-run。
+    #[serde(default)]
+    pub last_run_dry_run: bool,
     /// 最近一次门控结果（allowed/disabled/too_soon/not_enough_new/llm_not_configured）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_run_gate: Option<String>,
@@ -401,7 +411,15 @@ pub struct DreamStats {
     pub running_runs: usize,
     pub total_candidates: usize,
     pub total_clusters: usize,
+    /// 累计输入源记忆数
+    pub total_input: usize,
+    /// 累计实际产出记忆数（facts + summaries）
+    pub total_produced: usize,
+    /// 历史字段：累计产出（等价于 total_produced）
     pub total_integrated: usize,
+    /// 累计标记为已处理的源记忆数（不再参与后续 Dream）
+    pub total_processed_sources: usize,
+    /// 历史字段：旧版本软删的源记忆数
     pub total_deleted_sources: usize,
     pub total_edges: usize,
     pub total_propagations: usize,
@@ -429,7 +447,11 @@ impl DreamStats {
         for run in runs {
             stats.total_runs += 1;
             match run.status {
-                DreamRunStatus::Success => stats.success_runs += 1,
+                DreamRunStatus::Success => {
+                    if !run.dry_run {
+                        stats.success_runs += 1;
+                    }
+                }
                 DreamRunStatus::Failed => stats.failed_runs += 1,
                 DreamRunStatus::NoOp => stats.noop_runs += 1,
                 DreamRunStatus::Running => stats.running_runs += 1,
@@ -443,7 +465,11 @@ impl DreamStats {
 
             stats.total_candidates += run.candidate_count;
             stats.total_clusters += run.cluster_count;
-            stats.total_integrated += run.integrated_memory_ids.len();
+            let produced = run.produced_count.max(run.integrated_memory_ids.len());
+            stats.total_input += run.candidate_count;
+            stats.total_produced += produced;
+            stats.total_integrated += produced;
+            stats.total_processed_sources += run.processed_source_ids.len();
             stats.total_deleted_sources += run.deleted_source_ids.len();
             stats.total_edges += run.edge_count;
             stats.total_propagations += run.propagation_count;
@@ -454,7 +480,9 @@ impl DreamStats {
             if last_run.is_none_or(|prev| at > run_time(prev)) {
                 last_run = Some(run);
             }
-            if run.status == DreamRunStatus::Success && last_success_at.is_none_or(|prev| at > prev)
+            if run.status == DreamRunStatus::Success
+                && !run.dry_run
+                && last_success_at.is_none_or(|prev| at > prev)
             {
                 last_success_at = Some(at);
             }
@@ -465,7 +493,12 @@ impl DreamStats {
             + stats.noop_runs.saturating_sub(stats.gate_skipped_runs);
         if let Some(run) = last_run {
             stats.last_run_at = Some(run_time(run));
-            stats.last_run_status = Some(run.status.as_str().to_string());
+            stats.last_run_dry_run = run.dry_run;
+            stats.last_run_status = Some(if run.dry_run {
+                "dry_run".to_string()
+            } else {
+                run.status.as_str().to_string()
+            });
             stats.last_run_gate = Some(run.gate_outcome.as_str().to_string());
         }
         stats.last_success_at = last_success_at;
@@ -609,6 +642,8 @@ mod tests {
         success.candidate_count = 10;
         success.cluster_count = 3;
         success.integrated_memory_ids = vec![Uuid::new_v4(), Uuid::new_v4()];
+        success.produced_count = 2;
+        success.processed_source_ids = vec![Uuid::new_v4(), Uuid::new_v4()];
         success.deleted_source_ids = vec![Uuid::new_v4()];
         success.edge_count = 4;
         success.propagation_count = 5;
@@ -634,6 +669,9 @@ mod tests {
         assert_eq!(stats.gate_skipped_runs, 1);
         assert_eq!(stats.actual_runs, 1);
         assert_eq!(stats.total_integrated, 2);
+        assert_eq!(stats.total_input, 10);
+        assert_eq!(stats.total_produced, 2);
+        assert_eq!(stats.total_processed_sources, 2);
         assert_eq!(stats.total_deleted_sources, 1);
         assert_eq!(stats.total_edges, 4);
         assert_eq!(stats.total_propagations, 5);
@@ -642,6 +680,22 @@ mod tests {
         assert_eq!(stats.last_run_status.as_deref(), Some("no_op"));
         assert_eq!(stats.last_run_gate.as_deref(), Some("too_soon"));
         assert!(stats.last_success_at.is_some());
+    }
+
+    #[test]
+    fn test_dream_stats_dry_run_is_not_success() {
+        let mut dry = DreamRun::running(false, true);
+        dry.status = DreamRunStatus::Success;
+        dry.finish(DreamRunStatus::Success);
+
+        let stats = DreamStats::from_runs(0, 0, &[dry]);
+
+        assert_eq!(stats.total_runs, 1);
+        assert_eq!(stats.dry_run_runs, 1);
+        assert_eq!(stats.success_runs, 0);
+        assert!(stats.last_success_at.is_none());
+        assert!(stats.last_run_dry_run);
+        assert_eq!(stats.last_run_status.as_deref(), Some("dry_run"));
     }
 }
 

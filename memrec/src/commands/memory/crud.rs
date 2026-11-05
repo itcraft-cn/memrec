@@ -461,8 +461,21 @@ pub async fn stats(client: &Client, human: bool) -> Result<()> {
                         if d.dry_run_runs > 0 {
                             println!("    Dry-run:        {}", d.dry_run_runs);
                         }
-                        println!("    Integrated:     {} memories", d.total_integrated);
-                        println!("    Sources removed: {}", d.total_deleted_sources);
+                        println!(
+                            "    Input processed: {} source memories",
+                            d.total_input
+                        );
+                        println!("    Produced:       {} memories", d.total_produced);
+                        println!(
+                            "    Sources marked: {} (not deleted)",
+                            d.total_processed_sources
+                        );
+                        if d.total_deleted_sources > 0 {
+                            println!(
+                                "    Legacy deleted: {} (old runs)",
+                                d.total_deleted_sources
+                            );
+                        }
                         println!("    Edges:          {}", d.total_edges);
                         println!("    Propagations:   {}", d.total_propagations);
                         println!(

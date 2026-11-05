@@ -79,6 +79,17 @@ pub struct DreamConfig {
     #[serde(default = "default_integration_min_content_len")]
     pub integration_min_content_len: usize,
 
+    /// 单次 Dream 的目标产出上限（facts + summaries）。
+    ///
+    /// 用于推导每簇 facts 上限，并作为全局产出预算；0 表示不产出 facts
+    /// （仅在有 summary 时产出摘要）。
+    #[serde(default = "default_dream_out_size")]
+    pub dream_out_size: usize,
+
+    /// 单簇 facts 硬上限（与 `dream_out_size` 共同约束，取较小值）。
+    #[serde(default = "default_max_facts_per_cluster")]
+    pub max_facts_per_cluster: usize,
+
     /// Phase 3 清理：不活跃天数门槛
     #[serde(default = "default_cleanup_inactive_days")]
     pub cleanup_inactive_days: u64,
@@ -120,7 +131,7 @@ pub struct DreamConfig {
     /// 是否对融合产出的事实条做近重复去重（上游去重，默认开）
     #[serde(default = "default_fusion_dedup_enabled")]
     pub fusion_dedup_enabled: bool,
-    /// 事实条近重复判定阈值（余弦相似度，默认 0.97）；达到即视为重复，
+    /// 事实条近重复判定阈值（余弦相似度，默认 0.92）；达到即视为重复，
     /// 仅保留最先产出的一条，避免 Dream 产出冗余记忆与噪声边。
     #[serde(default = "default_fusion_dedup_threshold")]
     pub fusion_dedup_threshold: f32,
@@ -226,6 +237,12 @@ fn default_integration_preserve_types() -> Vec<String> {
 fn default_integration_min_content_len() -> usize {
     10
 }
+fn default_dream_out_size() -> usize {
+    30
+}
+fn default_max_facts_per_cluster() -> usize {
+    3
+}
 fn default_cleanup_inactive_days() -> u64 {
     90
 }
@@ -264,7 +281,7 @@ fn default_fusion_dedup_enabled() -> bool {
     true
 }
 fn default_fusion_dedup_threshold() -> f32 {
-    0.97
+    0.92
 }
 fn default_networking_enabled() -> bool {
     true
@@ -306,6 +323,25 @@ fn default_dry_run_with_llm() -> bool {
     false
 }
 
+impl DreamConfig {
+    /// 计算单簇 facts 上限。
+    ///
+    /// 预算 = `dream_out_size` - 摘要数（启用 summary 时每簇 1 条），
+    /// 再除以簇数并受 `max_facts_per_cluster` 约束。返回 0 表示不产出 facts。
+    pub fn facts_per_cluster(&self, cluster_count: usize) -> usize {
+        if !self.fusion_emit_facts || cluster_count == 0 {
+            return 0;
+        }
+        let summary_count = if self.fusion_emit_summary {
+            cluster_count
+        } else {
+            0
+        };
+        let facts_budget = self.dream_out_size.saturating_sub(summary_count);
+        (facts_budget / cluster_count).min(self.max_facts_per_cluster)
+    }
+}
+
 impl Default for DreamConfig {
     fn default() -> Self {
         Self {
@@ -326,6 +362,8 @@ impl Default for DreamConfig {
             integration_preserve_tags: vec!["critical".to_string()],
             integration_preserve_types: vec!["preference".to_string(), "context".to_string()],
             integration_min_content_len: 10,
+            dream_out_size: 30,
+            max_facts_per_cluster: 3,
             cleanup_inactive_days: 90,
             cleanup_importance_threshold: 0.1,
             batch_size: 100,
@@ -338,7 +376,7 @@ impl Default for DreamConfig {
             fusion_emit_summary: true,
             fusion_detect_contradictions: true,
             fusion_dedup_enabled: true,
-            fusion_dedup_threshold: 0.97,
+            fusion_dedup_threshold: 0.92,
             networking_enabled: true,
             networking_similar_topk: 5,
             networking_similar_threshold: 0.82,

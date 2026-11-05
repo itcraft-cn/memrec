@@ -15,6 +15,8 @@ impl Router {
             Ok(result) => JsonRpcResponse::success(
                 ResponseResult::Dream(DreamResult {
                     integrated_count: result.integrated_count,
+                    input_count: result.input_count,
+                    produced_count: result.produced_count,
                     created_memory_id: result.created_memory_id,
                     summary: result.summary,
                     run_id: result.run_id,

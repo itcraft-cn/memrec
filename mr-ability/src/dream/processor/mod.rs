@@ -50,6 +50,8 @@ const TAG_INTEGRATED: &str = "dream-integrated";
 const TAG_FACT: &str = "dream-fact";
 /// 主题摘要的标签。
 const TAG_SUMMARY: &str = "dream-summary";
+/// 已参与 Dream 的源记忆标记：仅表示不再是候选，不等于删除。
+const TAG_PROCESSED: &str = "dream-processed";
 
 #[derive(Debug, Error)]
 pub enum DreamError {
@@ -81,8 +83,12 @@ pub enum DreamError {
 pub struct DreamResult {
     /// 本次运行的审计 ID（未接入 run_store 时为 None）
     pub run_id: Option<Uuid>,
-    /// 被整合（软删）的源记忆数
+    /// 被整合的源记忆数（历史字段，等价于 `input_count`）
     pub integrated_count: usize,
+    /// 本次输入的源记忆数
+    pub input_count: usize,
+    /// 本次实际产出的记忆数（facts + summaries）
+    pub produced_count: usize,
     /// 代表性产出记忆 ID（主题摘要优先）
     pub created_memory_id: Option<Uuid>,
     /// 本次全部摘要的合并文本
@@ -111,6 +117,8 @@ impl DreamResult {
         Self {
             run_id: None,
             integrated_count: 0,
+            input_count: 0,
+            produced_count: 0,
             created_memory_id: None,
             summary,
             summary_clues: SummaryClues::default(),

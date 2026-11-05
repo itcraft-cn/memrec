@@ -118,11 +118,11 @@ memrec list --limit 20
 memrec list --limit 10 --skip 20        # 分页：跳过前 20 条
 memrec list --tag rust --type-filter decision   # 按标签/类型过滤
 memrec list --deleted                    # 从 RocksDB 检索软删除的原始记录
-memrec list --raw                        # 原始记录：含被 Dream 融合软删的源记录
+memrec list --raw                        # 原始记录：含历史软删记录与已处理源记录
 memrec list --raw --with-dream           # 原始记录 + Dream 融合产出
 memrec timeline                          # 按创建时间倒序浏览最近记忆
 memrec timeline --limit 50 --skip 50     # 时间线分页
-memrec timeline --raw                    # 原始记录的时间线（含融合软删的源记录）
+memrec timeline --raw                    # 原始记录的时间线（含历史软删记录与已处理源记录）
 memrec get <id>
 memrec restore <id>                      # 恢复软删除记忆（重新入检索索引）
 memrec stats
@@ -228,7 +228,7 @@ temperature = 0.3
 - `update_threshold <= score < duplicate_threshold` → **更新**已有记忆（合并 tags、内容取新）
 - 否则 → **新增**
 
-`update_window_mins` 限定"更新"的时间窗口：窗口内命中则原地更新；窗口外命中不修改历史记录，而是新增一条并将旧记录标记为 `superseded`（合并与软删仅由 Dream 执行）。
+`update_window_mins` 限定"更新"的时间窗口：窗口内命中则原地更新；窗口外命中不修改历史记录，而是新增一条并将旧记录标记为 `superseded`（合并由 Dream 执行；Dream 现在标记源为已处理，不再软删）。
 
 ```toml
 [dedup]
@@ -264,8 +264,13 @@ Dream 是后台记忆整合作业，类比睡眠中的记忆巩固——系统�
 - `integration_preserve_types`（`preference` + `context`）— 用户偏好与配置/环境信息保留原文（context 压缩后细节不可恢复）
 - `integration_min_content_len`（10 字符）— 过滤过短测试/占位垃圾
 - `integration_max_memories`（100）— 单次整合输入上限，按重要性升序选取，防 LLM token 超窗
+- `dream_out_size`（30）— 单次总产出上限（facts + summaries），用于推导每簇 facts 上限
+- `max_facts_per_cluster`（3）— 单簇 facts 硬上限
+- `fusion_dedup_threshold`（0.92）— 事实条近重复阈值，达到即合并，减少冗余卡片
 
-**健壮性**：仅执行成功才更新 `dream.state`（LLM 故障恢复后可立即重试）；整合记忆记录 `metadata.source_ids` 实现幂等（崩溃残留自动补删）；LLM 整合成功后才执行阶段 1-4；整合摘要由强约束模板产出（`## 主题`/`## 要点`/`## 结论`，无套话）。
+**源记忆保留**：Dream 不再软删输入源；处理后为其追加 `dream-processed` 标签（并写入 `dream_processed_at`/`dream_processed_run_id` 元数据），仅表示"不再是未来 Dream 候选"，原文仍可检索。`integrated_count`/`input_count` 表示输入条数，`produced_count` 表示实际产出条数。
+
+**健壮性**：仅执行成功才更新 `dream.state`（LLM 故障恢复后可立即重试）；整合记忆记录 `metadata.source_ids` 实现幂等（崩溃残留自动标记为已处理）；LLM 整合成功后才执行阶段 1-4；整合摘要由强约束模板产出（`## 主题`/`## 要点`/`## 结论`，无套话）。
 
 ```toml
 [dream]
@@ -280,6 +285,8 @@ integration_preserve_importance = 0.85  # 高重要性记忆保留
 integration_preserve_tags = ["critical"]  # 命中标签保留
 integration_preserve_types = ["preference", "context"]  # 保留的记忆类型（原文）
 integration_min_content_len = 10      # 过短内容过滤（字符）
+dream_out_size = 30         # 单次总产出上限（facts + summaries）
+max_facts_per_cluster = 3   # 单簇 facts 硬上限
 cleanup_inactive_days = 90  # 阶段3：不活跃天数门槛
 cleanup_importance_threshold = 0.1    # 阶段3：清理重要性下限
 phase_vector_regen = false # 阶段4，资源消耗大，默认关闭
@@ -302,7 +309,7 @@ networking_propagation_enabled = true   # 是否启用边传播
 
 # 上游去重（Stage F 事实条近重复）
 fusion_dedup_enabled = true     # 对融合产出事实条做近重复去重
-fusion_dedup_threshold = 0.97   # 近重复判定阈值（余弦）
+fusion_dedup_threshold = 0.92   # 近重复判定阈值（余弦）
 
 [idle]
 enabled = true             # 空闲监控

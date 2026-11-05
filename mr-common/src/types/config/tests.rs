@@ -25,7 +25,7 @@ use super::*;
         let c = DreamConfig::default();
         // 上游去重与语义边候选限幅、图命中保留名额的默认值
         assert!(c.fusion_dedup_enabled);
-        assert_eq!(c.fusion_dedup_threshold, 0.97);
+        assert_eq!(c.fusion_dedup_threshold, 0.92);
         assert_eq!(c.networking_semantic_max_candidates, 20);
         assert_eq!(c.networking_semantic_dup_threshold, 0.97);
         assert_eq!(c.retrieval_graph_quota, 0.25);
@@ -279,3 +279,19 @@ use super::*;
         assert_eq!(parsed.level, "debug");
         assert!(parsed.enabled);
     }
+
+#[test]
+fn test_dream_output_budget() {
+    let mut config = DreamConfig::default();
+    assert_eq!(config.dream_out_size, 30);
+    assert_eq!(config.max_facts_per_cluster, 3);
+    assert!((config.fusion_dedup_threshold - 0.92).abs() < f32::EPSILON);
+
+    // 12 簇：30 - 12 条 summary = 18 facts 预算，每簇 1 条。
+    assert_eq!(config.facts_per_cluster(12), 1);
+    // 6 簇：30 - 6 = 24，每簇最多 3 条。
+    assert_eq!(config.facts_per_cluster(6), 3);
+    // facts 关闭时恒为 0。
+    config.fusion_emit_facts = false;
+    assert_eq!(config.facts_per_cluster(6), 0);
+}

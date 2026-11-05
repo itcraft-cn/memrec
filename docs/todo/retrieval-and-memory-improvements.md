@@ -246,3 +246,10 @@ T1 属于检索排序改动，门禁不可跳过；T2/T3/T5 涉及读取与写�
 - 修复 3 条悬空金标目标（原目标已被软删）：`dead-import`、`kalman`、`pnl-metric` 替换为仍存活的同类记忆，替换后均命中 top1。
 - `retrieval_gate.sh` 新增负例门禁：三条无关查询的 top1 校准分必须严格低于 0.5。
 - 注意：原负例"完全无关的烘焙面包配方"已被本项目自身分析记忆污染（该记忆正文包含此短语），故负例改用其他无关查询；该现象也说明"查询词被自身记录命中"属于数据层面，而非分数校准问题。
+
+### Dream 产出与保留治理（完成，2026-11-05）
+
+- 源记忆不再软删：Dream 处理后将源记忆标记为 `dream-processed`（附 `dream_processed_at` / `dream_processed_run_id`），仅排除未来 Dream 候选，原文继续可检索。
+- 产出预算：新增 `dream_out_size`（默认 30，facts + summaries 总预算）与 `max_facts_per_cluster`（默认 3）；每簇 facts 上限由预算推导并写入提炼提示词，要求合并相似事实、优先结论/数据/路径。
+- 事实去重阈值默认 0.97 → 0.92；Dream 产出与已处理源不再进入后续候选，避免递归整合。
+- 口径修正：`input_count`（输入）与 `produced_count`（产出）进入 DreamResult/DreamRun；`integrated_count` 保留为输入数兼容字段。

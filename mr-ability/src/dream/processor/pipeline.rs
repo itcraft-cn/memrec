@@ -61,7 +61,11 @@ impl DreamProcessor {
         let candidate_emb = self.collect_embeddings(&candidates).await;
         let clusters = self.cluster(&candidates, &candidate_emb);
         run.cluster_count = clusters.len();
-        let fusion = self.stage_fuse(run, &candidates, &clusters, dry_run).await?;
+        let max_facts_per_cluster = self.config.facts_per_cluster(clusters.len());
+        let fusion = self
+            .stage_fuse(run, &candidates, &clusters, max_facts_per_cluster, dry_run)
+            .await?;
+        run.produced_count = fusion.produced.len();
 
         let summary_joined = fusion.summary_texts.join("\n\n");
         let summary_clues = extract_summary_clues(&summary_joined);
@@ -87,6 +91,8 @@ impl DreamProcessor {
             return Ok(DreamResult {
                 run_id: Some(run.run_id),
                 integrated_count: candidates.len(),
+                input_count: candidates.len(),
+                produced_count: fusion.produced.len(),
                 created_memory_id,
                 summary: summary_joined,
                 summary_clues,
@@ -100,13 +106,19 @@ impl DreamProcessor {
             });
         }
 
-        // 软删源记忆
-        for memory in &candidates {
-            self.storage
-                .delete(&memory.id)
-                .await
-                .map_err(DreamError::from)?;
-            run.deleted_source_ids.push(memory.id);
+        // 标记源记忆已处理（不再是未来 Dream 候选），但不删除：
+        // 原文仍需保留供检索、审计与更正。
+        if !dry_run {
+            for memory in &candidates {
+                if let Err(e) = self.mark_processed(memory, run.run_id).await {
+                    warn!("Failed to mark source memory {} processed: {}", memory.id, e);
+                } else {
+                    run.processed_source_ids.push(memory.id);
+                }
+            }
+        } else {
+            run.processed_source_ids
+                .extend(candidates.iter().map(|m| m.id));
         }
 
         // ---- Stage N 成网：零 LLM 边 + 传播增量 ----
@@ -137,8 +149,9 @@ impl DreamProcessor {
         run.finish(DreamRunStatus::Success);
 
         info!(
-            "Dream completed: {} memories integrated, {} edges, {} propagations",
+            "Dream completed: input {}, produced {}, {} edges, {} propagations",
             candidates.len(),
+            fusion.produced.len(),
             edge_count,
             propagation_count
         );
@@ -146,6 +159,8 @@ impl DreamProcessor {
         Ok(DreamResult {
             run_id: Some(run.run_id),
             integrated_count: candidates.len(),
+            input_count: candidates.len(),
+            produced_count: fusion.produced.len(),
             created_memory_id,
             summary: summary_joined,
             summary_clues,
@@ -159,7 +174,27 @@ impl DreamProcessor {
         })
     }
 
-    /// 候选筛选：时间区间下推取数 → 高价值/过短过滤 → 已整合源幂等补删 → 按重要性升序。
+    /// 将源记忆标记为“已参与 Dream”（不再是未来候选），保留原文与检索能力。
+    async fn mark_processed(&self, memory: &Memory, run_id: Uuid) -> Result<(), DreamError> {
+        let mut updated = memory.clone();
+        if !updated.tags.iter().any(|t| t == TAG_PROCESSED) {
+            updated.tags.push(TAG_PROCESSED.to_string());
+        }
+        updated.metadata.insert(
+            "dream_processed_at".to_string(),
+            Utc::now().to_rfc3339(),
+        );
+        updated.metadata.insert(
+            "dream_processed_run_id".to_string(),
+            run_id.to_string(),
+        );
+        self.storage
+            .update(&updated)
+            .await
+            .map_err(DreamError::from)
+    }
+
+    /// 候选筛选：时间区间下推取数 → 高价值/过短过滤 → 已整合源幂等标记 → 按重要性升序。
     async fn select_candidates(
         &self,
         cutoff: DateTime<Utc>,
@@ -179,7 +214,10 @@ impl DreamProcessor {
             .into_iter()
             .filter(|m| !m.is_deleted && m.created_at < cutoff)
             .filter(|m| {
-                m.importance < self.config.integration_preserve_importance
+                // Dream 产出不参与后续 Dream；已处理源也不再是候选。
+                !m.is_dream_generated()
+                    && !m.tags.iter().any(|t| t == TAG_PROCESSED)
+                    && m.importance < self.config.integration_preserve_importance
                     && !m
                         .tags
                         .iter()
@@ -207,8 +245,14 @@ impl DreamProcessor {
             });
             if !dry_run {
                 for id in leftover {
-                    if let Err(e) = self.storage.delete(&id).await {
-                        warn!("Failed to delete leftover integrated memory {}: {}", id, e);
+                    match self.storage.get(&id).await {
+                        Ok(Some(m)) => {
+                            if let Err(e) = self.mark_processed(&m, Uuid::nil()).await {
+                                warn!("Failed to mark leftover integrated memory {}: {}", id, e);
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(e) => warn!("Failed to load leftover integrated memory {}: {}", id, e),
                     }
                 }
             }
@@ -249,6 +293,7 @@ impl DreamProcessor {
         run: &mut DreamRun,
         candidates: &[Memory],
         clusters: &[Vec<usize>],
+        max_facts_per_cluster: usize,
         dry_run: bool,
     ) -> Result<FusionStage, DreamError> {
         let use_llm = !dry_run || self.config.dry_run_with_llm;
@@ -260,7 +305,14 @@ impl DreamProcessor {
             }
             let cluster_mems: Vec<Memory> =
                 cluster.iter().map(|&i| candidates[i].clone()).collect();
-            match extract_cluster(self.llm.as_ref(), &cluster_mems, use_llm).await {
+            match extract_cluster(
+                self.llm.as_ref(),
+                &cluster_mems,
+                use_llm,
+                max_facts_per_cluster,
+            )
+            .await
+            {
                 Ok(x) => extractions.push((cluster.clone(), x)),
                 Err(e) => return Err(DreamError::Llm(e)),
             }
