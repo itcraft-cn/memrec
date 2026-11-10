@@ -344,6 +344,30 @@ test_mode_file = "~/.memrec/.debug"                 # 开关文件
 test_mode_max_age_secs = 21600                      # 残留开关自动失效（秒）
 ```
 
+## 开发与部署（多步骤验收）
+
+`scripts/multistep-test.sh` 把 MEMORY.md/AGENTS.md 中的验收流程固化为脚本，严格按序执行：
+
+```bash
+scripts/multistep-test.sh run                 # 构建 → 单测 → 停服 → 备份 → 部署 → 启动 → 检索门禁
+scripts/multistep-test.sh run --skip-tests    # 跳过单测（仅限紧急验证）
+scripts/multistep-test.sh run --skip-gate     # 跳过检索门禁（不推荐）
+scripts/multistep-test.sh status              # 服务、socket、测试模式、二进制与记忆数
+scripts/multistep-test.sh list                # 数据备份与二进制备份
+scripts/multistep-test.sh restore <backup>    # 停服 → 移走当前数据 → 覆盖为备份 → 启动
+scripts/multistep-test.sh restore-bin --yes   # 回滚到上一版二进制
+scripts/multistep-test.sh prune --keep 5      # 清理旧数据备份（保留最近 5 个）
+```
+
+行为约定：
+
+- 构建或单测失败时不会停服，生产保持运行；
+- 停服后才备份 `~/.memrec` 并安装二进制到 `~/.local/bin` 与 `~/.cargo/bin`；
+- 启动后等待 socket 就绪（最多 60 秒），再跑 `scripts/retrieval_gate.sh`；
+- 门禁失败不会自动回滚数据，脚本打印备份路径与恢复命令由人决策；
+- 每次运行追加日志到 `~/.memrec.deploy.log`；
+- 数据备份命名为 `~/.memrec.bak.<时间戳>`，最近一次二进制保存在 `~/.memrec/.bin-backup`。
+
 ## Dream 记忆整合
 
 Dream 是后台记忆整合作业，类比睡眠中的记忆巩固——系统空闲时自动触发，或通过 `memrec dream --force` 手动触发。
