@@ -489,6 +489,53 @@ pub async fn stats(client: &Client, human: bool) -> Result<()> {
                             );
                         }
                     }
+
+                    if let Some(r) = s.retrieval {
+                        println!();
+                        println!("  Retrieval (since daemon start):");
+                        println!(
+                            "    Requests:       {} (budgeted: {})",
+                            r.search_requests, r.budget_requests
+                        );
+                        println!(
+                            "    Empty injection:{:>6.1}%  ({}/{} budgeted)",
+                            r.empty_injection_rate * 100.0,
+                            r.budget_empty,
+                            r.budget_requests
+                        );
+                        println!(
+                            "    Budget overflow:{:>6.1}%  ({}/{} budgeted)",
+                            r.budget_overflow_rate * 100.0,
+                            r.budget_overflow,
+                            r.budget_requests
+                        );
+                        println!(
+                            "    Downgrade:      {:>6.1}%  (full {} / truncated {} / summary {} / proxy {})",
+                            r.downgrade_rate * 100.0,
+                            r.results_full,
+                            r.results_truncated,
+                            r.results_summary,
+                            r.results_dense_proxy
+                        );
+                        println!(
+                            "    Dedup hit:      {:>6.1}%  (skip {} / update {} / add {} of {})",
+                            r.dedup_hit_rate * 100.0,
+                            r.dedup_skipped,
+                            r.dedup_updated,
+                            r.dedup_added,
+                            r.dedup_checked
+                        );
+                        if r.review_queued > 0 || r.review_failed > 0 {
+                            println!(
+                                "    Review:         queued {} / keep {} / supersede-old {} / supersede-new {} / failed {}",
+                                r.review_queued,
+                                r.review_keep,
+                                r.review_supersede_old,
+                                r.review_supersede_new,
+                                r.review_failed
+                            );
+                        }
+                    }
                 }
                 _ => println!("Unexpected response type"),
             }

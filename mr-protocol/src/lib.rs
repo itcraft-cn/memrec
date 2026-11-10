@@ -17,6 +17,6 @@ pub use request::{
 };
 pub use response::{
     DreamReportResult, DreamResult, DreamStats, JsonRpcResponse, MemoryListResult, MemoryResult,
-    MemoryView, ProjectInfoResult, ResponseResult, SceneListResult, SceneResult, SearchHit,
-    SemanticSearchResult, StatsResult, SuccessResult, VersionResult,
+    MemoryView, ProjectInfoResult, ResponseResult, RetrievalStats, SceneListResult, SceneResult,
+    SearchHit, SemanticSearchResult, StatsResult, SuccessResult, VersionResult,
 };

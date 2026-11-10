@@ -5,4 +5,6 @@
 
 pub mod config;
 pub mod daemon;
+pub mod metrics;
+pub mod review;
 pub mod server;

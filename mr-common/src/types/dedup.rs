@@ -56,6 +56,22 @@ pub struct DedupConfig {
     /// 置 0 表示不限制（始终允许原地更新），用于向后兼容或显式放开。
     #[serde(default = "default_update_window_mins")]
     pub update_window_mins: u32,
+
+    /// 是否启用写入后的异步 LLM 冲突审查（默认关闭）。
+    ///
+    /// 开启后，`add` 仍走同步规则去重（快路径），但新增成功的记忆会进入后台
+    /// 队列，由 LLM 判断是否与已有记忆重复或矛盾；审查结果只做“标记失效 /
+    /// 软删新记录”，不覆盖正文，可经 `restore` 撤销。
+    #[serde(default = "default_llm_review_enabled")]
+    pub llm_review_enabled: bool,
+
+    /// 冲突审查的候选相似度下限（默认 0.55），低于此值不送 LLM。
+    #[serde(default = "default_llm_review_min_score")]
+    pub llm_review_min_score: f32,
+
+    /// 冲突审查送入 LLM 的最大候选数（默认 5）。
+    #[serde(default = "default_llm_review_max_candidates")]
+    pub llm_review_max_candidates: usize,
 }
 
 fn default_update_window_mins() -> u32 {
@@ -74,6 +90,15 @@ fn default_duplicate_threshold() -> f32 {
 fn default_update_threshold() -> f32 {
     0.85
 }
+fn default_llm_review_enabled() -> bool {
+    false
+}
+fn default_llm_review_min_score() -> f32 {
+    0.55
+}
+fn default_llm_review_max_candidates() -> usize {
+    5
+}
 
 impl Default for DedupConfig {
     fn default() -> Self {
@@ -83,6 +108,9 @@ impl Default for DedupConfig {
             duplicate_threshold: default_duplicate_threshold(),
             update_threshold: default_update_threshold(),
             update_window_mins: default_update_window_mins(),
+            llm_review_enabled: default_llm_review_enabled(),
+            llm_review_min_score: default_llm_review_min_score(),
+            llm_review_max_candidates: default_llm_review_max_candidates(),
         }
     }
 }

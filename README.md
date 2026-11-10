@@ -237,9 +237,23 @@ top_k = 5
 duplicate_threshold = 0.92   # 高于此值视为重复，跳过
 update_threshold = 0.85      # 高于此值合并更新已有记忆
 update_window_mins = 60      # 原地更新的时间窗口（分钟）；0 = 不限制
+
+# 写入后的异步 LLM 冲突审查（慢路径，默认关闭）
+llm_review_enabled = false
+llm_review_min_score = 0.55       # 候选相似度下限
+llm_review_max_candidates = 5     # 送审候选数上限
 ```
 
 单次调用可用 `--no-dedup`（CLI）或 `"dedup": false`（协议）关闭。
+
+### 快路径与慢路径
+
+- **快路径（同步）**：规则版决策，只做向量相似度阈值判断，不调用 LLM，保证 `add` 延迟稳定。
+- **慢路径（异步，可选）**：写入成功后把记忆投递到有界队列，后台检索候选并调用 LLM 判断
+  `keep` / `supersede_new`（重复，软删新记录）/ `supersede_old`（纠正，标记旧记录失效）。
+  审查只做标签与软删、不改写正文，全部可经 `restore` 撤销；LLM 不可用或输出非法时一律 `keep`。
+  分块写入（`part:` 标签）不送审，避免逐块调用 LLM。
+
 决策层可插拔：当前为规则版，LLM 版（真正的 DELETE/矛盾消解）预留演进。
 
 ## 检索注入预算与访问反馈
@@ -277,6 +291,18 @@ injection_type_caps = [
 访问反馈：检索返回的命中 id 经无界失败即丢的通道投递，由后台任务每 `access_flush_secs` 秒（或攒满 512 条）批量写回 `last_accessed` / `access_count`。请求链路不做写操作；回写只改记忆主记录，不重建向量/全文索引。
 
 DSH 插件在 `agent/pre-step` 注入时固定携带 `max_total_tokens`（默认 4000，可经 `contextMaxTokens` 配置），并按 `content`/`tier` 渲染分层结果。
+
+## 运行指标（stats）
+
+`memrec stats` 在基础计数与 Dream 统计之外，输出检索侧指标（自守护进程启动起累计，重启清零，只读观测、不参与排序）：
+
+| 指标 | 口径 |
+|------|------|
+| 空注入率 | 分层检索返回 0 条 / 分层检索请求数 |
+| 预算溢出率 | 有候选被丢弃（预算不够放）的请求 / 分层检索请求数 |
+| 降级率 | 非 Full 结果数 / 分层检索结果总数（含 truncated/summary/dense_proxy 分布） |
+| 去重命中率 | (skip + update) / 开启去重的写入次数 |
+| 冲突审查 | 入队 / keep / supersede-old / supersede-new / failed 计数 |
 
 ## Dream 记忆整合
 

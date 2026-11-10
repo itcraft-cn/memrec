@@ -182,3 +182,74 @@ use super::*;
         );
     }
 
+
+    #[tokio::test]
+    async fn test_stats_reports_dedup_and_budget_metrics() {
+        let router = router_with_dedup(0.95, 0.80);
+        let content = "metrics sample memory for dedup tracking";
+
+        // 第一次新增 → checked + added；第二次重复 → checked + skipped
+        router.route(add_request(content, 1)).await;
+        router.route(add_request(content, 2)).await;
+
+        // 一次带预算的检索
+        let search = JsonRpcRequest::new(
+            RequestAction::SearchMemory,
+            Some(RequestParams::SearchMemory(SearchMemoryParams {
+                query: content.to_string(),
+                project_id: None,
+                include_global: true,
+                project_only: false,
+                global_only: false,
+                cross_project: false,
+                memory_type: None,
+                top_k: 5,
+                min_score: 0.0,
+                working_dir: None,
+                hybrid_alpha: default_hybrid_alpha(),
+                mmr_enabled: false,
+                mmr_lambda: default_mmr_lambda(),
+                max_total_tokens: Some(4000),
+            })),
+            3,
+        );
+        router.route(search).await;
+
+        let resp = router
+            .route(JsonRpcRequest::new(RequestAction::Stats, None, 9))
+            .await;
+        let stats = match resp.result {
+            Some(ResponseResult::Stats(s)) => s,
+            _ => panic!("expected stats"),
+        };
+        let r = stats.retrieval.expect("retrieval 指标应存在");
+        assert_eq!(r.dedup_checked, 2);
+        assert_eq!(r.dedup_added, 1);
+        assert_eq!(r.dedup_skipped, 1);
+        assert_eq!(r.search_requests, 1);
+        assert_eq!(r.budget_requests, 1);
+        assert!((r.dedup_hit_rate - 0.5).abs() < 1e-9);
+    }
+
+    #[tokio::test]
+    async fn test_add_enqueues_review_after_success() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+        let router = router_with_dedup(0.95, 0.80).with_review_queue(tx);
+
+        let resp = router.route(add_request("review me after write", 1)).await;
+        assert_eq!(extract_action(&resp), "added");
+
+        let job = rx.try_recv().expect("写入成功后应投递审查任务");
+        assert_eq!(job.content, "review me after write");
+        assert!(job.memory_id != uuid::Uuid::nil());
+
+        let stats = match router
+            .route(JsonRpcRequest::new(RequestAction::Stats, None, 2))
+            .await
+            .result
+        {
+            Some(ResponseResult::Stats(s)) => s,
+            _ => panic!("expected stats"),
+        };
+        assert_eq!(stats.retrieval.unwrap().review_queued, 1);
+    }

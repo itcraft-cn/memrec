@@ -365,6 +365,61 @@ pub struct StatsResult {
     /// Dream/raw 构成与累计 Dream 运行统计；未注入 DreamRun 存储时为 None。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dream: Option<DreamStats>,
+    /// 检索侧运行指标（自守护进程启动起累计）；未采集时为 None。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retrieval: Option<RetrievalStats>,
+}
+
+/// 检索侧运行指标（自守护进程启动起累计）。
+///
+/// 比率字段由计数派生，均在 `[0.0, 1.0]`；分母为 0 时记 0。
+/// 这些指标是只读观测口径，不参与排序与淘汰。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RetrievalStats {
+    /// 检索请求总数（含未指定预算的普通检索）。
+    pub search_requests: u64,
+    /// 指定 token 预算的分层检索请求数。
+    pub budget_requests: u64,
+    /// 分层检索返回空结果的请求数。
+    pub budget_empty: u64,
+    /// 分层检索中“有候选被丢弃”的请求数（预算不足以覆盖全部候选）。
+    pub budget_overflow: u64,
+    /// 分层检索返回的结果条数合计。
+    pub budget_results: u64,
+    /// 结果为 Full 的条数。
+    pub results_full: u64,
+    /// 结果为 Truncated 的条数。
+    pub results_truncated: u64,
+    /// 结果为 Summary 的条数。
+    pub results_summary: u64,
+    /// 结果为 DenseProxy 的条数。
+    pub results_dense_proxy: u64,
+    /// 开启去重的写入次数。
+    pub dedup_checked: u64,
+    /// 去重决策为 Skip 的次数。
+    pub dedup_skipped: u64,
+    /// 去重决策为 Update 的次数（含窗口外回退为新增）。
+    pub dedup_updated: u64,
+    /// 去重决策为 Add（含无候选）的次数。
+    pub dedup_added: u64,
+    /// 进入后台冲突审查队列的条数。
+    pub review_queued: u64,
+    /// 审查结论为 keep 的条数。
+    pub review_keep: u64,
+    /// 审查结论为 supersede_old 的条数。
+    pub review_supersede_old: u64,
+    /// 审查结论为 supersede_new 的条数。
+    pub review_supersede_new: u64,
+    /// 审查失败（LLM 异常、存储异常等）的条数。
+    pub review_failed: u64,
+    /// 空注入率 = budget_empty / budget_requests。
+    pub empty_injection_rate: f64,
+    /// 预算溢出率 = budget_overflow / budget_requests。
+    pub budget_overflow_rate: f64,
+    /// 降级率 = 非 Full 结果数 / budget_results。
+    pub downgrade_rate: f64,
+    /// 去重命中率 = (skipped + updated) / dedup_checked。
+    pub dedup_hit_rate: f64,
 }
 
 /// 活跃记忆构成与累计 Dream 运行统计。

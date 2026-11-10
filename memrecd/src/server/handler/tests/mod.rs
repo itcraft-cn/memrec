@@ -83,6 +83,7 @@
             duplicate_threshold: dup_threshold,
             update_threshold,
             update_window_mins,
+            ..DedupConfig::default()
         };
         let decider: Option<Arc<dyn DedupDecider>> =
             Some(Arc::new(RuleDedupDecider::from_config(&dedup_config)));

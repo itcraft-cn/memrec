@@ -227,9 +227,15 @@ impl Daemon {
         }
         let dream_processor = Arc::new(dream_builder);
 
-        // 去重决策器：规则版（LLM 版预留演进）
+        // 快路径去重：规则版（同步、无 LLM）。慢路径冲突审查见下方 review 通道。
         let dedup_decider: Option<Arc<dyn DedupDecider>> =
             Some(Arc::new(RuleDedupDecider::from_config(&self.config.dedup)));
+
+        // 检索侧指标：Router 与后台审查任务共享同一份原子计数。
+        let metrics = Arc::new(crate::metrics::RetrievalMetrics::new());
+
+        // 写入后冲突审查：仅在显式开启且 LLM 可用时启用，队列有界、满即丢。
+        let (review_tx, review_rx) = mpsc::channel::<crate::review::AddReviewJob>(64);
 
         let (dream_tx, dream_rx) = mpsc::channel::<DreamRequest>(10);
 
@@ -255,12 +261,11 @@ impl Daemon {
             self.config.archive.enabled,
         );
 
-        let router = Arc::new(
-            Router::new(
+        let router = Router::new(
                 storage.clone(),
                 vector_store.clone(),
-                hybrid_store,
-                embedder,
+                hybrid_store.clone(),
+                embedder.clone(),
                 dream_processor.clone(),
                 archive_manager,
                 scene_store,
@@ -274,15 +279,36 @@ impl Daemon {
                 caps: self.config.retrieval.injection_type_caps.clone(),
             })
             .with_access_tracker(access_tx)
+            .with_metrics(metrics.clone())
             .with_retrieval_graph(crate::server::RetrievalGraph {
                 enabled: self.config.dream.retrieval_graph_enabled,
                 depth: self.config.dream.retrieval_graph_depth,
                 decay: self.config.dream.retrieval_graph_decay,
                 weight: self.config.dream.retrieval_graph_weight,
                 quota: self.config.dream.retrieval_graph_quota,
-            }),
-        );
+            });
 
+        let (router, review_task) = if let (Some(llm), true) =
+            (&llm_client, self.config.dedup.llm_review_enabled)
+        {
+            let reviewer = Arc::new(mr_ability::dedup::LlmConflictReviewer::new(llm.clone()));
+            let task = tokio::spawn(crate::review::review_loop(
+                storage.clone(),
+                vector_store.clone(),
+                embedder.clone(),
+                hybrid_store,
+                reviewer,
+                metrics.clone(),
+                self.config.dedup.clone(),
+                review_rx,
+            ));
+            (router.with_review_queue(review_tx), Some(task))
+        } else {
+            drop(review_rx);
+            (router, None)
+        };
+
+        let router = Arc::new(router);
         let server = UnixSocketServer::bind(&self.config.server.socket_path, router).await?;
 
         let sync_task = tokio::spawn(Self::sync_loop(vector_store.clone()));
@@ -308,6 +334,9 @@ impl Daemon {
         idle_task.abort();
         dream_task.abort();
         if let Some(task) = access_task {
+            task.abort();
+        }
+        if let Some(task) = review_task {
             task.abort();
         }
 

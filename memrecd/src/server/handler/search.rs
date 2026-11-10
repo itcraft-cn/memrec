@@ -16,6 +16,7 @@ impl Router {
     ) -> JsonRpcResponse {
         match params {
             Some(RequestParams::SearchMemory(p)) => {
+                self.metrics.on_search();
                 let start = Instant::now();
 
                 let embedding = match self.embedder.embed(&p.query) {
@@ -290,6 +291,7 @@ impl Router {
                     .await
                     {
                         Ok(tiered) => {
+                            self.record_budget_metrics(ids.len(), &tiered);
                             JsonRpcResponse::success(ResponseResult::TieredSearchResult(tiered), id)
                         }
                         Err(e) => JsonRpcResponse::error(
@@ -331,6 +333,7 @@ impl Router {
     ) -> JsonRpcResponse {
         match params {
             Some(RequestParams::TieredSearch(p)) => {
+                self.metrics.on_search();
                 let start = Instant::now();
 
                 let embedding = match self.embedder.embed(&p.query) {
@@ -422,10 +425,13 @@ impl Router {
                 )
                 .await
                 {
-                    Ok(tiered_result) => JsonRpcResponse::success(
-                        ResponseResult::TieredSearchResult(tiered_result),
-                        id,
-                    ),
+                    Ok(tiered_result) => {
+                        self.record_budget_metrics(memory_ids.len(), &tiered_result);
+                        JsonRpcResponse::success(
+                            ResponseResult::TieredSearchResult(tiered_result),
+                            id,
+                        )
+                    }
                     Err(e) => JsonRpcResponse::error(
                         JsonRpcError {
                             code: -32005,
@@ -451,6 +457,33 @@ impl Router {
     fn budget_for(&self, max_tokens: u32) -> mr_ability::tiered::BudgetController {
         mr_ability::tiered::BudgetController::new(max_tokens)
             .with_policy(self.budget_policy.clone())
+    }
+
+    /// 记录一次分层检索的结果分布（候选数 vs 保留数、各层级条数）。
+    fn record_budget_metrics(&self, candidates: usize, result: &mr_common::TieredSearchResult) {
+        use mr_common::RepresentationTier;
+
+        let mut full = 0usize;
+        let mut truncated = 0usize;
+        let mut summary = 0usize;
+        let mut dense = 0usize;
+        for item in &result.results {
+            match item.tier {
+                RepresentationTier::Full => full += 1,
+                RepresentationTier::Truncated => truncated += 1,
+                RepresentationTier::Summary => summary += 1,
+                RepresentationTier::DenseProxy => dense += 1,
+            }
+        }
+        self.metrics.on_budget_result(
+            candidates,
+            &[
+                ("full", full),
+                ("truncated", truncated),
+                ("summary", summary),
+                ("dense_proxy", dense),
+            ],
+        );
     }
 
     /// 非阻塞投递访问反馈；通道满或未启用时静默丢弃（访问统计可容忍丢失）。

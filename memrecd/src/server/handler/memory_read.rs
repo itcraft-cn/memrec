@@ -439,6 +439,7 @@ impl Router {
                 active_memories: active,
                 deleted_memories: deleted,
                 dream,
+                retrieval: Some(self.metrics.snapshot()),
             }),
             id,
         )

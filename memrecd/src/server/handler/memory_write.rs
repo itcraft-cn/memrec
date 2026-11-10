@@ -25,12 +25,21 @@ impl Router {
                 // 窗口外修正路径落在 decision 内部标注 superseded 后返回 None，继续正常新增。
                 let dedup_enabled = p.dedup.unwrap_or(self.dedup_config.enabled);
                 if dedup_enabled {
-                    if let Some(decision) = self.check_dedup(&p.content).await {
-                        if let Some(resp) =
-                            self.apply_dedup_decision(&p, &memory, decision, id).await
-                        {
-                            return resp;
+                    match self.check_dedup(&p.content).await {
+                        Some(decision) => {
+                            match decision.action {
+                                DedupAction::Skip => self.metrics.on_dedup_skip(),
+                                DedupAction::Update(_) => self.metrics.on_dedup_update(),
+                                DedupAction::Add => self.metrics.on_dedup_add(),
+                            }
+                            if let Some(resp) =
+                                self.apply_dedup_decision(&p, &memory, decision, id).await
+                            {
+                                return resp;
+                            }
                         }
+                        // 无相似候选：按新增处理
+                        None => self.metrics.on_dedup_add(),
                     }
                 }
 
@@ -44,6 +53,11 @@ impl Router {
                         },
                         id,
                     );
+                }
+
+                // 慢路径：写入成功后投递冲突审查（未启用时为空操作）。
+                if dedup_enabled {
+                    self.enqueue_review(&memory, &p.content);
                 }
 
                 JsonRpcResponse::success(
@@ -248,6 +262,34 @@ impl Router {
         }
 
         Ok(())
+    }
+
+    /// 投递写入后冲突审查任务（非阻塞）。
+    ///
+    /// 审查只针对完整记忆：分块写入（带 `part:` 标签）逐块送审会产生大量
+    /// 无意义 LLM 调用，故跳过；队列满时丢弃并计数失败，不影响写入结果。
+    fn enqueue_review(&self, memory: &Memory, content: &str) {
+        let Some(tx) = &self.review_tx else {
+            return;
+        };
+        if memory.tags.iter().any(|t| t.starts_with("part:")) {
+            return;
+        }
+        let job = crate::review::AddReviewJob {
+            memory_id: memory.id,
+            content: content.to_string(),
+            project_id: memory.project_id,
+        };
+        match tx.try_send(job) {
+            Ok(()) => self.metrics.on_review_queued(),
+            Err(_) => {
+                self.metrics.on_review_failed();
+                tracing::warn!(
+                    "Conflict review queue full; skipped review for {}",
+                    memory.id
+                );
+            }
+        }
     }
 
     /// 构造向量索引载荷。
