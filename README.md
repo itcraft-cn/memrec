@@ -317,6 +317,33 @@ DSH 插件在 `agent/pre-step` 注入时固定携带 `max_total_tokens`（默认
 | 去重命中率 | (skip + update) / 开启去重的写入次数 |
 | 冲突审查 | 入队 / keep / supersede-old / supersede-new / failed 计数 |
 
+## 测试期禁写
+
+端到端测试需要独占写入，而同一台机器上的其他 Agent 仍会通过生产 socket 访问 memrecd。机制如下：
+
+- 开关文件 `~/.memrec/.debug` 存在即进入测试模式（超过 `test_mode_max_age_secs`，默认 6 小时，视为残留并忽略）；
+- 守护进程同时监听生产 socket 与测试 socket：
+  - 生产 socket：`~/.memrec/memrecd.sock`，测试模式下**变更类请求**返回 `-32010`，读请求不受影响；
+  - 测试 socket：`~/.memrec/memrecd-test.sock`，始终允许读写；
+- 身份由“连接哪个 socket”决定，其他 Agent 无需改代码，也无法通过生产 socket 写入；
+- 测试期间 Dream 自动跳过，避免后台整合改写数据；
+- 测试数据仍写入同一数据库，隔离与还原由测试流程负责（备份/还原）。
+
+```bash
+scripts/test-mode.sh start
+export MEMREC_SOCKET_PATH="$HOME/.memrec/memrecd-test.sock"
+# ... 跑测试（CLI/MCP 读取 MEMREC_SOCKET_PATH；DSH 插件用 socketPath 配置）...
+scripts/test-mode.sh stop
+```
+
+```toml
+[server]
+socket_path = "~/.memrec/memrecd.sock"
+test_socket_path = "~/.memrec/memrecd-test.sock"   # 测试专用
+test_mode_file = "~/.memrec/.debug"                 # 开关文件
+test_mode_max_age_secs = 21600                      # 残留开关自动失效（秒）
+```
+
 ## Dream 记忆整合
 
 Dream 是后台记忆整合作业，类比睡眠中的记忆巩固——系统空闲时自动触发，或通过 `memrec dream --force` 手动触发。

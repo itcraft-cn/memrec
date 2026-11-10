@@ -20,7 +20,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::config::DaemonConfig;
-use crate::server::{Router, UnixSocketServer};
+use crate::server::{ConnMode, Router, TestMode, UnixSocketServer};
 use mr_ability::archive::ArchiveManager;
 use mr_ability::dedup::{DedupDecider, RuleDedupDecider};
 use mr_ability::dream::{DreamError, DreamProcessor};
@@ -258,6 +258,19 @@ impl Daemon {
             self.config.archive.enabled,
         );
 
+        // 测试模式：`.debug` 存在时生产 socket 拒绝写入，测试 socket 不受限。
+        let test_mode = TestMode::new(
+            self.config.server.test_mode_file.clone(),
+            self.config.server.test_mode_max_age_secs,
+        );
+        if test_mode.active() {
+            warn!(
+                "Test mode ACTIVE ({}): writes on the production socket are rejected; use {}",
+                self.config.server.test_mode_file.display(),
+                self.config.server.test_socket_path.display()
+            );
+        }
+
         let router = Router::new(
                 storage.clone(),
                 vector_store.clone(),
@@ -277,6 +290,7 @@ impl Daemon {
             })
             .with_access_tracker(access_tx)
             .with_metrics(metrics.clone())
+            .with_test_mode(test_mode.clone())
             .with_retrieval_graph(crate::server::RetrievalGraph {
                 enabled: self.config.dream.retrieval_graph_enabled,
                 depth: self.config.dream.retrieval_graph_depth,
@@ -312,17 +326,54 @@ impl Daemon {
         };
 
         let router = Arc::new(router);
-        let server = UnixSocketServer::bind(&self.config.server.socket_path, router).await?;
+        let prod_path = self.config.server.socket_path.clone();
+        let test_path = self.config.server.test_socket_path.clone();
+        let prod_server =
+            UnixSocketServer::bind_with_mode(&prod_path, router.clone(), ConnMode::Production)
+                .await?;
+        let test_server = if test_path != prod_path {
+            match UnixSocketServer::bind_with_mode(&test_path, router, ConnMode::TestSocket).await {
+                Ok(server) => Some(server),
+                Err(e) => {
+                    error!(
+                        "Failed to bind test socket {}: {:#}; test mode writes will be unavailable",
+                        test_path.display(),
+                        e
+                    );
+                    None
+                }
+            }
+        } else {
+            warn!("test_socket_path equals socket_path; test socket disabled");
+            None
+        };
+
+        let mut prod_task = tokio::spawn(async move {
+            if let Err(e) = prod_server.run().await {
+                error!("Production socket server stopped: {:#}", e);
+            }
+        });
+        let mut test_task = test_server.map(|server| {
+            tokio::spawn(async move {
+                if let Err(e) = server.run().await {
+                    error!("Test socket server stopped: {:#}", e);
+                }
+            })
+        });
 
         let sync_task = tokio::spawn(Self::sync_loop(vector_store.clone()));
         let idle_task = tokio::spawn(idle_monitor.run());
-        let dream_task = tokio::spawn(Self::dream_loop(dream_processor, dream_rx));
+        let dream_task = tokio::spawn(Self::dream_loop(
+            dream_processor,
+            dream_rx,
+            test_mode.clone(),
+        ));
 
         let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())?;
         let mut sigint = signal::unix::signal(signal::unix::SignalKind::interrupt())?;
 
         tokio::select! {
-            _ = server.run() => {
+            _ = &mut prod_task => {
                 info!("Server stopped");
             }
             _ = sigterm.recv() => {
@@ -333,6 +384,10 @@ impl Daemon {
             }
         }
 
+        prod_task.abort();
+        if let Some(task) = test_task.as_mut() {
+            task.abort();
+        }
         sync_task.abort();
         idle_task.abort();
         dream_task.abort();
@@ -561,10 +616,16 @@ impl Daemon {
     async fn dream_loop(
         processor: Arc<DreamProcessor>,
         mut receiver: mpsc::Receiver<DreamRequest>,
+        test_mode: TestMode,
     ) {
         info!("Dream loop started");
 
         while let Some(request) = receiver.recv().await {
+            // 测试期间暂停 Dream：避免后台整合改写数据、干扰测试断言。
+            if test_mode.active() {
+                tracing::debug!(target: "dream", "Dream skipped: test mode active");
+                continue;
+            }
             // 触发通告降为 debug：真正有信息量的是本次执行的结果（完成/跳过/失败），
             // 避免空闲期每 5 分钟一条重复的"已触发"。
             tracing::debug!(target: "dream", "Dream triggered: force={}", request.force);

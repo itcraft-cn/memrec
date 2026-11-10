@@ -195,3 +195,4 @@ mod list_tests;
 mod memory_tests;
 mod misc_tests;
 mod search_tests;
+mod test_mode_tests;

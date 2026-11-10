@@ -30,7 +30,14 @@ impl Client {
     }
 
     /// 默认 Socket 路径：`~/.memrec/memrecd.sock`
+    ///
+    /// 可通过 `MEMREC_SOCKET_PATH` 覆盖（测试实例、隔离环境）。
     fn default_socket_path() -> Result<PathBuf> {
+        if let Ok(path) = std::env::var("MEMREC_SOCKET_PATH") {
+            if !path.trim().is_empty() {
+                return Ok(PathBuf::from(path));
+            }
+        }
         let home = dirs::home_dir().context("Failed to get home directory")?;
         Ok(home.join(".memrec").join("memrecd.sock"))
     }

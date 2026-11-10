@@ -247,8 +247,13 @@ impl McpServer {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use tokio::net::UnixStream;
 
-        let home = dirs::home_dir().ok_or("Failed to get home directory")?;
-        let socket_path = home.join(".memrec").join("memrecd.sock");
+        let socket_path = match std::env::var("MEMREC_SOCKET_PATH") {
+            Ok(path) if !path.trim().is_empty() => std::path::PathBuf::from(path),
+            _ => {
+                let home = dirs::home_dir().ok_or("Failed to get home directory")?;
+                home.join(".memrec").join("memrecd.sock")
+            }
+        };
 
         let mut stream = UnixStream::connect(&socket_path)
             .await

@@ -45,6 +45,31 @@ pub struct DaemonServerConfig {
     pub socket_path: PathBuf,
     pub data_dir: PathBuf,
     pub vectors_dir: PathBuf,
+    /// 测试专用 socket：测试模式期间生产 socket 拒绝写入，本 socket 不受限
+    #[serde(default = "default_test_socket_path")]
+    pub test_socket_path: PathBuf,
+    /// 测试模式开关文件：存在即视为测试模式（超过 max_age 视为残留并忽略）
+    #[serde(default = "default_test_mode_file")]
+    pub test_mode_file: PathBuf,
+    /// 开关文件最大存活时间（秒），默认 6 小时，防止崩溃残留永久阻断写入
+    #[serde(default = "default_test_mode_max_age_secs")]
+    pub test_mode_max_age_secs: u64,
+}
+
+fn default_test_socket_path() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join(".memrec/memrecd-test.sock")
+}
+
+fn default_test_mode_file() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join(".memrec/.debug")
+}
+
+fn default_test_mode_max_age_secs() -> u64 {
+    6 * 60 * 60
 }
 
 /// 存档配置。
@@ -81,6 +106,9 @@ impl Default for DaemonConfig {
                 socket_path: base_dir.join("memrecd.sock"),
                 data_dir: base_dir.join("data"),
                 vectors_dir: base_dir.join("vectors"),
+                test_socket_path: base_dir.join("memrecd-test.sock"),
+                test_mode_file: base_dir.join(".debug"),
+                test_mode_max_age_secs: default_test_mode_max_age_secs(),
             },
             dream: DreamConfig::default(),
             llm: LlmConfig::default(),
@@ -137,6 +165,8 @@ impl DaemonConfig {
         self.server.socket_path = expand_tilde(&self.server.socket_path, &home);
         self.server.data_dir = expand_tilde(&self.server.data_dir, &home);
         self.server.vectors_dir = expand_tilde(&self.server.vectors_dir, &home);
+        self.server.test_socket_path = expand_tilde(&self.server.test_socket_path, &home);
+        self.server.test_mode_file = expand_tilde(&self.server.test_mode_file, &home);
     }
 
     /// 切换嵌入模型类型，返回新的配置。

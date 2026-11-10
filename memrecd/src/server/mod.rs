@@ -6,8 +6,10 @@
 //! - [`UnixSocketServer`]：Unix 域套接字服务器，接受连接并处理请求
 
 mod handler;
+mod test_mode;
 mod unix_socket;
 
-pub use handler::Router;
 pub use handler::RetrievalGraph;
+pub use handler::Router;
+pub use test_mode::{is_write_action, ConnMode, TestMode};
 pub use unix_socket::UnixSocketServer;

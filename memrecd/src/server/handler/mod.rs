@@ -28,6 +28,7 @@ use mr_ability::storage::{
 };
 use mr_ability::tiered::TierAssigner;
 use mr_common::{DedupConfig, Memory, MemoryType, SimilarMemory, TierThresholds, TypeBudgetPolicy};
+use super::{is_write_action, ConnMode, TestMode};
 use mr_protocol::{
     DreamReportResult, DreamResult, DreamStats, GetProjectInfoParams, JsonRpcError, JsonRpcRequest,
     JsonRpcResponse, ListOrder, MemoryListResult, MemoryResult, MemoryView, ProjectInfoResult,
@@ -70,6 +71,8 @@ pub struct Router {
     access_tx: Option<tokio::sync::mpsc::Sender<Uuid>>,
     /// 检索侧运行指标（原子计数，stats 读取）
     metrics: Arc<crate::metrics::RetrievalMetrics>,
+    /// 测试模式判定（生产 socket 在测试期拒绝写入）
+    test_mode: TestMode,
 }
 
 /// 检索图扩散参数（来自 DreamConfig 的 `retrieval_*` 项）。
@@ -125,6 +128,7 @@ impl Router {
             budget_policy: TypeBudgetPolicy::default(),
             access_tx: None,
             metrics: Arc::new(crate::metrics::RetrievalMetrics::new()),
+            test_mode: TestMode::disabled(),
         }
     }
 
@@ -167,6 +171,12 @@ impl Router {
     /// 注入检索侧指标（与后台审查任务共享同一份计数器）。
     pub fn with_metrics(mut self, metrics: Arc<crate::metrics::RetrievalMetrics>) -> Self {
         self.metrics = metrics;
+        self
+    }
+
+    /// 注入测试模式判定（守护进程按 `.debug` 开关文件生效）。
+    pub fn with_test_mode(mut self, mode: TestMode) -> Self {
+        self.test_mode = mode;
         self
     }
 
@@ -220,10 +230,43 @@ impl Router {
             budget_policy: TypeBudgetPolicy::default(),
             access_tx: None,
             metrics: Arc::new(crate::metrics::RetrievalMetrics::new()),
+            test_mode: TestMode::disabled(),
         }
     }
 
-    /// 路由 JSON-RPC 请求到对应处理器。
+    /// 按连接来源路由请求：测试模式下，生产 socket 的变更类请求被拒绝。
+    ///
+    /// 返回专用错误码 `-32010`，便于客户端快速失败而不是静默污染数据。
+    pub async fn route_with_mode(
+        &self,
+        request: JsonRpcRequest,
+        mode: ConnMode,
+    ) -> JsonRpcResponse {
+        if mode == ConnMode::Production
+            && is_write_action(&request.method)
+            && self.test_mode.active()
+        {
+            tracing::warn!(
+                target: "test-mode",
+                method = %request.method,
+                "write rejected on production socket: test mode active"
+            );
+            return JsonRpcResponse::error(
+                JsonRpcError {
+                    code: -32010,
+                    message: format!(
+                        "test mode active: {} is disabled on the production socket; use the test socket",
+                        request.method
+                    ),
+                    data: None,
+                },
+                request.id,
+            );
+        }
+        self.route(request).await
+    }
+
+    /// 路由 JSON-RPC 请求到对应处理器（默认不做来源校验，供内部调用与测试）。
     pub async fn route(&self, request: JsonRpcRequest) -> JsonRpcResponse {
         match request.method {
             RequestAction::Add => self.handle_add(request.params, request.id).await,

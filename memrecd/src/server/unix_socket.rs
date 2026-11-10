@@ -11,6 +11,7 @@ use tokio::net::UnixListener;
 use tracing::{debug, error, info};
 
 use super::handler::Router;
+use super::test_mode::ConnMode;
 
 /// Unix 域套接字服务器。
 ///
@@ -19,6 +20,8 @@ use super::handler::Router;
 pub struct UnixSocketServer {
     listener: UnixListener,
     router: Arc<Router>,
+    /// 连接来源：生产 socket 或测试 socket
+    mode: ConnMode,
 }
 
 impl UnixSocketServer {
@@ -26,15 +29,32 @@ impl UnixSocketServer {
     ///
     /// 若路径已存在则先删除旧文件，然后创建新的监听器。
     pub async fn bind(socket_path: &Path, router: Arc<Router>) -> Result<Self> {
+        Self::bind_with_mode(socket_path, router, ConnMode::Production).await
+    }
+
+    /// 绑定指定路径并按连接来源处理请求。
+    pub async fn bind_with_mode(
+        socket_path: &Path,
+        router: Arc<Router>,
+        mode: ConnMode,
+    ) -> Result<Self> {
         if socket_path.exists() {
             std::fs::remove_file(socket_path).context("Failed to remove existing socket file")?;
         }
 
         let listener = UnixListener::bind(socket_path).context("Failed to bind Unix socket")?;
 
-        info!("Unix socket bound at {}", socket_path.display());
+        info!(
+            "Unix socket bound at {} (mode={:?})",
+            socket_path.display(),
+            mode
+        );
 
-        Ok(Self { listener, router })
+        Ok(Self {
+            listener,
+            router,
+            mode,
+        })
     }
 
     /// 运行服务器主循环，持续接受连接。
@@ -48,8 +68,9 @@ impl UnixSocketServer {
                 Ok((stream, _)) => {
                     debug!("Accepted new connection");
                     let router = self.router.clone();
+                    let mode = self.mode;
                     tokio::spawn(async move {
-                        Self::handle_connection(stream, router).await;
+                        Self::handle_connection(stream, router, mode).await;
                     });
                 }
                 Err(e) => {
@@ -60,7 +81,11 @@ impl UnixSocketServer {
     }
 
     /// 处理单个连接：读取请求 → 路由 → 写回响应 → 关闭。
-    async fn handle_connection(mut stream: tokio::net::UnixStream, router: Arc<Router>) {
+    async fn handle_connection(
+        mut stream: tokio::net::UnixStream,
+        router: Arc<Router>,
+        mode: ConnMode,
+    ) {
         let mut buffer = vec![0u8; 8192];
 
         match stream.read(&mut buffer).await {
@@ -73,7 +98,7 @@ impl UnixSocketServer {
 
                 let response = match router.parse_request(&request) {
                     Ok(req) => {
-                        let resp = router.route(req).await;
+                        let resp = router.route_with_mode(req, mode).await;
                         router
                             .serialize_response(&resp)
                             .unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e))
