@@ -36,9 +36,11 @@ flowchart TD
 规则版 `RuleDedupDecider`：向量 top-k + 阈值，无外部依赖。保证 `add` 的延迟只包含
 一次嵌入与一次近邻检索。
 
-### 2.2 慢路径（异步，默认关闭）
+### 2.2 慢路径（周期批量，默认关闭）
 
-后台任务顺序消费队列：回表取候选全文 → LLM 判断 → 落地动作。
+后台任务按 cron 周期批量执行：选取窗口内的新增记忆 → 回表取候选全文 → LLM 判断 → 落地动作。
+默认 `0 4 * * 6`（周六 04:00），错过窗口不补跑；单轮上限 `llm_review_max_per_run`
+（普通数值，设为超大值即全量，0 表示本轮不处理），超出部分直接丢弃。
 
 | 结论 | 落地动作 | 可逆性 |
 |------|----------|--------|
@@ -51,17 +53,29 @@ flowchart TD
 - 只做标记/软删，不覆盖正文；
 - 模型输出的 `target_id` 必须来自候选集，否则降级为 `keep`；
 - 解析失败、LLM 异常、存储异常一律按失败计数，不产生破坏性动作；
-- 队列有界（64），满即丢弃并计失败；
+- 单轮条数有上限，超出部分丢弃并计数，不滚入下一轮；
 - 分块写入（`part:` 标签）跳过，避免逐块调用 LLM；
 - 与 Dream 分工：本机制只处理“单条新记忆 vs 既有记忆”，跨簇整合仍归 Dream。
+
+候选阈值支持三种口径：
+
+| 口径 | 判定 |
+|------|------|
+| `absolute` | `score >= llm_review_min_score` |
+| `ratio` | `score >= best_score × llm_review_score_ratio` |
+| `hybrid` | `score >= max(llm_review_min_score, best_score × llm_review_score_ratio)` |
 
 ### 2.3 配置
 
 ```toml
 [dedup]
-llm_review_enabled = false      # 默认关闭，需同时配置 [llm]
-llm_review_min_score = 0.55     # 候选相似度下限
-llm_review_max_candidates = 5   # 送审候选上限
+llm_review_enabled = false          # 默认关闭，需同时配置 [llm]
+llm_review_cron = "0 4 * * 6"       # 周六 04:00（本地时间）
+llm_review_max_per_run = 50         # 单轮上限；9999999 即全量；0 = 本轮不处理
+llm_review_max_candidates = 5       # 送审候选上限
+llm_review_threshold_mode = "absolute"
+llm_review_min_score = 0.7
+llm_review_score_ratio = 0.9
 ```
 
 ## 3. 检索侧指标
@@ -75,7 +89,10 @@ llm_review_max_candidates = 5   # 送审候选上限
 | `budget_overflow` | 候选数大于保留数（预算不足导致丢弃）的请求数 |
 | `results_full/truncated/summary/dense_proxy` | 分层结果层级分布 |
 | `dedup_checked/skipped/updated/added` | 去重决策分布 |
-| `review_queued/keep/supersede_old/supersede_new/failed` | 后台审查分布 |
+| `review_runs` | 已完成的审查轮数 |
+| `review_queued/skipped` | 累计送审条数 / 因单轮上限丢弃条数 |
+| `review_keep/supersede_old/supersede_new/failed` | 审查结论分布 |
+| `review_last_run_at` | 最近一次审查完成时间 |
 | `empty_injection_rate` | `budget_empty / budget_requests` |
 | `budget_overflow_rate` | `budget_overflow / budget_requests` |
 | `downgrade_rate` | 非 Full 结果数 / 结果总数 |
@@ -92,9 +109,9 @@ llm_review_max_candidates = 5   # 送审候选上限
 | 编号 | 退出条件 | 结果 |
 |---|---|---|
 | E1 | `cargo build --release` / `cargo test --release --workspace` 通过 | 通过 |
-| E2 | 审查解析与落地动作单测覆盖（keep/supersede_new/supersede_old/非法输出/目标越界） | 4+6 用例通过 |
-| E3 | 指标快照与比率单测覆盖 | 4 用例通过 |
-| E4 | 写入成功后确实投递审查任务，且 `stats.review_queued` 增长 | 通过（handler 测试 + 运行时：queued 1 / keep 1） |
+| E2 | 审查解析与落地动作单测覆盖（keep/supersede_new/supersede_old/非法输出/目标越界） | 6 用例通过 |
+| E3 | 指标快照与比率、cron 解析/下次时刻、阈值口径、单轮上限单测 | 通过（cron 7 例、review 6 例、metrics 4 例） |
+| E4 | 运行时按 cron 触发，单轮上限与 `review_skipped`、状态文件生效 | 通过：`*/2` 验证于 13:54 触发；selected=1 / skipped=168 / keep=1；`review.state` 已落盘 |
 | E5 | `stats` 输出包含检索指标且各项自洽 | 通过：budget=1、overflow=1.0、downgrade=1.0、层级分布 3 summary + 2 proxy |
 | E6 | `scripts/retrieval_gate.sh` 退出码 0 | 通过 |
 | E7 | 两处目录部署、服务正常 | 通过：备份 `~/.memrec.bak.20261110_132409`，两处目录已更新 |
@@ -102,7 +119,7 @@ llm_review_max_candidates = 5   # 送审候选上限
 
 ## 5. 已知限制
 
-- 审查为单并发顺序消费，突发写入时队列可能丢弃（已计入 `review_failed`）。
+- 审查按周期串行执行，单轮超出上限的记忆直接丢弃（已计入 `review_skipped`）。
 - 审查使用与写入侧相同的嵌入模型；模型升级后历史向量的相似度口径可能与新写入不一致。
 - `supersede_old` 不软删旧记忆，旧记忆仍可被检索命中（带 `superseded` 标签），
   是否降权由后续检索策略决定。

@@ -57,21 +57,65 @@ pub struct DedupConfig {
     #[serde(default = "default_update_window_mins")]
     pub update_window_mins: u32,
 
-    /// 是否启用写入后的异步 LLM 冲突审查（默认关闭）。
+    /// 是否启用周期性 LLM 冲突审查（默认关闭）。
     ///
-    /// 开启后，`add` 仍走同步规则去重（快路径），但新增成功的记忆会进入后台
-    /// 队列，由 LLM 判断是否与已有记忆重复或矛盾；审查结果只做“标记失效 /
-    /// 软删新记录”，不覆盖正文，可经 `restore` 撤销。
+    /// 开启后，`add` 仍只走同步规则去重（快路径）；新增记忆由后台任务按
+    /// `llm_review_cron` 周期性批量审查，结果只做“标记失效 / 软删新记录”，
+    /// 不覆盖正文，可经 `restore` 撤销。
     #[serde(default = "default_llm_review_enabled")]
     pub llm_review_enabled: bool,
 
-    /// 冲突审查的候选相似度下限（默认 0.55），低于此值不送 LLM。
+    /// 审查调度的 cron 表达式（5 段：分 时 日 月 周），默认周六 04:00。
+    ///
+    /// 固定在低峰时段执行；守护进程停机错过该时刻不补跑。
+    /// 例：`0 4 * * 6`（周六 04:00）、`0 3 * * 0`（周日 03:00）、`30 2 1 * *`（每月 1 日）。
+    #[serde(default = "default_llm_review_cron")]
+    pub llm_review_cron: String,
+
+    /// 单次审查最多处理的记忆条数（默认 50）。
+    ///
+    /// 普通数值阈值：设为足够大的值（如 9999999）即等同于全量；设为 0 表示本轮不处理。
+    #[serde(default = "default_llm_review_max_per_run")]
+    pub llm_review_max_per_run: usize,
+
+    /// 候选筛选阈值的口径：`absolute` / `ratio` / `hybrid`。
+    #[serde(default)]
+    pub llm_review_threshold_mode: CandidateThresholdMode,
+
+    /// 候选相似度下限（默认 0.7）。绝对口径直接使用；混合口径作为下限。
     #[serde(default = "default_llm_review_min_score")]
     pub llm_review_min_score: f32,
+
+    /// 比例阈值（默认 0.9）：仅 `ratio`/`hybrid` 口径使用，要求候选分 >= 最佳候选分 × 该比例。
+    #[serde(default = "default_llm_review_score_ratio")]
+    pub llm_review_score_ratio: f32,
 
     /// 冲突审查送入 LLM 的最大候选数（默认 5）。
     #[serde(default = "default_llm_review_max_candidates")]
     pub llm_review_max_candidates: usize,
+}
+
+/// 候选阈值口径。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CandidateThresholdMode {
+    /// 绝对分：score >= min_score
+    #[default]
+    Absolute,
+    /// 相对分：score >= best_score × ratio
+    Ratio,
+    /// 混合：score >= max(min_score, best_score × ratio)
+    Hybrid,
+}
+
+impl std::fmt::Display for CandidateThresholdMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CandidateThresholdMode::Absolute => write!(f, "absolute"),
+            CandidateThresholdMode::Ratio => write!(f, "ratio"),
+            CandidateThresholdMode::Hybrid => write!(f, "hybrid"),
+        }
+    }
 }
 
 fn default_update_window_mins() -> u32 {
@@ -94,10 +138,19 @@ fn default_llm_review_enabled() -> bool {
     false
 }
 fn default_llm_review_min_score() -> f32 {
-    0.55
+    0.7
 }
 fn default_llm_review_max_candidates() -> usize {
     5
+}
+fn default_llm_review_score_ratio() -> f32 {
+    0.9
+}
+fn default_llm_review_cron() -> String {
+    "0 4 * * 6".to_string()
+}
+fn default_llm_review_max_per_run() -> usize {
+    50
 }
 
 impl Default for DedupConfig {
@@ -111,6 +164,10 @@ impl Default for DedupConfig {
             llm_review_enabled: default_llm_review_enabled(),
             llm_review_min_score: default_llm_review_min_score(),
             llm_review_max_candidates: default_llm_review_max_candidates(),
+            llm_review_cron: default_llm_review_cron(),
+            llm_review_max_per_run: default_llm_review_max_per_run(),
+            llm_review_threshold_mode: CandidateThresholdMode::default(),
+            llm_review_score_ratio: default_llm_review_score_ratio(),
         }
     }
 }

@@ -70,8 +70,6 @@ pub struct Router {
     access_tx: Option<tokio::sync::mpsc::Sender<Uuid>>,
     /// 检索侧运行指标（原子计数，stats 读取）
     metrics: Arc<crate::metrics::RetrievalMetrics>,
-    /// 写入后冲突审查队列（未启用时为 None）
-    review_tx: Option<tokio::sync::mpsc::Sender<crate::review::AddReviewJob>>,
 }
 
 /// 检索图扩散参数（来自 DreamConfig 的 `retrieval_*` 项）。
@@ -127,7 +125,6 @@ impl Router {
             budget_policy: TypeBudgetPolicy::default(),
             access_tx: None,
             metrics: Arc::new(crate::metrics::RetrievalMetrics::new()),
-            review_tx: None,
         }
     }
 
@@ -170,15 +167,6 @@ impl Router {
     /// 注入检索侧指标（与后台审查任务共享同一份计数器）。
     pub fn with_metrics(mut self, metrics: Arc<crate::metrics::RetrievalMetrics>) -> Self {
         self.metrics = metrics;
-        self
-    }
-
-    /// 注入写入后冲突审查队列（启用异步 LLM 审查时）。
-    pub fn with_review_queue(
-        mut self,
-        tx: tokio::sync::mpsc::Sender<crate::review::AddReviewJob>,
-    ) -> Self {
-        self.review_tx = Some(tx);
         self
     }
 
@@ -232,7 +220,6 @@ impl Router {
             budget_policy: TypeBudgetPolicy::default(),
             access_tx: None,
             metrics: Arc::new(crate::metrics::RetrievalMetrics::new()),
-            review_tx: None,
         }
     }
 

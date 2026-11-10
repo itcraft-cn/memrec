@@ -238,23 +238,36 @@ duplicate_threshold = 0.92   # 高于此值视为重复，跳过
 update_threshold = 0.85      # 高于此值合并更新已有记忆
 update_window_mins = 60      # 原地更新的时间窗口（分钟）；0 = 不限制
 
-# 写入后的异步 LLM 冲突审查（慢路径，默认关闭）
+# 周期性 LLM 冲突审查（慢路径，默认关闭）
 llm_review_enabled = false
-llm_review_min_score = 0.55       # 候选相似度下限
-llm_review_max_candidates = 5     # 送审候选数上限
+llm_review_cron = "0 4 * * 6"        # cron 5 段：周六 04:00（本地时间）
+llm_review_max_per_run = 50          # 单轮上限；设为超大值（如 9999999）即全量；0 = 本轮不处理
+llm_review_max_candidates = 5        # 送审候选数上限
+llm_review_threshold_mode = "absolute" # absolute | ratio | hybrid
+llm_review_min_score = 0.7           # 绝对阈值（hybrid 时作为下限）
+llm_review_score_ratio = 0.9         # 比例阈值（ratio/hybrid）：候选分 >= 最佳分 × 该值
 ```
 
 单次调用可用 `--no-dedup`（CLI）或 `"dedup": false`（协议）关闭。
 
 ### 快路径与慢路径
 
-- **快路径（同步）**：规则版决策，只做向量相似度阈值判断，不调用 LLM，保证 `add` 延迟稳定。
-- **慢路径（异步，可选）**：写入成功后把记忆投递到有界队列，后台检索候选并调用 LLM 判断
-  `keep` / `supersede_new`（重复，软删新记录）/ `supersede_old`（纠正，标记旧记录失效）。
-  审查只做标签与软删、不改写正文，全部可经 `restore` 撤销；LLM 不可用或输出非法时一律 `keep`。
-  分块写入（`part:` 标签）不送审，避免逐块调用 LLM。
+- **快路径（同步）**：`add` 只做规则版向量阈值判断，不调用 LLM，写入延迟稳定。
+- **慢路径（异步，可选）**：按 `llm_review_cron` 周期性批量审查窗口内的新增记忆，
+  调用 LLM 判断 `keep` / `supersede_new`（重复，软删新记录）/ `supersede_old`
+  （纠正，标记旧记录失效）。审查只做标签与软删、不改写正文，全部可经 `restore` 撤销；
+  LLM 不可用或输出非法时一律 `keep`；分块写入（`part:` 标签）不送审。
 
-决策层可插拔：当前为规则版，LLM 版（真正的 DELETE/矛盾消解）预留演进。
+调度语义：错过 cron 时刻不补跑；单轮超出 `llm_review_max_per_run` 的部分直接丢弃，
+不滚入下一轮。候选阈值三种口径：
+
+| 口径 | 判定 |
+|------|------|
+| `absolute` | `score >= llm_review_min_score` |
+| `ratio` | `score >= best_score × llm_review_score_ratio` |
+| `hybrid` | `score >= max(llm_review_min_score, best_score × llm_review_score_ratio)` |
+
+决策层可插拔：写入侧为规则版；语义冲突由上述周期审查处理，跨簇整合仍归 Dream。
 
 ## 检索注入预算与访问反馈
 

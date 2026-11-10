@@ -12,7 +12,8 @@ pub use types::{
     TieredMemory, TieredSearchResult, TimeRange, TypeBudgetCap, TypeBudgetPolicy,
 };
 pub use types::{
-    DedupConfig, IdleMonitorConfig, LlmConfig, LogConfig, QueueConfig, SimilarMemory, ThinkLevel,
+    CandidateThresholdMode, DedupConfig, IdleMonitorConfig, LlmConfig, LogConfig, QueueConfig,
+    SimilarMemory, ThinkLevel,
 };
 pub use types::{
     DreamConfig, ImportanceConfig, MemoryConfig, RetrievalConfig, SearchConfig, ServerConfig,

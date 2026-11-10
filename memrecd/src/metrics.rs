@@ -9,7 +9,7 @@
 //! - 比率的分母为 0 时记 0.0。
 //! - 只读观测：任何指标都不参与检索排序、淘汰或去重决策。
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 
 use mr_protocol::RetrievalStats;
 
@@ -29,11 +29,14 @@ pub struct RetrievalMetrics {
     dedup_skipped: AtomicU64,
     dedup_updated: AtomicU64,
     dedup_added: AtomicU64,
+    review_runs: AtomicU64,
     review_queued: AtomicU64,
+    review_skipped: AtomicU64,
     review_keep: AtomicU64,
     review_supersede_old: AtomicU64,
     review_supersede_new: AtomicU64,
     review_failed: AtomicU64,
+    review_last_run_at: AtomicI64,
 }
 
 impl RetrievalMetrics {
@@ -91,8 +94,13 @@ impl RetrievalMetrics {
         Self::inc(&self.dedup_added);
     }
 
-    pub fn on_review_queued(&self) {
-        Self::inc(&self.review_queued);
+    /// 记录一轮审查：送审条数、因上限丢弃条数、完成时间。
+    pub fn on_review_run(&self, finished_at_secs: i64, selected: u64, skipped: u64) {
+        Self::inc(&self.review_runs);
+        self.review_queued.fetch_add(selected, Ordering::Relaxed);
+        self.review_skipped.fetch_add(skipped, Ordering::Relaxed);
+        self.review_last_run_at
+            .store(finished_at_secs, Ordering::Relaxed);
     }
 
     pub fn on_review_keep(&self) {
@@ -135,11 +143,21 @@ impl RetrievalMetrics {
             dedup_skipped,
             dedup_updated,
             dedup_added: load(&self.dedup_added),
+            review_runs: load(&self.review_runs),
             review_queued: load(&self.review_queued),
+            review_skipped: load(&self.review_skipped),
             review_keep: load(&self.review_keep),
             review_supersede_old: load(&self.review_supersede_old),
             review_supersede_new: load(&self.review_supersede_new),
             review_failed: load(&self.review_failed),
+            review_last_run_at: {
+                let secs = self.review_last_run_at.load(Ordering::Relaxed);
+                if secs > 0 {
+                    chrono::DateTime::<chrono::Utc>::from_timestamp(secs, 0)
+                } else {
+                    None
+                }
+            },
             empty_injection_rate: ratio(load(&self.budget_empty), budget_requests),
             budget_overflow_rate: ratio(load(&self.budget_overflow), budget_requests),
             downgrade_rate: ratio(non_full, budget_results),
@@ -208,14 +226,17 @@ mod tests {
         let m = RetrievalMetrics::new();
         m.on_search();
         m.on_search();
-        m.on_review_queued();
+        m.on_review_run(1_700_000_000, 3, 1);
         m.on_review_keep();
         m.on_review_supersede_old();
         m.on_review_supersede_new();
         m.on_review_failed();
         let s = m.snapshot();
         assert_eq!(s.search_requests, 2);
-        assert_eq!(s.review_queued, 1);
+        assert_eq!(s.review_runs, 1);
+        assert_eq!(s.review_queued, 3);
+        assert_eq!(s.review_skipped, 1);
+        assert!(s.review_last_run_at.is_some());
         assert_eq!(s.review_keep, 1);
         assert_eq!(s.review_supersede_old, 1);
         assert_eq!(s.review_supersede_new, 1);

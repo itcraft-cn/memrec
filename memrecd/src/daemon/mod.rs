@@ -234,9 +234,6 @@ impl Daemon {
         // 检索侧指标：Router 与后台审查任务共享同一份原子计数。
         let metrics = Arc::new(crate::metrics::RetrievalMetrics::new());
 
-        // 写入后冲突审查：仅在显式开启且 LLM 可用时启用，队列有界、满即丢。
-        let (review_tx, review_rx) = mpsc::channel::<crate::review::AddReviewJob>(64);
-
         let (dream_tx, dream_rx) = mpsc::channel::<DreamRequest>(10);
 
         // 访问反馈：检索命中由 Router 非阻塞投递，本任务按固定间隔批量回写。
@@ -288,11 +285,19 @@ impl Daemon {
                 quota: self.config.dream.retrieval_graph_quota,
             });
 
-        let (router, review_task) = if let (Some(llm), true) =
+        // 周期性冲突审查：仅在显式开启且 LLM 可用时启用；调度由 cron 决定。
+        let review_task = if let (Some(llm), true) =
             (&llm_client, self.config.dedup.llm_review_enabled)
         {
             let reviewer = Arc::new(mr_ability::dedup::LlmConflictReviewer::new(llm.clone()));
-            let task = tokio::spawn(crate::review::review_loop(
+            let state_path = self
+                .config
+                .server
+                .data_dir
+                .parent()
+                .unwrap_or(&self.config.server.data_dir)
+                .join("review.state");
+            Some(tokio::spawn(crate::review::review_loop(
                 storage.clone(),
                 vector_store.clone(),
                 embedder.clone(),
@@ -300,12 +305,10 @@ impl Daemon {
                 reviewer,
                 metrics.clone(),
                 self.config.dedup.clone(),
-                review_rx,
-            ));
-            (router.with_review_queue(review_tx), Some(task))
+                state_path,
+            )))
         } else {
-            drop(review_rx);
-            (router, None)
+            None
         };
 
         let router = Arc::new(router);

@@ -402,8 +402,12 @@ pub struct RetrievalStats {
     pub dedup_updated: u64,
     /// 去重决策为 Add（含无候选）的次数。
     pub dedup_added: u64,
-    /// 进入后台冲突审查队列的条数。
+    /// 已完成的审查轮数。
+    pub review_runs: u64,
+    /// 审查任务送审的条数（累计）。
     pub review_queued: u64,
+    /// 因单轮上限被丢弃的条数（累计）。
+    pub review_skipped: u64,
     /// 审查结论为 keep 的条数。
     pub review_keep: u64,
     /// 审查结论为 supersede_old 的条数。
@@ -412,6 +416,9 @@ pub struct RetrievalStats {
     pub review_supersede_new: u64,
     /// 审查失败（LLM 异常、存储异常等）的条数。
     pub review_failed: u64,
+    /// 最近一次审查完成时间。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_last_run_at: Option<chrono::DateTime<chrono::Utc>>,
     /// 空注入率 = budget_empty / budget_requests。
     pub empty_injection_rate: f64,
     /// 预算溢出率 = budget_overflow / budget_requests。

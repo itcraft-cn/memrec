@@ -4,6 +4,7 @@
 //! 核心能力委托给 mr-ability。
 
 pub mod config;
+pub mod cron;
 pub mod daemon;
 pub mod metrics;
 pub mod review;

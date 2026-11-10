@@ -28,7 +28,7 @@ pub use config::{
     DreamConfig, IdleMonitorConfig, ImportanceConfig, LogConfig, MemoryConfig, QueueConfig,
     RetrievalConfig, SearchConfig, ServerConfig, SourceWeights,
 };
-pub use dedup::{DedupConfig, SimilarMemory};
+pub use dedup::{CandidateThresholdMode, DedupConfig, SimilarMemory};
 pub use dream_run::{
     DreamRun, DreamRunStatus, GateOutcome, PhaseResultRecord, QualityMetrics, SummaryClues,
 };

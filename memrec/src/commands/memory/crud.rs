@@ -525,15 +525,20 @@ pub async fn stats(client: &Client, human: bool) -> Result<()> {
                             r.dedup_added,
                             r.dedup_checked
                         );
-                        if r.review_queued > 0 || r.review_failed > 0 {
+                        if r.review_runs > 0 || r.review_queued > 0 || r.review_failed > 0 {
                             println!(
-                                "    Review:         queued {} / keep {} / supersede-old {} / supersede-new {} / failed {}",
+                                "    Review:         runs {} / selected {} / skipped(cap) {} / keep {} / supersede-old {} / supersede-new {} / failed {}",
+                                r.review_runs,
                                 r.review_queued,
+                                r.review_skipped,
                                 r.review_keep,
                                 r.review_supersede_old,
                                 r.review_supersede_new,
                                 r.review_failed
                             );
+                            if let Some(t) = r.review_last_run_at {
+                                println!("    Last review:    {}", format_local_ts(t));
+                            }
                         }
                     }
                 }

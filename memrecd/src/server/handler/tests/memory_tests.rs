@@ -230,26 +230,3 @@ use super::*;
         assert_eq!(r.budget_requests, 1);
         assert!((r.dedup_hit_rate - 0.5).abs() < 1e-9);
     }
-
-    #[tokio::test]
-    async fn test_add_enqueues_review_after_success() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
-        let router = router_with_dedup(0.95, 0.80).with_review_queue(tx);
-
-        let resp = router.route(add_request("review me after write", 1)).await;
-        assert_eq!(extract_action(&resp), "added");
-
-        let job = rx.try_recv().expect("写入成功后应投递审查任务");
-        assert_eq!(job.content, "review me after write");
-        assert!(job.memory_id != uuid::Uuid::nil());
-
-        let stats = match router
-            .route(JsonRpcRequest::new(RequestAction::Stats, None, 2))
-            .await
-            .result
-        {
-            Some(ResponseResult::Stats(s)) => s,
-            _ => panic!("expected stats"),
-        };
-        assert_eq!(stats.retrieval.unwrap().review_queued, 1);
-    }
