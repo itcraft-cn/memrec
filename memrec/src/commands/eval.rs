@@ -162,6 +162,7 @@ pub async fn run(
                 hybrid_alpha: alpha,
                 mmr_enabled,
                 mmr_lambda: mr_protocol::default_mmr_lambda(),
+                max_total_tokens: None,
             })),
             (idx + 1) as u64,
         );

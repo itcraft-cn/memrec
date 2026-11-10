@@ -21,7 +21,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::EdgeType;
+use crate::{EdgeType, MemoryType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -70,8 +70,58 @@ pub struct TieredMemory {
     pub content: String,
     pub score: f32,
     pub token_count: u32,
+    /// 记忆类型。注入侧据此做预算优先级分配，调用方也用于渲染归类。
+    #[serde(default)]
+    pub memory_type: MemoryType,
+    /// 记忆标签，供调用方展示与二次过滤。
+    #[serde(default)]
+    pub tags: Vec<String>,
     pub facet_themes: Vec<String>,
     pub edge_hints: Vec<EdgeHint>,
+}
+
+/// 类型预算上限规则。
+///
+/// 表达“某类记忆在注入预算中最多可占的比例”。未列入策略的类型不设上限，
+/// 参与最后一遍剩余预算回填（低优先级类型）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TypeBudgetCap {
+    /// 记忆类型
+    pub memory_type: MemoryType,
+    /// 最多占用的预算比例（0.0-1.0）
+    pub ratio: f32,
+}
+
+/// 注入预算策略：按类型优先级依次占用预算，剩余额度回填低优先级类型。
+///
+/// 设计依据：用户偏好（Preference）跨项目复用、扇入最高，应优先获得预算；
+/// 决策（Decision）次之；知识（Knowledge）再次；上下文/对话只吃剩余额度。
+/// 上限是“最多占用”而非“预留”，某类候选不足时其额度自动让给后续类型。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TypeBudgetPolicy {
+    /// 按优先级排列的类型上限规则
+    pub caps: Vec<TypeBudgetCap>,
+}
+
+impl Default for TypeBudgetPolicy {
+    fn default() -> Self {
+        Self {
+            caps: vec![
+                TypeBudgetCap {
+                    memory_type: MemoryType::Preference,
+                    ratio: 0.5,
+                },
+                TypeBudgetCap {
+                    memory_type: MemoryType::Decision,
+                    ratio: 0.3,
+                },
+                TypeBudgetCap {
+                    memory_type: MemoryType::Knowledge,
+                    ratio: 0.2,
+                },
+            ],
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -185,6 +235,8 @@ mod tests {
             content: "test summary".to_string(),
             score: 0.42,
             token_count: 10,
+            memory_type: MemoryType::Decision,
+            tags: vec!["rust".to_string()],
             facet_themes: vec!["rust".to_string()],
             edge_hints: vec![],
         };

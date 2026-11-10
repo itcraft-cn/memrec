@@ -40,6 +40,8 @@ export type Config = {
   contextMinScore?: number
   /** 每 N 个 turn 注入一次上下文，默认 1。 */
   contextRefreshTurns?: number
+  /** 上下文注入的总 token 预算，默认 4000（按记忆类型优先级分配）。 */
+  contextMaxTokens?: number
   /** 是否启用会话自动记录（LLM 提取），默认 true。 */
   autoRecord?: boolean
   /** 自动记录 LLM provider（空则用会话 agent 的）。 */
@@ -59,6 +61,7 @@ export const Config = z.object({
   contextTopK: z.number().step(1).min(1).max(20).default(5),
   contextMinScore: z.number().min(0).max(1).default(0.45),
   contextRefreshTurns: z.number().step(1).min(1).default(1),
+  contextMaxTokens: z.number().step(1).min(100).default(4000),
   autoRecord: z.boolean().default(true),
   autoRecordProvider: z.string().default(''),
   autoRecordModel: z.string().default(''),
@@ -87,6 +90,7 @@ export function apply(ctx: Context, config: Config): void {
     topK: config.contextTopK ?? 5,
     minScore: config.contextMinScore ?? 0.45,
     refreshTurns: config.contextRefreshTurns ?? 1,
+    maxTokens: config.contextMaxTokens ?? 4000,
   })
 
   // 3. 会话自动记录

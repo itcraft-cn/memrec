@@ -288,3 +288,38 @@ use super::*;
         // 再次 restore：非删除状态返回 None
         assert!(store.restore(&memory.id).await.unwrap().is_none());
     }
+
+    #[tokio::test]
+    async fn test_touch_access_updates_stats_and_skips_deleted() {
+        let dir = tempdir().unwrap();
+        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let store = MemoryStore::new(std::sync::Arc::new(rocksdb));
+
+        let live = Memory::new("live memory".to_string(), MemoryType::Knowledge);
+        let dead = Memory::new("deleted memory".to_string(), MemoryType::Knowledge);
+        store.save(&live).await.unwrap();
+        store.save(&dead).await.unwrap();
+        store.delete(&dead.id).await.unwrap();
+
+        // 同一 id 重复出现只累计一次（存储层兜底去重）
+        let updated = store
+            .touch_access(&[live.id, live.id, dead.id])
+            .await
+            .unwrap();
+        assert_eq!(updated, 1, "重复 id 只计一次，软删记录被跳过");
+
+        let fetched = store.get(&live.id).await.unwrap().unwrap();
+        assert_eq!(fetched.access_count, 1);
+        assert!(fetched.last_accessed >= live.last_accessed);
+
+        let deleted = store.get(&dead.id).await.unwrap().unwrap();
+        assert_eq!(deleted.access_count, 0, "软删记忆不应累积访问");
+    }
+
+    #[tokio::test]
+    async fn test_touch_access_empty_is_noop() {
+        let dir = tempdir().unwrap();
+        let rocksdb = RocksDBStore::open(dir.path()).unwrap();
+        let store = MemoryStore::new(std::sync::Arc::new(rocksdb));
+        assert_eq!(store.touch_access(&[]).await.unwrap(), 0);
+    }

@@ -151,6 +151,12 @@ impl MemoryStorage for IndexingStorage {
         Ok(())
     }
 
+    /// 访问统计只改 `last_accessed`/`access_count`，不涉及被索引字段，
+    /// 因此直接委托底层，避免无意义的向量与全文索引重建。
+    async fn touch_access(&self, ids: &[Uuid]) -> Result<usize> {
+        self.inner.touch_access(ids).await
+    }
+
     async fn delete(&self, id: &Uuid) -> Result<bool> {
         // 注意：底层 `delete` 的返回值语义是“是否发生硬删”——软删（首次删除）
         // 返回 false、已删记录的再删（硬删）返回 true。因此不能以返回值判断是否

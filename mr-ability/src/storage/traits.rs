@@ -40,6 +40,28 @@ pub trait MemoryStorage: Send + Sync {
     async fn update(&self, memory: &Memory) -> Result<()>;
     async fn delete(&self, id: &Uuid) -> Result<bool>;
 
+    /// 批量记录访问（`last_accessed` / `access_count`）。
+    ///
+    /// 由检索侧的后台任务批量调用，不参与请求链路。默认实现逐条读改写并走
+    /// [`update`](Self::update)（会触发索引重写）；存储实现应覆写为只写记忆
+    /// 主记录、跳过索引维护，避免无谓的向量/全文索引开销。
+    ///
+    /// 已软删的记忆会被跳过。返回实际更新的条数。
+    async fn touch_access(&self, ids: &[Uuid]) -> Result<usize> {
+        let mut updated = 0;
+        for id in ids {
+            if let Some(mut memory) = self.get(id).await? {
+                if memory.is_deleted {
+                    continue;
+                }
+                memory.access();
+                self.update(&memory).await?;
+                updated += 1;
+            }
+        }
+        Ok(updated)
+    }
+
     /// 恢复软删除记忆（软删的逆操作）。
     ///
     /// 恢复 `is_deleted=true` 的记忆并清理软删除索引（与 `delete` 对称），

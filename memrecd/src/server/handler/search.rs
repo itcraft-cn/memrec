@@ -268,6 +268,41 @@ impl Router {
 
                 let total = results.len();
 
+                // 访问反馈：只有真正返回给调用方的命中最计入访问（异步、非阻塞）。
+                self.record_access(results.iter().map(|r| r.memory_id));
+
+                // 分层注入：调用方指定 token 预算时，在最终结果（含图扩散名额）上
+                // 做类型感知的裁剪，返回带完整内容与层级标注的结果。
+                if let Some(max_tokens) = p.max_total_tokens.filter(|n| *n > 0) {
+                    let ids: Vec<Uuid> = results.iter().map(|r| r.memory_id).collect();
+                    let scores: Vec<f32> = results.iter().map(|r| r.score).collect();
+                    let assigner = TierAssigner::new(TierThresholds::default());
+                    let budget = self.budget_for(max_tokens);
+                    return match mr_ability::tiered::build_tiered_result(
+                        self.storage.as_ref(),
+                        self.edge_store.as_deref(),
+                        self.tiered_store.as_deref(),
+                        &assigner,
+                        &budget,
+                        &ids,
+                        &scores,
+                    )
+                    .await
+                    {
+                        Ok(tiered) => {
+                            JsonRpcResponse::success(ResponseResult::TieredSearchResult(tiered), id)
+                        }
+                        Err(e) => JsonRpcResponse::error(
+                            JsonRpcError {
+                                code: -32005,
+                                message: format!("Tiered search error: {}", e),
+                                data: None,
+                            },
+                            id,
+                        ),
+                    };
+                }
+
                 JsonRpcResponse::success(
                     ResponseResult::SemanticSearchResult(SemanticSearchResult {
                         results,
@@ -372,11 +407,20 @@ impl Router {
                     .unwrap_or_default();
 
                 let assigner = TierAssigner::new(thresholds);
-                let budget = mr_ability::tiered::BudgetController::new(p.max_total_tokens);
+                let budget = self.budget_for(p.max_total_tokens);
 
-                match self
-                    .build_tiered_result(memory_ids, scores, assigner, budget)
-                    .await
+                self.record_access(memory_ids.iter().copied());
+
+                match mr_ability::tiered::build_tiered_result(
+                    self.storage.as_ref(),
+                    self.edge_store.as_deref(),
+                    self.tiered_store.as_deref(),
+                    &assigner,
+                    &budget,
+                    &memory_ids,
+                    &scores,
+                )
+                .await
                 {
                     Ok(tiered_result) => JsonRpcResponse::success(
                         ResponseResult::TieredSearchResult(tiered_result),
@@ -403,81 +447,19 @@ impl Router {
         }
     }
 
-    pub(super) async fn build_tiered_result(
-        &self,
-        memory_ids: Vec<Uuid>,
-        scores: Vec<f32>,
-        assigner: TierAssigner,
-        budget: mr_ability::tiered::BudgetController,
-    ) -> Result<mr_common::TieredSearchResult> {
-        use mr_common::TieredMemory;
-
-        let mut results = Vec::with_capacity(memory_ids.len());
-
-        for (memory_id, score) in memory_ids.iter().zip(scores.iter()) {
-            if let Some(memory) = self.storage.get(memory_id).await? {
-                let tier = assigner.assign(*score);
-                let (content, token_count) = Self::generate_tier_content(&memory.content, tier);
-
-                results.push(TieredMemory {
-                    memory_id: *memory_id,
-                    tier,
-                    content,
-                    score: *score,
-                    token_count,
-                    facet_themes: vec![],
-                    edge_hints: vec![],
-                });
-            }
-        }
-
-        results.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        let total_tokens = budget.check_and_downgrade(&mut results);
-
-        Ok(mr_common::TieredSearchResult {
-            total_results: results.len(),
-            total_tokens,
-            budget: budget.max_tokens(),
-            results,
-        })
+    /// 构造带类型策略的预算控制器（每请求独立，策略来自守护进程配置）。
+    fn budget_for(&self, max_tokens: u32) -> mr_ability::tiered::BudgetController {
+        mr_ability::tiered::BudgetController::new(max_tokens)
+            .with_policy(self.budget_policy.clone())
     }
 
-    pub(super) fn generate_tier_content(content: &str, tier: RepresentationTier) -> (String, u32) {
-        let tokens = mr_ability::tiered::BudgetController::estimate_token_count(content);
-
-        match tier {
-            RepresentationTier::Full => (content.to_string(), tokens),
-            RepresentationTier::Truncated => {
-                let limit = 500;
-                let truncated = if content.chars().count() > limit {
-                    let chars: Vec<char> = content.chars().take(limit).collect();
-                    let truncated: String = chars.into_iter().collect();
-                    format!("{}...[truncated]", truncated)
-                } else {
-                    content.to_string()
-                };
-                let token_count =
-                    mr_ability::tiered::BudgetController::estimate_token_count(&truncated);
-                (truncated, token_count.min(200))
-            }
-            RepresentationTier::Summary => {
-                let preview = if content.chars().count() > 100 {
-                    let chars: Vec<char> = content.chars().take(100).collect();
-                    chars.into_iter().collect()
-                } else {
-                    content.to_string()
-                };
-                (format!("Summary: {}", preview), 80)
-            }
-            RepresentationTier::DenseProxy => {
-                let words: Vec<&str> = content.split_whitespace().take(5).collect();
-                (format!("[{}]", words.join(", ")), 30)
-            }
+    /// 非阻塞投递访问反馈；通道满或未启用时静默丢弃（访问统计可容忍丢失）。
+    fn record_access(&self, ids: impl IntoIterator<Item = Uuid>) {
+        let Some(tx) = &self.access_tx else {
+            return;
+        };
+        for id in ids {
+            let _ = tx.try_send(id);
         }
     }
 }

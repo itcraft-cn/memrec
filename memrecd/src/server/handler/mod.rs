@@ -24,12 +24,10 @@ use mr_ability::embedding::EmbeddingGenerator;
 use mr_ability::project::{detect_project_id, find_project_root};
 use mr_ability::storage::{
     DreamRunStorage, HybridSearchRequest, HybridStorage, MemoryStorage, SceneStorage, SearchFilter,
-    VectorPayload, VectorStorage,
+    TieredStorage, VectorPayload, VectorStorage,
 };
 use mr_ability::tiered::TierAssigner;
-use mr_common::{
-    DedupConfig, Memory, MemoryType, RepresentationTier, SimilarMemory, TierThresholds,
-};
+use mr_common::{DedupConfig, Memory, MemoryType, SimilarMemory, TierThresholds, TypeBudgetPolicy};
 use mr_protocol::{
     DreamReportResult, DreamResult, DreamStats, GetProjectInfoParams, JsonRpcError, JsonRpcRequest,
     JsonRpcResponse, ListOrder, MemoryListResult, MemoryResult, MemoryView, ProjectInfoResult,
@@ -64,6 +62,12 @@ pub struct Router {
     edge_store: Option<Arc<dyn mr_ability::storage::EdgeStorage>>,
     /// 检索图扩散参数
     retrieval_graph: RetrievalGraph,
+    /// 分层摘要/关键词存储（缺失时按截断/标签退化）
+    tiered_store: Option<Arc<dyn TieredStorage>>,
+    /// 注入预算的类型优先级策略
+    budget_policy: TypeBudgetPolicy,
+    /// 访问反馈通道：检索命中经此异步批量回写，避免在请求链路上写存储
+    access_tx: Option<tokio::sync::mpsc::Sender<Uuid>>,
 }
 
 /// 检索图扩散参数（来自 DreamConfig 的 `retrieval_*` 项）。
@@ -115,6 +119,9 @@ impl Router {
             dream_run_store: None,
             edge_store: None,
             retrieval_graph: RetrievalGraph::default(),
+            tiered_store: None,
+            budget_policy: TypeBudgetPolicy::default(),
+            access_tx: None,
         }
     }
 
@@ -133,6 +140,24 @@ impl Router {
     /// 配置检索图扩散参数。
     pub fn with_retrieval_graph(mut self, graph: RetrievalGraph) -> Self {
         self.retrieval_graph = graph;
+        self
+    }
+
+    /// 注入分层摘要/关键词存储（用于 Summary/DenseProxy 层渲染）。
+    pub fn with_tiered_store(mut self, store: Arc<dyn TieredStorage>) -> Self {
+        self.tiered_store = Some(store);
+        self
+    }
+
+    /// 配置注入预算的类型优先级策略。
+    pub fn with_budget_policy(mut self, policy: TypeBudgetPolicy) -> Self {
+        self.budget_policy = policy;
+        self
+    }
+
+    /// 注入访问反馈通道：检索命中的记忆 id 以非阻塞方式投递，由后台任务批量回写。
+    pub fn with_access_tracker(mut self, tx: tokio::sync::mpsc::Sender<Uuid>) -> Self {
+        self.access_tx = Some(tx);
         self
     }
 
@@ -182,6 +207,9 @@ impl Router {
             dream_run_store: None,
             edge_store: None,
             retrieval_graph: RetrievalGraph::default(),
+            tiered_store: None,
+            budget_policy: TypeBudgetPolicy::default(),
+            access_tx: None,
         }
     }
 

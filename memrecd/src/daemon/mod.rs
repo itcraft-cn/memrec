@@ -10,12 +10,14 @@
 //! 6. 监听 SIGTERM/SIGINT 信号优雅关闭
 
 use anyhow::Result;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
 use tokio::sync::mpsc;
 use tokio::time::interval;
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
 use crate::config::DaemonConfig;
 use crate::server::{Router, UnixSocketServer};
@@ -29,7 +31,8 @@ use mr_ability::propagation::{MockDeltaGenerator, PropagationEngine};
 use mr_ability::search::{MmrConfig, ScorerConfig};
 use mr_ability::storage::{
     DreamRunStore, EdgeStore, FtsStorage, HybridStore, IndexingStorage, MemoryStorage, MemoryStore,
-    PropagationStore, RocksDBStore, RocksDBVectorStore, TantivyStore, VectorStorage,
+    PropagationStore, RocksDBStore, RocksDBVectorStore, TantivyStore, TieredStorage, TieredStore,
+    VectorStorage,
 };
 
 /// 向量存储定时同步间隔（秒）
@@ -124,6 +127,7 @@ impl Daemon {
             Arc::new(PropagationStore::new(rocksdb.clone()));
         let dream_run_store: Arc<dyn mr_ability::storage::DreamRunStorage> =
             Arc::new(DreamRunStore::new(rocksdb.clone()));
+        let tiered_store: Arc<dyn TieredStorage> = Arc::new(TieredStore::new(rocksdb.clone()));
 
         let embedder = GeneratorFactory::create(self.config.model.clone())?;
         let vector_store = Arc::new(RocksDBVectorStore::open(
@@ -229,6 +233,20 @@ impl Daemon {
 
         let (dream_tx, dream_rx) = mpsc::channel::<DreamRequest>(10);
 
+        // 访问反馈：检索命中由 Router 非阻塞投递，本任务按固定间隔批量回写。
+        // 通道满时丢弃（访问统计可容忍丢失），绝不阻塞检索请求。
+        let (access_tx, access_rx) = mpsc::channel::<Uuid>(1024);
+        let access_task = if self.config.retrieval.access_recording {
+            Some(tokio::spawn(Self::access_loop(
+                storage.clone(),
+                access_rx,
+                Duration::from_secs(self.config.retrieval.access_flush_secs.max(1)),
+            )))
+        } else {
+            drop(access_rx);
+            None
+        };
+
         let idle_monitor =
             SystemIdleMonitor::new(self.config.idle_monitor.clone(), dream_tx.clone());
 
@@ -251,6 +269,11 @@ impl Daemon {
             )
             .with_dream_run_store(dream_run_store.clone())
             .with_edge_store(edge_store.clone())
+            .with_tiered_store(tiered_store)
+            .with_budget_policy(mr_common::TypeBudgetPolicy {
+                caps: self.config.retrieval.injection_type_caps.clone(),
+            })
+            .with_access_tracker(access_tx)
             .with_retrieval_graph(crate::server::RetrievalGraph {
                 enabled: self.config.dream.retrieval_graph_enabled,
                 depth: self.config.dream.retrieval_graph_depth,
@@ -284,6 +307,9 @@ impl Daemon {
         sync_task.abort();
         idle_task.abort();
         dream_task.abort();
+        if let Some(task) = access_task {
+            task.abort();
+        }
 
         self.shutdown(&vector_store)
     }
@@ -400,6 +426,55 @@ impl Daemon {
             fts_count
         );
         Ok(())
+    }
+
+    /// 访问反馈批量回写循环。
+    ///
+    /// 接收检索命中的记忆 id，去重后按 `flush` 间隔（或攒满 512 条）一次性写入。
+    /// 单次失败只告警并丢弃本批，避免坏记录长期占用内存或无限重试。
+    async fn access_loop(
+        storage: Arc<MemoryStore>,
+        mut receiver: mpsc::Receiver<Uuid>,
+        flush: Duration,
+    ) {
+        let mut pending: HashSet<Uuid> = HashSet::new();
+        let mut ticker = interval(flush);
+        ticker.tick().await;
+
+        loop {
+            tokio::select! {
+                maybe = receiver.recv() => match maybe {
+                    Some(id) => {
+                        pending.insert(id);
+                        if pending.len() >= 512 {
+                            Self::flush_access(&storage, &mut pending).await;
+                        }
+                    }
+                    None => break,
+                },
+                _ = ticker.tick() => {
+                    Self::flush_access(&storage, &mut pending).await;
+                }
+            }
+        }
+
+        Self::flush_access(&storage, &mut pending).await;
+    }
+
+    /// 冲刷一批访问统计。
+    async fn flush_access(storage: &MemoryStore, pending: &mut HashSet<Uuid>) {
+        if pending.is_empty() {
+            return;
+        }
+        let ids: Vec<Uuid> = pending.drain().collect();
+        match storage.touch_access(&ids).await {
+            Ok(updated) => {
+                tracing::debug!(target: "recall", "access flushed: {} memories", updated);
+            }
+            Err(e) => {
+                tracing::warn!(target: "recall", "access flush failed: {:#}", e);
+            }
+        }
     }
 
     /// 向量存储定时同步循环，每 [`SYNC_INTERVAL_SECS`] 秒将缓存刷盘。

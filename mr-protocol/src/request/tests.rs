@@ -81,6 +81,7 @@ use super::*;
             hybrid_alpha: default_hybrid_alpha(),
             mmr_enabled: default_mmr_enabled(),
             mmr_lambda: default_mmr_lambda(),
+            max_total_tokens: None,
         };
 
         assert!(params.include_global);
@@ -104,6 +105,7 @@ use super::*;
             hybrid_alpha: default_hybrid_alpha(),
             mmr_enabled: default_mmr_enabled(),
             mmr_lambda: default_mmr_lambda(),
+            max_total_tokens: None,
         };
 
         let json = serde_json::to_string(&params).unwrap();

@@ -17,7 +17,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node --test test/"
+    "test": "npm run build && node --test test/integration.test.mjs"
   },
   "license": "Apache-2.0",
   "keywords": [

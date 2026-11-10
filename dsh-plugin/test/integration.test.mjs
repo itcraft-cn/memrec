@@ -193,3 +193,37 @@ test('parseExtraction 容错解析 LLM 输出', () => {
   assert.equal(mixed.length, 1)
   assert.equal(mixed[0].content, '')
 })
+
+test('renderContextText 支持分层结果（content/tier/token 预算）', () => {
+  const result = {
+    type: 'tiered_search_result',
+    total_results: 2,
+    total_tokens: 60,
+    budget: 4000,
+    results: [
+      {
+        memory_id: 'a',
+        score: 0.92,
+        memory_type: 'preference',
+        tier: 'full',
+        content: '用户偏好使用中文回答',
+        token_count: 10,
+        tags: ['pref'],
+      },
+      {
+        memory_id: 'b',
+        score: 0.61,
+        memory_type: 'decision',
+        tier: 'summary',
+        content: '选型决定：TieredEngine 接线注入侧',
+        token_count: 20,
+        tags: [],
+      },
+    ],
+  }
+  const text = renderContextText(result, 0.45)
+  assert.ok(text.includes('用户偏好使用中文回答'), '应渲染分层结果的完整内容')
+  assert.ok(text.includes('preference full'), '应标注类型与层级')
+  assert.ok(text.includes('decision summary'), '应标注类型与层级')
+  assert.ok(text.includes('按类型优先级预算注入'), '标题应体现预算注入')
+})

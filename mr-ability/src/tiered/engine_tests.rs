@@ -312,3 +312,38 @@
         assert_eq!(result.results[0].tier, RepresentationTier::DenseProxy);
         assert!(result.results[0].content.contains("rust"));
     }
+
+    #[tokio::test]
+    async fn test_downgraded_tier_matches_rendered_content() {
+        // 预算降级后，内容必须按最终层级重新渲染（而非保留全文只改标注）
+        let memory_store = MockMemoryStore::new();
+        let edge_store = MockEdgeStore::new();
+        let tiered_store = MockTieredStore::new();
+
+        let long = "记忆内容。".repeat(200); // 约 1000 汉字
+        let m = make_memory(&long, vec!["t"]);
+        let id = m.id;
+        memory_store.insert(m).await;
+
+        let mut config = TieredEngineConfig::default();
+        config.max_tokens = 500;
+        let engine = TieredEngine::new(memory_store, edge_store, tiered_store, config);
+
+        let result = engine.build_tiered_result(&[id], &[0.95]).await.unwrap();
+        let hit = &result.results[0];
+        assert_eq!(hit.tier, RepresentationTier::Summary);
+        assert!(
+            hit.content.chars().count() < long.chars().count(),
+            "Summary 层内容应被截断"
+        );
+        assert!(
+            hit.token_count <= 80,
+            "Summary 层 token 应受 80 上限约束: {}",
+            hit.token_count
+        );
+        assert_eq!(
+            hit.token_count,
+            crate::tiered::BudgetController::estimate_token_count(&hit.content)
+        );
+        assert!(result.total_tokens <= 500);
+    }

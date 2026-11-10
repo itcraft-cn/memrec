@@ -47,6 +47,10 @@ impl McpServer {
                                 "type": "string",
                                 "enum": ["decision", "knowledge", "context", "preference", "conversation"],
                                 "description": "Filter by memory type"
+                            },
+                            "max_total_tokens": {
+                                "type": "integer",
+                                "description": "Token budget for injection. When set (>0), returns tiered results (full/truncated/summary/keyword) within this budget, prioritized by memory type (preference > decision > knowledge > others)."
                             }
                         },
                         "required": ["query"]
@@ -268,6 +272,11 @@ impl McpServer {
             .unwrap_or(0.5);
         let scope = parse_scope(args.get("scope").and_then(|v| v.as_str()));
         let memory_type = args.get("memory_type").and_then(|v| v.as_str());
+        let max_total_tokens = args
+            .get("max_total_tokens")
+            .and_then(|v| v.as_u64())
+            .filter(|n| *n > 0)
+            .map(|n| n as u32);
 
         let (project_only, global_only, cross_project) = match scope {
             Scope::Project => (true, false, false),
@@ -292,15 +301,14 @@ impl McpServer {
                     project_only,
                     global_only,
                     cross_project,
-                    memory_type: memory_type
-                        .filter(|s| !s.is_empty())
-                        .map(parse_memory_type),
+                    memory_type: memory_type.filter(|s| !s.is_empty()).map(parse_memory_type),
                     top_k: top_k as usize,
                     min_score: min_score as f32,
                     working_dir,
                     hybrid_alpha: mr_protocol::default_hybrid_alpha(),
                     mmr_enabled: mr_protocol::default_mmr_enabled(),
                     mmr_lambda: mr_protocol::default_mmr_lambda(),
+                    max_total_tokens,
                 })),
                 1,
             ))
@@ -533,5 +541,4 @@ impl McpServer {
 
         Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
     }
-
 }

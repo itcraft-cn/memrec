@@ -26,7 +26,7 @@ mod tiered;
 
 pub use config::{
     DreamConfig, IdleMonitorConfig, ImportanceConfig, LogConfig, MemoryConfig, QueueConfig,
-    SearchConfig, ServerConfig, SourceWeights,
+    RetrievalConfig, SearchConfig, ServerConfig, SourceWeights,
 };
 pub use dedup::{DedupConfig, SimilarMemory};
 pub use dream_run::{
@@ -41,4 +41,7 @@ pub use project::{Project, ProjectConfig};
 pub use propagation::{DeltaType, PropagationConfig, PropagationDelta};
 pub use rule::{BoostType, RetrievalRule, RuleAction, RuleCondition, RuleStats, TimeRange};
 pub use scene::Scene;
-pub use tiered::{EdgeHint, RepresentationTier, TierThresholds, TieredMemory, TieredSearchResult};
+pub use tiered::{
+    EdgeHint, RepresentationTier, TierThresholds, TieredMemory, TieredSearchResult, TypeBudgetCap,
+    TypeBudgetPolicy,
+};

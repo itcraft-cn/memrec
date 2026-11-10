@@ -27,48 +27,58 @@ export interface ContextConfig {
   readonly minScore: number
   /** 每 N 个 turn 注入一次。 */
   readonly refreshTurns: number
+  /** 注入总 token 预算（服务端按记忆类型优先级分层裁剪）。 */
+  readonly maxTokens: number
+}
+
+/** 单条注入结果的兼容形态：普通检索用 `content_preview`，分层检索用 `content`。 */
+interface RawHit {
+  score?: number
+  memory_type?: string
+  tags?: string[]
+  content_preview?: string
+  content?: string
+  tier?: string
+  token_count?: number
 }
 
 /** 渲染单条记忆。 */
-function renderHit(hit: {
-  score?: number
-  memory_type?: string
-  content_preview?: string
-  tags?: string[]
-  created_at?: string
-}): string {
+function renderHit(hit: RawHit): string {
   const score = hit.score !== undefined ? hit.score.toFixed(2) : '?'
   const type = hit.memory_type ?? 'conversation'
   const tags = hit.tags && hit.tags.length > 0 ? ` #${hit.tags.join(' #')}` : ''
-  const preview = (hit.content_preview ?? '').replace(/\s+/g, ' ').trim()
-  const body = preview.length > 0 ? preview : '(内容为空)'
-  return `- [${score}] (${type})${tags}\n  ${body}`
+  // 分层结果带 tier 标注（full/truncated/summary/dense_proxy），便于判断保真度
+  const tier = hit.tier !== undefined ? ` ${hit.tier}` : ''
+  const raw = hit.content ?? hit.content_preview ?? ''
+  const body = raw.replace(/\s+/g, ' ').trim()
+  return `- [${score}] (${type}${tier})${tags}\n  ${body.length > 0 ? body : '(内容为空)'}`
 }
 
 /**
  * 将 daemon 检索结果渲染为注入文本。
  *
- * 防御性过滤（服务端 `min_score` 仅作用于向量侧原始过滤，融合后的
- * 分数可能低于阈值；部分记忆 `content_preview` 为空、无信息量）：
- * - 过滤 `score < minScore` 的条目；
- * - 过滤 `content_preview` 为空的条目；
- * - 注入上限 8 条，控制 token 成本。
+ * 服务端在 `max_total_tokens` 下已完成类型优先级 + 分层裁剪，客户端不再按条数
+ * 硬截断（旧实现固定 8 条，会浪费预算或挤掉高价值的偏好记忆）；这里只做
+ * 防御性过滤：
+ * - 过滤 `score < minScore` 的条目（融合后分数可能低于向量侧阈值）；
+ * - 过滤内容为空的条目；
+ * - 保留 64 条上限，防止异常响应（实际上限由 top_k 与服务端预算共同决定）。
  */
 export function renderContextText(result: unknown, minScore = 0): string {
   const results = (result as { results?: unknown[] })?.results
   if (!Array.isArray(results) || results.length === 0) return ''
   const kept = results
     .filter((r) => {
-      const hit = r as { score?: unknown; content_preview?: unknown }
+      const hit = r as RawHit
       const score = typeof hit.score === 'number' ? hit.score : 0
       if (score < minScore) return false
-      const preview = typeof hit.content_preview === 'string' ? hit.content_preview.trim() : ''
-      return preview.length > 0
+      const body = (hit.content ?? hit.content_preview ?? '').trim()
+      return body.length > 0
     })
-    .slice(0, 8)
+    .slice(0, 64)
   if (kept.length === 0) return ''
-  const lines = kept.map((r) => renderHit(r as Parameters<typeof renderHit>[0]))
-  return `## MemRec 项目记忆（自动检索）\n${lines.join('\n')}`
+  const lines = kept.map((r) => renderHit(r as RawHit))
+  return `## MemRec 项目记忆（自动检索，按类型优先级预算注入）\n${lines.join('\n')}`
 }
 
 /** 从 user 消息块中提取纯文本。 */
@@ -133,11 +143,14 @@ export function installContextInjection(
 
       let result: unknown
       try {
+        // 请求分层检索：服务端在总预算内按记忆类型优先级裁剪，
+        // 返回带完整内容与层级标注（full/truncated/summary/dense_proxy）的结果。
         result = await daemon.call('search_memory', {
           query,
-          top_k: Math.max(config.topK, 8),
+          top_k: Math.max(config.topK, 24),
           min_score: config.minScore,
           include_global: true,
+          max_total_tokens: config.maxTokens,
           working_dir: payload.agent.session.header.cwd ?? process.cwd(),
         })
       } catch (err) {

@@ -17,11 +17,11 @@ use crate::storage::traits::TieredStorage;
 use crate::storage::RocksDBStore;
 
 pub struct TieredStore {
-    rocksdb: RocksDBStore,
+    rocksdb: std::sync::Arc<RocksDBStore>,
 }
 
 impl TieredStore {
-    pub fn new(rocksdb: RocksDBStore) -> Self {
+    pub fn new(rocksdb: std::sync::Arc<RocksDBStore>) -> Self {
         TieredStore { rocksdb }
     }
 
@@ -94,7 +94,7 @@ mod tests {
     async fn create_test_store() -> TieredStore {
         let dir = tempdir().unwrap();
         let rocksdb = RocksDBStore::open(dir.path()).unwrap();
-        TieredStore::new(rocksdb)
+        TieredStore::new(rocksdb.into())
     }
 
     #[tokio::test]

@@ -9,12 +9,13 @@ pub use types::{
     MemoryEdge, MemoryFacet, MemoryScope, MemorySource, MemoryType, PhaseResultRecord, Project,
     ProjectConfig, PropagationConfig, PropagationDelta, QualityMetrics, RepresentationTier,
     RetrievalRule, RuleAction, RuleCondition, RuleStats, Scene, SummaryClues, TierThresholds,
-    TieredMemory, TieredSearchResult, TimeRange,
+    TieredMemory, TieredSearchResult, TimeRange, TypeBudgetCap, TypeBudgetPolicy,
 };
 pub use types::{
     DedupConfig, IdleMonitorConfig, LlmConfig, LogConfig, QueueConfig, SimilarMemory, ThinkLevel,
 };
 pub use types::{
-    DreamConfig, ImportanceConfig, MemoryConfig, SearchConfig, ServerConfig, SourceWeights,
+    DreamConfig, ImportanceConfig, MemoryConfig, RetrievalConfig, SearchConfig, ServerConfig,
+    SourceWeights,
 };
 pub use types::{ModelConfig, ModelFile, ModelFileType, ModelType, PoolingStrategy};

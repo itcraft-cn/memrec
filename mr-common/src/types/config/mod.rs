@@ -11,16 +11,17 @@
 //!
 //! 这些配置通过 `config.toml` 持久化，由 [`memrecd::config::DaemonConfig`] 加载。
 
-
 mod dream;
 mod memory;
 mod monitor;
+mod retrieval;
 mod search;
 mod server;
 
 pub use dream::DreamConfig;
 pub use memory::{ImportanceConfig, MemoryConfig, SourceWeights};
 pub use monitor::{IdleMonitorConfig, QueueConfig};
+pub use retrieval::RetrievalConfig;
 pub use search::SearchConfig;
 pub use server::{LogConfig, ServerConfig};
 

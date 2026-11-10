@@ -242,6 +242,42 @@ update_window_mins = 60      # 原地更新的时间窗口（分钟）；0 = 不
 单次调用可用 `--no-dedup`（CLI）或 `"dedup": false`（协议）关闭。
 决策层可插拔：当前为规则版，LLM 版（真正的 DELETE/矛盾消解）预留演进。
 
+## 检索注入预算与访问反馈
+
+检索结果按 **token 总预算 + 记忆类型优先级** 裁剪，用于把记忆注入上下文时“有节制地花预算”，而不是命中多少塞多少。
+
+- 表示分层：`Full`（全文）/ `Truncated`（≤200）/ `Summary`（≤80）/ `DenseProxy`（≤30，关键词/标签代理）
+- 裁剪顺序：先降级表示、再丢弃，且**内容按最终层级重新渲染**，保证 `token_count` 与实际内容一致
+- 类型优先级：默认 `preference` 最多 50%、`decision` 30%、`knowledge` 20%；某类候选不足时额度自动让给后续类型，未列入的类型只吃剩余预算
+- token 估算按中英文区分：CJK 约 1 token/字、其他约 4 字符/token（旧口径 `chars × 0.4` 会把中文低估 2 倍以上）
+
+启用方式：
+
+```bash
+# CLI：显式预算（未指定则不裁剪）
+memrec search "检索词" --max-tokens 4000
+
+# MCP：mr_search 增加 max_total_tokens 参数
+# 协议：search_memory 增加 "max_total_tokens": 4000
+```
+
+```toml
+[retrieval]
+access_recording = true      # 检索命中异步回写访问统计
+access_flush_secs = 5        # 批量冲刷间隔（秒）
+injection_max_tokens = 4000  # 服务端默认预算（调用方可覆盖）
+# 类型上限，按优先级排列；比例是“最多占用”，不是预留
+injection_type_caps = [
+  { memory_type = "preference", ratio = 0.5 },
+  { memory_type = "decision",   ratio = 0.3 },
+  { memory_type = "knowledge",  ratio = 0.2 },
+]
+```
+
+访问反馈：检索返回的命中 id 经无界失败即丢的通道投递，由后台任务每 `access_flush_secs` 秒（或攒满 512 条）批量写回 `last_accessed` / `access_count`。请求链路不做写操作；回写只改记忆主记录，不重建向量/全文索引。
+
+DSH 插件在 `agent/pre-step` 注入时固定携带 `max_total_tokens`（默认 4000，可经 `contextMaxTokens` 配置），并按 `content`/`tier` 渲染分层结果。
+
 ## Dream 记忆整合
 
 Dream 是后台记忆整合作业，类比睡眠中的记忆巩固——系统空闲时自动触发，或通过 `memrec dream --force` 手动触发。

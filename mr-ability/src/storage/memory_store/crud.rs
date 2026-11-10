@@ -100,6 +100,45 @@ impl MemoryStorage for MemoryStore {
         self.save(memory).await
     }
 
+    /// 批量记录访问：只重写记忆主记录，不触碰标签/项目/时间索引与向量/全文索引。
+    ///
+    /// 访问统计不改变任何被索引字段，跳过索引维护可把一次批量回写降为单次
+    /// `WriteBatch`；若走 [`update`](Self::update)，会为每条命中重建全文与向量。
+    async fn touch_access(&self, ids: &[Uuid]) -> Result<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let cf_memories = self.rocksdb.cf_memories()?;
+        // 去重：同一批内同一记忆只累计一次访问，避免调用方重复投递放大计数。
+        let mut seen = std::collections::HashSet::with_capacity(ids.len());
+        let unique: Vec<Uuid> = ids.iter().copied().filter(|id| seen.insert(*id)).collect();
+        let keys: Vec<Vec<u8>> = unique.iter().map(Self::memory_key).collect();
+        let raw = self
+            .rocksdb
+            .multi_get_cf(cf_memories, keys.iter().map(|k| k.as_slice()));
+
+        let mut batch = rocksdb::WriteBatch::default();
+        let mut updated = 0;
+        for (id, item) in unique.iter().zip(raw) {
+            let Some(bytes) = item? else { continue };
+            let mut memory = Self::deserialize_memory(&bytes)?;
+            if memory.is_deleted {
+                continue;
+            }
+            memory.access();
+            batch.put_cf(
+                cf_memories,
+                Self::memory_key(id),
+                Self::serialize_memory(&memory)?,
+            );
+            updated += 1;
+        }
+        if updated > 0 {
+            self.rocksdb.write_batch(batch)?;
+        }
+        Ok(updated)
+    }
+
     async fn delete(&self, id: &Uuid) -> Result<bool> {
         let memory = self.get(id).await?;
 

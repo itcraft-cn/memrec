@@ -47,6 +47,10 @@ pub struct SearchArgs {
 
     #[arg(long)]
     pub mtype: Option<String>,
+
+    /// 总 token 预算：开启类型感知的分层裁剪（未设置则不裁剪）
+    #[arg(long)]
+    pub max_tokens: Option<u32>,
 }
 
 /// 执行语义搜索，发送请求到守护进程并输出结果。
@@ -91,6 +95,7 @@ pub async fn search_execute(
             hybrid_alpha: default_hybrid_alpha(),
             mmr_enabled: default_mmr_enabled(),
             mmr_lambda: default_mmr_lambda(),
+            max_total_tokens: args.max_tokens,
         })),
         1,
     );
@@ -138,6 +143,25 @@ fn print_human_output(response: &mr_protocol::JsonRpcResponse) {
                             hit.chunk_total.unwrap_or(0)
                         );
                     }
+                    println!();
+                }
+            }
+            mr_protocol::ResponseResult::TieredSearchResult(result) => {
+                println!(
+                    "Found {} memories (tokens: {}/{}, budgeted):\n",
+                    result.total_results, result.total_tokens, result.budget
+                );
+                for hit in &result.results {
+                    println!(
+                        "[{}] {} (score: {:.2}, tier: {}, tokens: {})",
+                        hit.memory_type.to_string().to_uppercase(),
+                        truncate(&hit.content, 50),
+                        hit.score,
+                        hit.tier,
+                        hit.token_count
+                    );
+                    println!("  ID: {}", hit.memory_id);
+                    println!("  Tags: {:?}", hit.tags);
                     println!();
                 }
             }

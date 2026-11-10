@@ -1,7 +1,7 @@
 //! 记忆检索相关的请求参数。
 
-use serde::{Deserialize, Serialize};
 use super::*;
+use serde::{Deserialize, Serialize};
 
 /// 添加记忆的参数。
 ///
@@ -117,6 +117,12 @@ pub struct SearchMemoryParams {
     pub mmr_enabled: bool,
     #[serde(default = "default_mmr_lambda")]
     pub mmr_lambda: f64,
+    /// 分层注入总 token 预算；`None` 或 0 表示不做预算裁剪（返回普通命中）。
+    ///
+    /// 指定后服务端在混合检索 + 图扩散的最终结果上做类型感知的分层裁剪，
+    /// 返回 [`ResponseResult::TieredSearchResult`](crate::ResponseResult)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_total_tokens: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -298,4 +304,3 @@ pub struct TagParams {
     pub id: Uuid,
     pub tag: String,
 }
-

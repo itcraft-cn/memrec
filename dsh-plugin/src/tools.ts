@@ -166,6 +166,11 @@ function searchTool(daemon: MemrecDaemon) {
         enum: [...MEMORY_TYPES],
         description: 'Filter by memory type',
       },
+      max_total_tokens: {
+        type: 'integer',
+        description:
+          'Token budget. When set (>0), returns tiered results sized to fit, prioritized by memory type',
+      },
     },
     async (args, env) => {
       const query = String(args.query ?? '')
@@ -181,6 +186,10 @@ function searchTool(daemon: MemrecDaemon) {
         cross_project: Boolean(args.cross_project),
         include_global: !args.project_only,
         memory_type: args.memory_type !== undefined ? String(args.memory_type) : undefined,
+        max_total_tokens:
+          args.max_total_tokens !== undefined && Number(args.max_total_tokens) > 0
+            ? Number(args.max_total_tokens)
+            : undefined,
         working_dir: env.workingDir,
       })
       return result

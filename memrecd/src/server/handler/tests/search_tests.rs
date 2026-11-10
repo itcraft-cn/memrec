@@ -53,6 +53,7 @@ use super::*;
                 hybrid_alpha: default_hybrid_alpha(),
                 mmr_enabled: false,
                 mmr_lambda: default_mmr_lambda(),
+                max_total_tokens: None,
             })),
             3,
         );
@@ -129,6 +130,7 @@ use super::*;
                         hybrid_alpha: default_hybrid_alpha(),
                         mmr_enabled: false,
                         mmr_lambda: default_mmr_lambda(),
+                        max_total_tokens: None,
                     })),
                     7,
                 ))
@@ -208,6 +210,7 @@ use super::*;
                     hybrid_alpha: default_hybrid_alpha(),
                     mmr_enabled: false,
                     mmr_lambda: default_mmr_lambda(),
+                    max_total_tokens: None,
                 })),
                 5,
             ))
@@ -277,6 +280,7 @@ use super::*;
                 hybrid_alpha: default_hybrid_alpha(),
                 mmr_enabled: default_mmr_enabled(),
                 mmr_lambda: default_mmr_lambda(),
+                max_total_tokens: None,
             })),
             1,
         );
@@ -285,3 +289,58 @@ use super::*;
         assert!(response.result.is_some());
     }
 
+
+    #[tokio::test]
+    async fn test_search_with_token_budget_returns_tiered() {
+        // 指定 max_total_tokens 时：返回分层结果，且总 token 不超过预算
+        let (router, _edge_store) = router_with_graph();
+
+        let long_content = "背景说明。".repeat(80); // 约 400 汉字，远超 40 token 预算
+        router.route(add_request_dedup_off(&long_content, 1)).await;
+
+        let request = JsonRpcRequest::new(
+            RequestAction::SearchMemory,
+            Some(RequestParams::SearchMemory(SearchMemoryParams {
+                query: "背景说明".to_string(),
+                project_id: None,
+                include_global: true,
+                project_only: false,
+                global_only: false,
+                cross_project: false,
+                memory_type: None,
+                top_k: 5,
+                min_score: 0.0,
+                working_dir: None,
+                hybrid_alpha: default_hybrid_alpha(),
+                mmr_enabled: false,
+                mmr_lambda: default_mmr_lambda(),
+                max_total_tokens: Some(40),
+            })),
+            2,
+        );
+
+        let response = router.route(request).await;
+        let result = match response.result {
+            Some(ResponseResult::TieredSearchResult(r)) => r,
+            other => panic!("期望分层检索结果，实际: {:?}", other.is_some()),
+        };
+
+        assert_eq!(result.budget, 40);
+        assert!(
+            result.total_tokens <= 40,
+            "总 token 不得超预算: {}",
+            result.total_tokens
+        );
+        assert!(!result.results.is_empty());
+        for hit in &result.results {
+            assert!(
+                hit.token_count <= 40,
+                "单条 token 不得超预算: {}",
+                hit.token_count
+            );
+            assert!(
+                !hit.content.is_empty(),
+                "分层结果应带渲染后的内容而非仅 preview"
+            );
+        }
+    }

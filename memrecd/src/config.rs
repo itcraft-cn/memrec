@@ -11,7 +11,7 @@
 use anyhow::Result;
 use mr_common::{
     DedupConfig, DreamConfig, IdleMonitorConfig, LlmConfig, LogConfig, ModelConfig, ModelType,
-    QueueConfig,
+    QueueConfig, RetrievalConfig,
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -33,6 +33,8 @@ pub struct DaemonConfig {
     pub idle_monitor: IdleMonitorConfig,
     #[serde(default)]
     pub queue: QueueConfig,
+    #[serde(default)]
+    pub retrieval: RetrievalConfig,
     #[serde(default)]
     pub log: LogConfig,
 }
@@ -86,6 +88,7 @@ impl Default for DaemonConfig {
             archive: ArchiveConfig::default(),
             idle_monitor: IdleMonitorConfig::default(),
             queue: QueueConfig::default(),
+            retrieval: RetrievalConfig::default(),
             log: LogConfig::default(),
         }
     }
