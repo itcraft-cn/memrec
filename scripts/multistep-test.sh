@@ -41,13 +41,33 @@ TEST_FLAG="$MEMREC_HOME/.debug"
 BIN_BACKUP="$MEMREC_HOME/.bin-backup"
 TS="$(date +%Y%m%d_%H%M%S)"
 DATA_BACKUP="$HOME/.memrec.bak.$TS"
-LOG_FILE="$HOME/.memrec.deploy.log"
+LOG_FILE="${MEMREC_DEPLOY_LOG:-/tmp/.memrec.deploy.log}"
+
+# 日志落在 /tmp，重启即丢弃；首次创建用 0600，并拒绝符号链接。
+init_log() {
+  [ -n "$LOG_FILE" ] || return 0
+  if [ -L "$LOG_FILE" ]; then
+    printf 'WARN: 日志路径是符号链接，已禁用文件日志: %s\n' "$LOG_FILE" >&2
+    LOG_FILE=""
+    return 0
+  fi
+  if [ ! -e "$LOG_FILE" ]; then
+    (umask 077; : >>"$LOG_FILE") 2>/dev/null || true
+  fi
+  chmod 600 "$LOG_FILE" 2>/dev/null || true
+  if [ ! -w "$LOG_FILE" ]; then
+    printf 'WARN: 日志不可写，已禁用文件日志: %s\n' "$LOG_FILE" >&2
+    LOG_FILE=""
+  fi
+}
 
 log() {
   local line
   line="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
   printf '%s\n' "$line"
-  printf '%s\n' "$line" >>"$LOG_FILE"
+  if [ -n "$LOG_FILE" ]; then
+    printf '%s\n' "$line" >>"$LOG_FILE" 2>/dev/null || LOG_FILE=""
+  fi
 }
 
 die() {
@@ -336,6 +356,7 @@ usage() {
 }
 
 main() {
+  init_log
   local cmd="${1:-}"
   case "$cmd" in
     run) shift; cmd_run "$@" ;;

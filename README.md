@@ -365,7 +365,7 @@ scripts/multistep-test.sh prune --keep 5      # 清理旧数据备份（保留�
 - 停服后才备份 `~/.memrec` 并安装二进制到 `~/.local/bin` 与 `~/.cargo/bin`；
 - 启动后等待 socket 就绪（最多 60 秒），再跑 `scripts/retrieval_gate.sh`；
 - 门禁失败不会自动回滚数据，脚本打印备份路径与恢复命令由人决策；
-- 每次运行追加日志到 `~/.memrec.deploy.log`；
+- 每次运行追加日志到 `/tmp/.memrec.deploy.log`（重启即丢弃）；
 - 数据备份命名为 `~/.memrec.bak.<时间戳>`，最近一次二进制保存在 `~/.memrec/.bin-backup`。
 
 ## Dream 记忆整合
