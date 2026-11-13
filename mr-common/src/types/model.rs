@@ -94,12 +94,12 @@ impl ModelType {
     /// 返回该模型推荐的语义搜索最低相似度阈值。
     ///
     /// MiniLM-L6-v2 的嵌入空间较紧凑，推荐 0.75；
-    /// BGE-M3 的嵌入空间较稀疏，推荐 0.5。
+    /// BGE-M3 的嵌入空间较稀疏，推荐 0.60（高于无关文本余弦噪声上限）。
     pub fn default_min_score(&self) -> f32 {
         match self {
             Self::MiniLML6V2 => 0.75,
-            Self::BGEM3 => 0.5,
-            Self::Custom { .. } => 0.5,
+            Self::BGEM3 => 0.60,
+            Self::Custom { .. } => 0.60,
         }
     }
 

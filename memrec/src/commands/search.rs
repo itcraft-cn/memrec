@@ -17,7 +17,7 @@ use mr_protocol::{
 /// |------|------|--------|
 /// | `query` | 搜索查询（必填） | — |
 /// | `top_k` | 返回数量 | 10 |
-/// | `min_score` | 最低相似度 | 0.5 |
+/// | `min_score` | 最低相似度 | 0.60 |
 /// | `project` | 仅当前项目（`-p`） | 按 `.mr_pid` 判断 |
 /// | `global` | 仅全局记忆（`-g`） | 按 `.mr_pid` 判断 |
 /// | `all` | 跨项目搜索（`-a`） | false |
@@ -30,7 +30,7 @@ pub struct SearchArgs {
     #[arg(short = 'k', long, default_value = "10")]
     pub top_k: usize,
 
-    #[arg(long, default_value = "0.5")]
+    #[arg(long, default_value = "0.60")]
     pub min_score: f32,
 
     /// 仅当前项目

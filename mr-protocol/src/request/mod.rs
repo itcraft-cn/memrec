@@ -8,7 +8,7 @@
 //!
 //! ## 默认值策略
 //!
-//! - [`default_min_score`]：语义搜索最低相似度，优先读取 `MEMREC_MIN_SCORE` 环境变量，默认 0.5
+//! - [`default_min_score`]：语义搜索最低相似度，优先读取 `MEMREC_MIN_SCORE` 环境变量，默认 0.60
 //! - [`default_include_global`]：搜索是否包含公共记忆，默认 true
 //! - [`default_top_k`] / [`default_limit`]：返回数量上限，分别默认 10 和 20
 

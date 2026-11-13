@@ -44,7 +44,7 @@ dsh plugin --profile web add /abs/path/to/memrec/dsh-plugin
 | `socketPath` | string | `~/.memrec/memrecd.sock` | memrecd socket 路径（支持 `~` 展开） |
 | `injectContext` | boolean | true | 是否注入项目记忆上下文 |
 | `contextTopK` | number | 5 | 每次注入的检索条数（1-20） |
-| `contextMinScore` | number | 0.45 | 注入检索最低相似度（0-1） |
+| `contextMinScore` | number | 0.60 | 注入检索最低相似度（0-1） |
 | `contextRefreshTurns` | number | 1 | 每 N 个 turn 注入一次 |
 | `autoRecord` | boolean | true | 是否启用会话自动记录（LLM 提取） |
 | `autoRecordProvider` | string | '' | LLM provider（空则用会话 agent 的） |

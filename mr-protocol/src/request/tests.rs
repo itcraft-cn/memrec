@@ -86,7 +86,7 @@ use super::*;
 
         assert!(params.include_global);
         assert_eq!(params.top_k, 10);
-        assert_eq!(params.min_score, 0.5);
+        assert_eq!(params.min_score, 0.60);
     }
 
     #[test]

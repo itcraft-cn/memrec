@@ -37,7 +37,7 @@ impl McpServer {
                         "properties": {
                             "query": { "type": "string", "description": "Search query" },
                             "top_k": { "type": "integer", "description": "Max results to return", "default": 10 },
-                            "min_score": { "type": "number", "description": "Minimum similarity score (0-1)", "default": 0.5 },
+                            "min_score": { "type": "number", "description": "Minimum similarity score (0-1)", "default": 0.60 },
                             "scope": {
                                 "type": "string",
                                 "enum": ["project", "global", "all"],
@@ -269,7 +269,7 @@ impl McpServer {
         let min_score = args
             .get("min_score")
             .and_then(|v| v.as_f64())
-            .unwrap_or(0.5);
+            .unwrap_or(0.60);
         let scope = parse_scope(args.get("scope").and_then(|v| v.as_str()));
         let memory_type = args.get("memory_type").and_then(|v| v.as_str());
         let max_total_tokens = args

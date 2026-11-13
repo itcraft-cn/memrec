@@ -136,7 +136,7 @@ export default function memrecExtension(pi: ExtensionAPI) {
 		let memories: any[] = [];
 		try {
 			const result = await execMemrec(
-				["search", query, "-k", String(config.autoInjectCount), "--min-score", "0.6"],
+				["search", query, "-k", String(config.autoInjectCount), "--min-score", "0.60"],
 				ctx.signal,
 			);
 			memories = result.results ?? [];

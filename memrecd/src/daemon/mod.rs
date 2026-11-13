@@ -411,7 +411,22 @@ impl Daemon {
         vector_store: &Arc<RocksDBVectorStore>,
         embedder: &Arc<dyn EmbeddingGenerator>,
     ) -> Result<()> {
-        let memories = storage.list(usize::MAX).await?;
+        let mut memories = storage.list(usize::MAX).await?;
+
+        // 空内容记忆不参与向量索引：空串嵌入接近语料质心，会对任意查询稳定命中，
+        // 污染排序。这里顺带摘除历史遗留的空向量（旧版本曾为其生成嵌入）。
+        let mut removed = 0usize;
+        for memory in memories.iter().filter(|m| m.content.trim().is_empty()) {
+            if vector_store.remove(&memory.id).await.unwrap_or(false) {
+                removed += 1;
+            }
+        }
+        if removed > 0 {
+            vector_store.save()?;
+            info!("Removed {} vector(s) for empty-content memories", removed);
+        }
+        memories.retain(|m| !m.content.trim().is_empty());
+
         let existing_count = vector_store.count_cached();
 
         if existing_count >= memories.len() {
@@ -474,7 +489,13 @@ impl Daemon {
         storage: &Arc<MemoryStore>,
         fts_store: &Arc<TantivyStore>,
     ) -> Result<()> {
-        let active = storage.list(usize::MAX).await?;
+        let all = storage.list(usize::MAX).await?;
+        // 空内容记忆不入全文索引：与向量侧同一判据，避免「文档数 = 活跃记忆数」
+        // 的快速判据被空文档掩盖，也避免空文档进入 BM25 结果集。
+        let active: Vec<_> = all
+            .into_iter()
+            .filter(|m| !m.content.trim().is_empty())
+            .collect();
         let fts_count = fts_store.count().await?;
         if fts_count == active.len() {
             info!("FTS index consistent: {} documents", fts_count);
@@ -482,7 +503,7 @@ impl Daemon {
         }
 
         info!(
-            "FTS index inconsistent (docs: {}, active memories: {}); rebuilding...",
+            "FTS index inconsistent (docs: {}, indexable memories: {}); rebuilding...",
             fts_count,
             active.len()
         );

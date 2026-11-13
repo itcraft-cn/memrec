@@ -82,6 +82,22 @@ impl IndexingStorage {
     /// 先移除是为了保证 `update` 场景下全文索引不产生重复文档；
     /// 对新记忆该移除为无副作用操作。失败仅告警。
     async fn reindex(&self, memory: &Memory) {
+        // 空内容不进入检索索引。
+        //
+        // 背景：Dream 摘要链路可能产出正文为空的记忆。空串嵌入会得到接近语料
+        // 质心的向量，对任意查询都稳定给出中等相似度（实测约 0.52），从而在
+        // 无关查询中抢占 top1 并挤占 top-k 名额。这里同时摘除可能存在的旧索引，
+        // 保证「内容为空 ⇒ 索引中不存在该 id」。
+        if memory.content.trim().is_empty() {
+            warn!(
+                target: "indexing",
+                "Skip indexing memory {}: empty content",
+                memory.id
+            );
+            self.deindex(&memory.id).await;
+            return;
+        }
+
         // 优先复用记忆已携带的向量（如 Dream 上游去重时预计算并写回），
         // 避免重复嵌入；无预置向量时再回退到嵌入生成器。
         let embedding = match memory.embedding.clone().filter(|v| !v.is_empty()) {
@@ -302,6 +318,25 @@ mod tests {
             hybrid,
             dir,
         )
+    }
+
+    #[tokio::test]
+    async fn test_empty_content_not_indexed_and_purged() {
+        // 回归：空内容（Dream 失败摘要）不得进入检索索引；已有索引在内容变为空时
+        // 必须被摘除，否则空串向量会持续污染无关查询的首位结果。
+        let (store, hybrid, _dir) = build();
+
+        let empty = Memory::new("   \n".to_string(), MemoryType::Knowledge);
+        store.save(&empty).await.unwrap();
+        assert!(!hybrid.contains(&empty.id), "空内容不应写入索引");
+
+        let mut m = Memory::new("有内容的记忆".to_string(), MemoryType::Knowledge);
+        store.save(&m).await.unwrap();
+        assert!(hybrid.contains(&m.id), "非空内容应写入索引");
+
+        m.content = "".to_string();
+        store.update(&m).await.unwrap();
+        assert!(!hybrid.contains(&m.id), "内容变空后应摘除索引");
     }
 
     #[tokio::test]

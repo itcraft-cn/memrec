@@ -197,13 +197,17 @@ pub fn default_mmr_lambda() -> f64 {
 
 /// 语义搜索最低相似度的默认值。
 ///
-/// 优先读取 `MEMREC_MIN_SCORE` 环境变量，解析失败时回退到 0.5。
-/// 注意：实际运行时由 `ModelType::default_min_score()` 覆盖（MiniLM=0.75, BGE-M3=0.5）。
+/// 优先读取 `MEMREC_MIN_SCORE` 环境变量，解析失败时回退到 0.60。
+/// 注意：实际运行时由 `ModelType::default_min_score()` 覆盖（MiniLM=0.75, BGE-M3=0.60）。
+///
+/// 0.60 的取值依据：真实语料实测中，0.50 会让 54% 的无关查询通过阈值，
+/// 0.55 为 29%，0.60 降到 17%，而关键词/语义改写的命中保留率仅下降约 2-4 个百分点。
+/// BGE-M3 对无关中文文本的余弦噪声上限实测可达 0.57，故阈值必须高于该噪声带。
 pub fn default_min_score() -> f32 {
     std::env::var("MEMREC_MIN_SCORE")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(0.5)
+        .unwrap_or(0.60)
 }
 
 /// 搜索模式：精确匹配 / 语义检索 / 混合（默认）。

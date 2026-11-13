@@ -15,7 +15,11 @@ impl Router {
     ///
     /// T6: 原单方法约 200 行，拆为 记忆构建 / 去重决策 / 索引重建 / 持久化
     /// 四个独立环节，`handle_add` 仅做分发与响应包装。
-    pub(super) async fn handle_add(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+    pub(super) async fn handle_add(
+        &self,
+        params: Option<RequestParams>,
+        id: u64,
+    ) -> JsonRpcResponse {
         match params {
             Some(RequestParams::Add(p)) => {
                 let memory = self.build_add_memory(&p);
@@ -206,14 +210,17 @@ impl Router {
 
         self.storage.update(&updated).await?;
 
-        // 重建向量索引：先删旧向量再写新向量
+        // 重建向量索引：先删旧向量再写新向量。空内容只摘除索引，不生成嵌入
+        // （空串向量接近语料质心，会对任意查询稳定命中）。
         let _ = self.hybrid_store.remove(&updated.id).await;
-        if let Ok(embed) = self.embedder.embed(&updated.content) {
-            let payload = self.build_payload(&updated);
-            let _ = self
-                .hybrid_store
-                .add(&updated.id, &embed, &updated.content, payload)
-                .await;
+        if !updated.content.trim().is_empty() {
+            if let Ok(embed) = self.embedder.embed(&updated.content) {
+                let payload = self.build_payload(&updated);
+                let _ = self
+                    .hybrid_store
+                    .add(&updated.id, &embed, &updated.content, payload)
+                    .await;
+            }
         }
         self.archive_manager.archive(&updated).await;
 
@@ -239,9 +246,20 @@ impl Router {
     /// 新增路径（T6 拆分）：save + 归档 + 嵌入/全文索引重建。
     ///
     /// 索引重建失败仅告警不回滚（记忆主体已落库，索引可通过重生成补齐）。
-    pub(super) async fn save_and_index(&self, memory: &Memory, content: &str) -> anyhow::Result<()> {
+    pub(super) async fn save_and_index(
+        &self,
+        memory: &Memory,
+        content: &str,
+    ) -> anyhow::Result<()> {
         self.storage.save(memory).await?;
         self.archive_manager.archive(memory).await;
+
+        // 空内容不生成嵌入：空串向量接近语料质心，会对任意查询稳定命中，
+        // 污染检索排序（详见 IndexingStorage::reindex 的同类保护）。
+        if content.trim().is_empty() {
+            let _ = self.hybrid_store.remove(&memory.id).await;
+            return Ok(());
+        }
 
         match self.embedder.embed(content) {
             Ok(embed) => {
@@ -315,5 +333,4 @@ impl Router {
 
         Some(decider.decide(content, &candidates).await)
     }
-
 }

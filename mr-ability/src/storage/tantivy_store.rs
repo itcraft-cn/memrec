@@ -4,7 +4,7 @@
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use tantivy::{
@@ -41,6 +41,14 @@ struct TantivySchema {
 
 /// 全文检索字段使用的分词器名称（jieba 中文分词）。
 const TOKENIZER_NAME: &str = "cn_jieba";
+
+/// 证据强度映射的 IDF 饱和常数。
+///
+/// `evidence = 1 - exp(-matched_idf / (TAU * sqrt(查询词数)))`：
+/// - 稀有词命中仍能得到高强度（避免误伤精确 token 检索）；
+/// - 常见词、单 token 命中被显著压到阈值以下；
+/// - 除以 sqrt(n) 让"词更多"的查询需要更多证据，抑制短查询虚高。
+const EVIDENCE_IDF_TAU: f32 = 4.0;
 
 /// 索引版本标记：分词器或 FTS schema 变更时递增，触发索引目录重建。
 ///
@@ -341,25 +349,60 @@ impl TantivyStore {
     ///
     /// 覆盖率用于区分"语义命中"与"仅个别字词碰撞"：单路 BM25 命中若覆盖率过低，
     /// 交由融合层丢弃，不再凭单次词项匹配获得高相关度。
-    fn coverage_ratio(&self, query_terms: &HashSet<String>, text: &str) -> f32 {
+    ///
+    /// 同时返回**证据强度**（0-1）：以命中查询词的 IDF 之和衡量证据质量，并按
+    /// 查询词数的平方根阻尼。原因：覆盖率只反映"命中比例"，单 token 查询命中
+    /// 一次即等于 1.0，会把"只是出现该词"误判为确定相关（实测 `route`、
+    /// `infrastructure` 等单词查询曾得到满分）。IDF 质量让稀有词命中仍然有力，
+    /// 常见词命中则显著降权。
+    fn coverage_and_evidence(
+        &self,
+        query_terms: &HashSet<String>,
+        idf: &HashMap<String, f32>,
+        text: &str,
+    ) -> (f32, f32) {
         if query_terms.is_empty() {
-            return 0.0;
+            return (0.0, 0.0);
         }
         let Some(mut analyzer) = self.index.tokenizers().get(TOKENIZER_NAME) else {
-            return 0.0;
+            return (0.0, 0.0);
         };
         let mut stream = analyzer.token_stream(text);
         let mut seen = HashSet::new();
         let mut matched = 0usize;
+        let mut matched_idf = 0.0f32;
         while let Some(tok) = stream.next() {
             if tok.text.is_empty() || !seen.insert(tok.text.clone()) {
                 continue;
             }
             if query_terms.contains(&tok.text) {
                 matched += 1;
+                matched_idf += idf.get(&tok.text).copied().unwrap_or(0.0);
             }
         }
-        matched as f32 / query_terms.len() as f32
+        let n = query_terms.len() as f32;
+        let coverage = matched as f32 / n;
+        // 证据 = 覆盖比例 × IDF 质量饱和度：既要求「命中足够多的查询词」，
+        // 又要求「命中的词足够有区分度」，两者缺一不可。
+        let idf_saturation = 1.0 - (-matched_idf / (EVIDENCE_IDF_TAU * n.sqrt())).exp();
+        let evidence = coverage * idf_saturation;
+        (coverage, evidence)
+    }
+
+    /// 计算单个查询词的 IDF（正文与标签两路的文档频率之和）。
+    ///
+    /// 仅用于证据强度计算，不参与 BM25 排序；近似处理跨字段重复计数，
+    /// 只要求单调性（越稀有越大）成立。
+    fn term_idf(&self, searcher: &tantivy::Searcher, term: &str) -> f32 {
+        let total = searcher.num_docs() as f32;
+        let mut df = 0u64;
+        for field in [self.schema.content, self.schema.tags] {
+            df += searcher
+                .doc_freq(&tantivy::Term::from_field_text(field, term))
+                .unwrap_or(0);
+        }
+        let df = df as f32;
+        (1.0 + (total - df + 0.5) / (df + 0.5)).ln().max(0.0)
     }
 
     /// 批量写入文档，仅一次提交。用于启动自愈的全量重建，避免逐条提交的开销。
@@ -429,8 +472,12 @@ impl FtsStorage for TantivyStore {
             .context("Failed to execute Tantivy search")?;
 
         // 覆盖率基于查询词集合与文档内容计算，供融合层判断"真实语义/词项命中"
-        // 还是"个别字词碰撞"。查询词只切分一次。
+        // 还是"个别字词碰撞"。查询词只切分一次；IDF 只算一次供全量文档复用。
         let query_terms = self.query_terms(query);
+        let idf: HashMap<String, f32> = query_terms
+            .iter()
+            .map(|t| (t.clone(), self.term_idf(&searcher, t)))
+            .collect();
 
         let mut hits = Vec::new();
 
@@ -505,11 +552,14 @@ impl FtsStorage for TantivyStore {
             coverage_text.push_str(&content_text.chars().take(4000).collect::<String>());
             coverage_text.push(' ');
             coverage_text.push_str(tags_text);
-            let coverage = self.coverage_ratio(&query_terms, &coverage_text);
+            let (coverage, evidence) =
+                self.coverage_and_evidence(&query_terms, &idf, &coverage_text);
 
             hits.push(SearchHit {
                 memory_id: id,
-                score,
+                // `score` 使用证据强度而非原始 BM25：BM25 量纲随查询漂移，
+                // 融合层需要一个 0-1 的绝对量纲。
+                score: evidence,
                 payload: VectorPayload {
                     project_id: doc
                         .get_first(self.schema.project_id)

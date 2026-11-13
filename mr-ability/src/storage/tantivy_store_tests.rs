@@ -147,3 +147,45 @@ async fn test_clear_and_add_many_rebuilds() {
     assert_eq!(store.count().await.unwrap(), 2, "批量写入后应为 2");
     assert!(store.contains(&a).await.unwrap());
 }
+
+#[tokio::test]
+async fn test_single_token_query_evidence_not_saturated() {
+    // 回归：单 token 查询曾因 coverage=1.0 直接得到满分（`route`、`infrastructure`
+    // 实测 1.0）。证据强度必须严格小于 1，且随命中词增加而增大。
+    let store = TantivyStore::new_test();
+    for i in 0..6 {
+        store
+            .add(
+                &Uuid::new_v4(),
+                &format!("route handler number {i} 路由处理"),
+                payload(),
+            )
+            .await
+            .unwrap();
+    }
+    store.reload().unwrap();
+
+    let single = store
+        .search("route", SearchFilter::default(), 5)
+        .await
+        .unwrap();
+    assert!(!single.is_empty(), "单词查询应能命中");
+    let hit = &single[0];
+    assert_eq!(hit.coverage, Some(1.0), "单 token 覆盖率仍是 1.0");
+    assert!(
+        hit.score < 1.0,
+        "单 token 证据强度不应饱和到 1.0，实际 {}",
+        hit.score
+    );
+
+    let multi = store
+        .search("route handler 路由", SearchFilter::default(), 5)
+        .await
+        .unwrap();
+    assert!(
+        multi[0].score > hit.score,
+        "多词命中证据应高于单词命中: {} vs {}",
+        multi[0].score,
+        hit.score
+    );
+}

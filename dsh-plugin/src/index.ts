@@ -36,7 +36,7 @@ export type Config = {
   injectContext?: boolean
   /** 上下文注入每次检索条数，默认 5。 */
   contextTopK?: number
-  /** 上下文注入最低相似度，默认 0.45。 */
+  /** 上下文注入最低相似度，默认 0.60。 */
   contextMinScore?: number
   /** 每 N 个 turn 注入一次上下文，默认 1。 */
   contextRefreshTurns?: number
@@ -59,7 +59,7 @@ export const Config = z.object({
   socketPath: z.string().default(''),
   injectContext: z.boolean().default(true),
   contextTopK: z.number().step(1).min(1).max(20).default(5),
-  contextMinScore: z.number().min(0).max(1).default(0.45),
+  contextMinScore: z.number().min(0).max(1).default(0.60),
   contextRefreshTurns: z.number().step(1).min(1).default(1),
   contextMaxTokens: z.number().step(1).min(100).default(4000),
   autoRecord: z.boolean().default(true),
@@ -88,7 +88,7 @@ export function apply(ctx: Context, config: Config): void {
   installContextInjection(ctx, daemon, {
     enabled: config.injectContext !== false,
     topK: config.contextTopK ?? 5,
-    minScore: config.contextMinScore ?? 0.45,
+    minScore: config.contextMinScore ?? 0.60,
     refreshTurns: config.contextRefreshTurns ?? 1,
     maxTokens: config.contextMaxTokens ?? 4000,
   })

@@ -143,6 +143,9 @@ impl HybridStore {
         for hit in fts_hits {
             let coverage = hit.coverage.unwrap_or(0.0).clamp(0.0, 1.0);
             let fts_raw = hit.fts_score.unwrap_or(hit.score);
+            // 全文路分数为证据强度（IDF 质量映射，见 TantivyStore::coverage_and_evidence），
+            // 不再是"命中比例"：避免单 token 命中直接得到 1.0。
+            let fts_abs = hit.score.clamp(0.0, 1.0);
 
             if let Some(existing) = merged.get_mut(&hit.memory_id) {
                 // 双路命中：保留向量载荷（含 chunk 信息），补全全文侧字段并做 noisy-OR。
@@ -150,7 +153,7 @@ impl HybridStore {
                     .vector_score
                     .unwrap_or(existing.score)
                     .clamp(0.0, 1.0);
-                existing.score = 1.0 - (1.0 - vec_abs) * (1.0 - coverage);
+                existing.score = 1.0 - (1.0 - vec_abs) * (1.0 - fts_abs);
                 existing.fts_score = Some(fts_raw);
                 existing.coverage = Some(coverage);
                 let rank = fts_rank.get(&hit.memory_id).copied().unwrap_or(1);
@@ -164,7 +167,7 @@ impl HybridStore {
                 let rank = fts_rank.get(&hit.memory_id).copied().unwrap_or(1);
                 let rrf = (1.0 - alpha) / (RRF_K + rank as f32);
                 let mut hit = hit;
-                hit.score = coverage;
+                hit.score = fts_abs;
                 hit.vector_score = None;
                 hit.fts_score = Some(fts_raw);
                 hit.coverage = Some(coverage);
@@ -212,15 +215,17 @@ impl MmrHit for MmrSearchHit {
 impl HybridStorage for HybridStore {
     async fn search(&self, req: HybridSearchRequest) -> Result<HybridSearchResult> {
         let filter = req.filter.clone();
-        // 向量侧不在 KNN 阶段应用 min_score：融合需要同时看到原始余弦与查询词覆盖率，
-        // 过早裁掉会让"低余弦但高词覆盖"的精确 token 命中无法进入融合。阈值在融合后
-        // 按双路证据统一判定（见下方 retain）。
+        // 候选池 over-fetch：`top_k` 只应决定最终返回条数，不应限制融合前的候选集。
+        // 若直接把 `top_k` 当作两路检索上限，融合与 MMR 只能在已被截断的池子里挑选，
+        // 会导致 top1 随 k 变化、稀有词/标签命中被 BM25 长文淹没等召回缺陷。
+        // 经验值：至少 4 倍且不少于 50，上限 500 约束单次检索开销。
+        let fetch_k = req.top_k.saturating_mul(4).max(50).min(500);
         let mut vector_filter = filter.clone();
         vector_filter.min_score = 0.0;
         let (vec_result, fts_result) = tokio::join!(
             self.vector_store
-                .search(&req.query_embedding, vector_filter, req.top_k),
-            self.fts_store.search(&req.query, filter, req.top_k)
+                .search(&req.query_embedding, vector_filter, fetch_k),
+            self.fts_store.search(&req.query, filter, fetch_k)
         );
 
         let vec_hits = vec_result?;
@@ -263,7 +268,6 @@ impl HybridStorage for HybridStore {
                 })
                 .then_with(|| a.memory_id.cmp(&b.memory_id))
         });
-        sorted.truncate(req.top_k);
 
         let final_hits = if req.mmr_enabled {
             let mut mmr_hits: Vec<MmrSearchHit> = sorted
@@ -286,11 +290,15 @@ impl HybridStorage for HybridStore {
                 }
             }
 
+            // 重排在 over-fetch 后的候选池上执行，最终条数由请求的 top_k 决定。
+            // 同一查询不同 top_k 共享同一候选池，保证小 k 的结果是大 k 的前缀。
             let mut config = self.mmr_config.clone();
             config.lambda = req.mmr_lambda as f64;
+            config.top_k = req.top_k;
             let reranked = mmr_rerank(mmr_hits, &config);
             reranked.into_iter().map(|h| h.inner).collect()
         } else {
+            sorted.truncate(req.top_k);
             sorted
         };
 
@@ -551,7 +559,8 @@ mod tests {
         let id = Uuid::new_v4();
         let out = HybridStore::merge_and_calibrate(
             vec![make_hit(id, 0.60, Some(0.60), None, None)],
-            vec![make_hit(id, 0.0, None, Some(4.0), Some(1.0))],
+            // 全文 hit 的 score 字段现在是证据强度（IDF 质量映射），并非覆盖率。
+            vec![make_hit(id, 1.0, None, Some(4.0), Some(1.0))],
             0.5,
         );
         assert_eq!(out.len(), 1);

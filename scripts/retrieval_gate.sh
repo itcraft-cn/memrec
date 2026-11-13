@@ -11,7 +11,10 @@
 #   2. 语义金标集（混合检索）：eval/retrieval_golden.jsonl 中的改写查询，要求
 #      hit@k 与 MRR 达标，衡量真实语义召回与排序质量。
 #   3. 负例（无关查询）：完全无关的查询不得因个别字词碰撞得到高置信结果
-#      （top1 校准分必须低于默认阈值），锁定「单路 BM25 命中不再等于 0.5」。
+#      （top1 校准分必须低于默认阈值），锁定「单路 BM25 命中不再等于 0.5」；
+#      且命中不得是空内容记忆（空串嵌入曾长期污染无关查询首位）。
+#   4. top-k 前缀一致性：小 k 的结果必须是同查询大 k 结果的前缀，
+#      锁定「候选池 over-fetch、融合后再截断」的不变量，防止 top1 随 k 漂移。
 #
 # 依赖：memrecd 正在运行；PATH 中存在 memrec 与 jq。
 # 退出码：0=通过；非 0=任一项未达标（可用于 CI / 部署流程阻断）。
@@ -29,7 +32,7 @@ SELF_SAMPLE="${RETRIEVAL_GATE_SELF_SAMPLE:-120}"
 GOLDEN_MIN_HIT="${RETRIEVAL_GATE_MIN_HIT:-0.80}"
 GOLDEN_MIN_MRR="${RETRIEVAL_GATE_MIN_MRR:-0.55}"
 SELF_MIN_RECALL="${RETRIEVAL_GATE_MIN_SELF_RECALL:-0.97}"
-NEG_MAX_TOP="${RETRIEVAL_GATE_NEG_MAX_TOP:-0.5}"
+NEG_MAX_TOP="${RETRIEVAL_GATE_NEG_MAX_TOP:-0.60}"
 
 command -v "$MEMREC_BIN" >/dev/null || { echo "找不到 memrec 可执行文件: $MEMREC_BIN"; exit 2; }
 command -v jq >/dev/null || { echo "缺少 jq"; exit 2; }
@@ -87,13 +90,45 @@ neg_queries=(
   "如何给宠物仓鼠挑选跑轮"
   "如何制作抹茶提拉米苏甜点"
   "深海热泉喷口附近的化能合成生态系统有哪些物种"
+  "红酒炖牛肉的传统做法"
+  "如何给吉他更换琴弦并调音"
+  "马拉松赛前的碳水储备策略"
+  "中世纪城堡的护城河是如何供水的"
+  "如何辨别天然蜂蜜与浓缩蜂蜜"
 )
 for q in "${neg_queries[@]}"; do
-  top="$("$MEMREC_BIN" search "$q" -a --min-score 0 -k 1 2>/dev/null \
-    | jq -r '.result.results[0].score // 0' 2>/dev/null || echo 0)"
-  echo "[retrieval-gate] 负例：\"$q\" top1=$top（要求 < $NEG_MAX_TOP）"
+  payload="$("$MEMREC_BIN" search "$q" -a --min-score 0 -k 1 2>/dev/null || echo '{}')"
+  top="$(jq -r '.result.results[0].score // 0' <<<"$payload" 2>/dev/null || echo 0)"
+  preview="$(jq -r '.result.results[0].content_preview // ""' <<<"$payload" 2>/dev/null || echo "")"
+  echo "[retrieval-gate] 负例：\"$q\" top1=$top（要求 < $NEG_MAX_TOP 且非空内容）"
   if ! awk -v a="$top" -v b="$NEG_MAX_TOP" 'BEGIN { exit !(a < b) }'; then
     echo "[retrieval-gate]   失败：无关查询 top1 达到或超过阈值"
+    fail=1
+  fi
+  if [ -z "$preview" ]; then
+    echo "[retrieval-gate]   失败：无关查询 top1 是空内容记忆（索引污染）"
+    fail=1
+  fi
+done
+
+# ---------- 4. top-k 前缀一致性 ----------
+# 同一查询下，k=3 的结果集合必须被 k=10 的结果集合包含，且 top1 相同。
+# 该不变量依赖"候选池与返回条数解耦"：若候选池仍等于 top_k，小 k 会看到
+# 不同的融合归一化结果，top1 可能反而更差。
+prefix_queries=(
+  "memrec 检索阈值"
+  "Dream 融合质量"
+  "Spring Cloud Gateway 限流配置"
+)
+for q in "${prefix_queries[@]}"; do
+  ids3="$("$MEMREC_BIN" search "$q" -a --min-score 0 -k 3 2>/dev/null | jq -r '.result.results[].memory_id')"
+  ids10="$("$MEMREC_BIN" search "$q" -a --min-score 0 -k 10 2>/dev/null | jq -r '.result.results[].memory_id')"
+  missing="$(comm -23 <(sort <<<"$ids3") <(sort <<<"$ids10"))"
+  top3="$(head -n1 <<<"$ids3")"
+  top10="$(head -n1 <<<"$ids10")"
+  echo "[retrieval-gate] 前缀：\"$q\" k3⊆k10=$([ -z "$missing" ] && echo yes || echo no) top1一致=$([ "$top3" = "$top10" ] && echo yes || echo no)"
+  if [ -n "$missing" ] || [ "$top3" != "$top10" ]; then
+    echo "[retrieval-gate]   失败：top-k 结果不满足前缀一致性"
     fail=1
   fi
 done
