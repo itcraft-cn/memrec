@@ -38,7 +38,7 @@ mr-install
 
 | Model | Dimension | Best For | Disk Space | Memory | Suggested min_score |
 |-------|-----------|----------|------------|--------|---------------------|
-| `bge-m3` (default) | 1024 | Chinese/multilingual | ~2.3GB | ~1.5GB | 0.5 |
+| `bge-m3` (default) | 1024 | Chinese/multilingual | ~2.3GB | ~1.5GB | 0.6 |
 | `minilm-l6-v2` | 384 | English-only, lightweight | ~90MB | ~118MB | 0.75 |
 
 ```bash
@@ -49,7 +49,7 @@ mr-install
 mr-install --model minilm-l6-v2
 ```
 
-**About min_score:** The runtime default is `0.5` (override with `MEMREC_MIN_SCORE`). BGE-M3 cosine similarity is inherently lower than MiniLM; for MiniLM, set `0.75` explicitly. The table above lists suggested values, not automatically applied model defaults.
+**About min_score:** The runtime default is `0.60` (override with `MEMREC_MIN_SCORE`). Measured BGE-M3 cosine noise on unrelated Chinese text reaches about 0.57, so the default threshold must stay above that band; for MiniLM, set `0.75` explicitly. The table above lists suggested values, not automatically applied model defaults.
 
 ### Mirror Options (China)
 
@@ -254,7 +254,7 @@ memrec search "中文搜索" --human
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-k, --top-k` | Number of results | 10 |
-| `--min-score` | Minimum calibrated relevance (0-1); vector-only uses cosine, text-only uses coverage, dual-route uses noisy-OR | 0.5 |
+| `--min-score` | Minimum calibrated relevance (0-1); vector-only uses cosine, text-only uses IDF evidence strength, dual-route uses noisy-OR | 0.60 |
 | `-p, --project` | Current project only | Inferred from `.mr_pid` |
 | `-g, --global` | Global memories only | Inferred from `.mr_pid` |
 | `-a, --all` | All projects | - |
@@ -295,8 +295,8 @@ The returned `score` is a calibrated relevance value (0-1), not a single model's
 | Score Range | Meaning |
 |-------------|---------|
 | 0.8+ | Highly relevant (strong semantics or full query-term coverage) |
-| 0.5-0.8 | Relevant |
-| < 0.5 | Filtered by default `min_score` |
+| 0.6-0.8 | Relevant |
+| < 0.6 | Filtered by default `min_score` |
 
 Inspect the raw evidence fields to see where a hit came from:
 
@@ -306,6 +306,8 @@ Inspect the raw evidence fields to see where a hit came from:
 | `fts_score` | Raw BM25 (text route only; not comparable across queries) |
 | `coverage` | Query-term coverage (text route only; single-route below 0.30 is dropped) |
 | `rank_score` | Weighted RRF rank score (tie-breaker) |
+
+The full-text route does not use "hit ratio" directly. Its score is IDF evidence strength: `coverage × (1 - exp(-sum(matched_idf) / (4·√query_terms)))`. A single-token query therefore never reaches 1.0, rare terms remain strong evidence, and common terms are down-weighted. Candidates are over-fetched with `max(4×top_k, 50)` (capped at 500) before fusion, so `top_k` only controls how many results are returned, never the ordering: a small-k result list is always a prefix of a large-k one.
 
 **Adjusting the threshold:**
 
@@ -608,7 +610,7 @@ memrecd_log = "~/.memrec/logs/memrecd.log"
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `MEMREC_MODEL_DIR` | Custom model path | `~/.memrec/models/<model-dir>/` |
-| `MEMREC_MIN_SCORE` | Minimum search relevance | 0.5 (set 0.75 explicitly for MiniLM) |
+| `MEMREC_MIN_SCORE` | Minimum search relevance | 0.60 (set 0.75 explicitly for MiniLM) |
 | `MEMREC_LLM_KEY` | LLM API key (`[llm] api_key` may reference `"$MEMREC_LLM_KEY"`; systemd service loads it from `~/.memrec/memrecd.env`) | empty |
 | `RUST_LOG` | Log level | `info` |
 
@@ -815,7 +817,7 @@ systemctl --user start memrecd
 1. Check model files: `ls ~/.memrec/models/`
 2. Check service log: `cat ~/.memrec/memrecd.log`
 3. Lower min_score: `memrec search "query" --min-score 0.3`
-4. For BGE-M3, the default min_score is 0.5 — try lowering to 0.3-0.4
+4. For BGE-M3, the default min_score is 0.60 — try lowering to 0.45-0.55 (below 0.45 false positives rise sharply)
 
 ### Project memories not isolated
 

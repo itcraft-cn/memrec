@@ -7,6 +7,29 @@
 
 > 中文版 | [English](CHANGELOG_en.md)
 
+## [Unreleased]
+
+### 新增
+
+- **预算感知的分层注入**：`memrec search`、MCP `mr_search` 与协议 `search_memory` 新增 `max_total_tokens`；结果按 `Full`/`Truncated`/`Summary`/`DenseProxy` 四级表示与记忆类型优先级（`preference` 50%、`decision` 30%、`knowledge` 20%）裁剪，token 估算区分中英文（CJK 约 1 token/字）。DSH 插件在 `agent/pre-step` 注入时固定携带预算（默认 4000，可经 `contextMaxTokens` 配置）。
+- **异步访问反馈与检索指标**：命中 id 经后台通道批量回写 `last_accessed`/`access_count`（`access_recording`、`access_flush_secs`），请求链路不执行同步写；`stats` 新增空注入率、预算溢出率、降级率、去重命中率与冲突审查计数。
+- **异步 LLM 冲突审查**：`llm_review_enabled` 开启后按 `llm_review_cron`（5 段 cron，本地时间）周期批量审查窗口内的新增记忆，支持 `llm_review_max_per_run`、`llm_review_max_candidates` 与 `absolute`/`ratio`/`hybrid` 三种候选阈值口径；写入快路径仍只做规则版向量阈值判断。
+- **测试模式写入隔离**：开关文件 `~/.memrec/.debug` 存在时进入测试模式（超过 `test_mode_max_age_secs` 自动失效），守护进程同时监听生产 socket 与测试 socket；生产 socket 对变更类请求返回 `-32010`，读请求不受影响；测试期间 Dream 自动跳过。配套 `scripts/test-mode.sh`。
+- **多步骤验收脚本**：`scripts/multistep-test.sh` 固化“构建 → 单测 → 停服 → 备份 → 双目录部署 → 启动 → 检索门禁”流程，并提供 `status`/`list`/`restore`/`restore-bin`/`prune` 子命令。
+
+### 变更
+
+- **检索评分改用 IDF 证据强度**：全文路由的“查询词覆盖率”改为 `coverage × (1 - exp(-命中词 IDF 之和 / (4·√查询词数)))`，单 token 查询不再饱和到 1.0，稀有词保持高权重、常见词被降权；双路融合仍为 noisy-OR。
+- **候选池与返回条数解耦**：混合检索按 `max(4×top_k, 50)`（上限 500）过采样向量与全文候选后再融合与 MMR，`top_k` 只决定返回条数，保证小 k 的结果是大 k 的前缀。
+- **默认 `min_score` 由 0.5 提升到 0.60**：协议、CLI、MCP、DSH 插件与 pi 扩展统一。依据是 BGE-M3 对无关中文文本的余弦噪声上限实测约 0.57。
+- **检索门禁扩展**：负例由 3 条扩到 8 条，要求 top1 低于阈值且非空内容；新增 top-k 前缀一致性检查（k=3 结果集必须被 k=10 包含，且 top1 一致）。
+
+### 修复
+
+- **空内容记忆污染检索**：Dream 摘要链路可能产出正文为空的记忆，空串嵌入接近语料质心，对任意查询稳定给出约 0.52 并抢占 top1（实测 16 条无关查询中 12 条首位）。写入路径、索引装饰器与启动自愈三处统一“空内容不入向量/全文索引”，并摘除历史空向量。
+- **单 token 查询满分**：`route`、`infrastructure` 等单词查询曾因覆盖率为 1.0 而得到 1.0 分并命中无关记忆。
+- **top1 随 `top_k` 漂移**：同一查询在 k=3/5/10/20 下曾出现 top1 不同，且小 k 的结果不被大 k 结果集包含。
+
 ## [0.11.0] - 2026-11-08
 
 ### 新增

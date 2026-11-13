@@ -140,7 +140,7 @@ memrec dream-report --last 5              # 查看最近若干次 DreamRun 审�
 memrec eval dataset.jsonl --k 10          # 离线检索评测（JSONL）
 ```
 
-检索结果为校准相关度（0-1）：`score` 是最终分，`vector_score`（原始余弦）、`fts_score`（原始 BM25）、`coverage`（查询词覆盖率）、`rank_score`（RRF 名次分）用于判断命中来源；默认 `min_score=0.5`。
+检索结果为校准相关度（0-1）：`score` 是最终分，`vector_score`（原始余弦）、`fts_score`（原始 BM25）、`coverage`（查询词覆盖率）、`rank_score`（RRF 名次分）用于判断命中来源；默认 `min_score=0.60`，低于该值的命中会被过滤。全文路分数是 IDF 证据强度（覆盖比例 × 词项 IDF 饱和），单 token 查询不会饱和到 1.0；`top_k` 只决定返回条数，候选池按 `max(4×top_k, 50)` 过采样后再融合，因此小 k 的结果是大 k 的前缀。
 
 ## 项目隔离
 
@@ -492,7 +492,7 @@ memrecd_log = "~/.memrec/logs/memrecd.log"  # 日志文件完整路径（本地�
 | 变量 | 用途 | 默认值 |
 |------|------|--------|
 | `MEMREC_MODEL_DIR` | 自定义模型路径 | `~/.memrec/models/<模型目录>/`（模型相关） |
-| `MEMREC_MIN_SCORE` | 语义搜索最低相关度 | `0.5`（MiniLM 建议显式设 `0.75`） |
+| `MEMREC_MIN_SCORE` | 语义搜索最低相关度 | `0.60`（MiniLM 建议显式设 `0.75`） |
 | `MEMREC_LLM_KEY` | LLM API Key（`[llm] api_key` 可引用 `"$MEMREC_LLM_KEY"`；systemd 服务经 `~/.memrec/memrecd.env` 加载） | 空 |
 | `RUST_LOG` | 日志级别 | `info` |
 

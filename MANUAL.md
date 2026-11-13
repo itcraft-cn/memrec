@@ -37,7 +37,7 @@ mr-install
 
 | 模型 | 维度 | 适用场景 | 磁盘空间 | 内存 | 建议 min_score |
 |------|------|----------|----------|------|----------------|
-| `bge-m3`（默认） | 1024 | 中文/多语言 | ~2.3GB | ~1.5GB | 0.5 |
+| `bge-m3`（默认） | 1024 | 中文/多语言 | ~2.3GB | ~1.5GB | 0.6 |
 | `minilm-l6-v2` | 384 | 纯英文、轻量 | ~90MB | ~118MB | 0.75 |
 
 ```bash
@@ -48,7 +48,7 @@ mr-install
 mr-install --model minilm-l6-v2
 ```
 
-**关于 min_score：** 运行时默认值为 `0.5`（可用 `MEMREC_MIN_SCORE` 覆盖）。BGE-M3 的余弦相似度天然低于 MiniLM；MiniLM 建议显式设为 `0.75`。上表是建议值，不是自动生效的模型默认值。
+**关于 min_score：** 运行时默认值为 `0.60`（可用 `MEMREC_MIN_SCORE` 覆盖）。实测 BGE-M3 对无关中文文本的余弦噪声上限约 0.57，因此默认阈值必须高于该噪声带；MiniLM 建议显式设为 `0.75`。上表是建议值，不是自动生效的模型默认值。
 
 ### 镜像选项（中国大陆）
 
@@ -252,7 +252,7 @@ memrec search "中文搜索" --human
 | 选项 | 说明 | 默认值 |
 |------|------|--------|
 | `-k, --top-k` | 返回结果数 | 10 |
-| `--min-score` | 最低校准相关度（0-1）；向量单路看余弦，全文单路看覆盖率，双路看 noisy-OR 合成分 | 0.5 |
+| `--min-score` | 最低校准相关度（0-1）；向量单路看余弦，全文单路看 IDF 证据强度，双路看 noisy-OR 合成分 | 0.60 |
 | `-p, --project` | 仅当前项目 | 按 `.mr_pid` 推断 |
 | `-g, --global` | 仅公共记忆 | 按 `.mr_pid` 推断 |
 | `-a, --all` | 跨所有项目 | - |
@@ -293,8 +293,8 @@ memrec search "架构" --human
 | score 范围 | 含义 |
 |-----------|------|
 | 0.8+ | 高相关（语义强或查询词覆盖充分） |
-| 0.5-0.8 | 相关 |
-| < 0.5 | 默认被 `min_score` 过滤 |
+| 0.6-0.8 | 相关 |
+| < 0.6 | 默认被 `min_score` 过滤 |
 
 需要判断命中来源时看原始字段：
 
@@ -304,6 +304,8 @@ memrec search "架构" --human
 | `fts_score` | 原始 BM25（仅全文命中；跨查询不可比） |
 | `coverage` | 查询词覆盖率（仅全文命中；单路低于 0.30 会被丢弃） |
 | `rank_score` | 加权 RRF 名次分（同分裁决用） |
+
+全文路的分数不是"命中比例"，而是 IDF 证据强度：`覆盖比例 × (1 - exp(-命中词 IDF 之和 / (4·√查询词数)))`。因此单 token 查询不会得到 1.0，稀有词命中仍然有力，常见词命中会被降权。候选池按 `max(4×top_k, 50)`（上限 500）过采样后再融合，`top_k` 只影响返回条数，不影响排序，小 k 的结果必然是大 k 的前缀。
 
 **调整阈值：**
 
@@ -605,7 +607,7 @@ memrecd_log = "~/.memrec/logs/memrecd.log"
 | 变量 | 用途 | 默认值 |
 |------|------|--------|
 | `MEMREC_MODEL_DIR` | 自定义模型路径 | `~/.memrec/models/<模型目录>/` |
-| `MEMREC_MIN_SCORE` | 语义搜索最低相关度 | 0.5（MiniLM 建议显式设 0.75） |
+| `MEMREC_MIN_SCORE` | 语义搜索最低相关度 | 0.60（MiniLM 建议显式设 0.75） |
 | `MEMREC_LLM_KEY` | LLM API Key（`[llm] api_key` 可引用 `"$MEMREC_LLM_KEY"`；systemd 服务经 `~/.memrec/memrecd.env` 加载） | 空 |
 | `RUST_LOG` | 日志级别 | `info` |
 
@@ -848,7 +850,7 @@ systemctl --user start memrecd
 1. 检查模型文件：`ls ~/.memrec/models/`
 2. 检查服务日志：`cat ~/.memrec/logs/memrecd.log`
 3. 降低 min_score：`memrec search "query" --min-score 0.3`
-4. BGE-M3 默认 min_score 为 0.5 — 尝试降低到 0.3-0.4
+4. BGE-M3 默认 min_score 为 0.60 — 可尝试降低到 0.45-0.55（低于 0.45 误报明显增多）
 
 ### 项目记忆没有隔离
 

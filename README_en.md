@@ -146,7 +146,7 @@ memrec dream-report --last 5              # inspect recent DreamRun audit record
 memrec eval dataset.jsonl --k 10          # offline retrieval evaluation (JSONL)
 ```
 
-Search results use a calibrated relevance score (0-1): `score` is the final value; `vector_score` (raw cosine), `fts_score` (raw BM25), `coverage` (query-term coverage) and `rank_score` (RRF rank score) expose the evidence behind it. Default `min_score=0.5`.
+Search results use a calibrated relevance score (0-1): `score` is the final value; `vector_score` (raw cosine), `fts_score` (raw BM25), `coverage` (query-term coverage) and `rank_score` (RRF rank score) expose the evidence behind it. Default `min_score=0.60`; hits below it are filtered. The full-text route contributes IDF evidence strength (coverage × term-IDF saturation), so single-token queries no longer saturate at 1.0; `top_k` only controls how many results are returned — candidates are over-fetched with `max(4×top_k, 50)` before fusion, so a small-k result list is a prefix of a large-k one.
 
 ## Project Isolation
 
@@ -372,7 +372,7 @@ memrecd_log = "~/.memrec/logs/memrecd.log"  # full log path (local-timezone time
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `MEMREC_MODEL_DIR` | Custom model path | `~/.memrec/models/<model-dir>/` (model-specific) |
-| `MEMREC_MIN_SCORE` | Minimum search relevance | `0.5` (set `0.75` explicitly for MiniLM) |
+| `MEMREC_MIN_SCORE` | Minimum search relevance | `0.60` (set `0.75` explicitly for MiniLM) |
 | `MEMREC_LLM_KEY` | LLM API key (`[llm] api_key` may reference `"$MEMREC_LLM_KEY"`; systemd service loads it from `~/.memrec/memrecd.env`) | empty |
 | `RUST_LOG` | Log level | `info` |
 

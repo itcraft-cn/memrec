@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > [中文](CHANGELOG.md) | English
 
+## [Unreleased]
+
+### Added
+
+- **Budget-aware tiered injection**: `memrec search`, MCP `mr_search` and the `search_memory` request gain `max_total_tokens`. Results are trimmed across four representation tiers (`Full`/`Truncated`/`Summary`/`DenseProxy`) with memory-type priorities (`preference` 50%, `decision` 30%, `knowledge` 20%), and token estimation now distinguishes CJK (about 1 token per character) from Latin text. The DSH plugin always sends a budget on `agent/pre-step` injection (4000 by default, configurable via `contextMaxTokens`).
+- **Async access feedback and retrieval metrics**: hit IDs are written back to `last_accessed`/`access_count` in batches by a background task (`access_recording`, `access_flush_secs`); the request path performs no synchronous writes. `stats` now reports empty-injection rate, budget-overflow rate, degradation rate, dedup hit rate and conflict-review counters.
+- **Async LLM conflict review**: with `llm_review_enabled`, the daemon periodically reviews memories added in the window according to `llm_review_cron` (5-field cron, local time), with `llm_review_max_per_run`, `llm_review_max_candidates` and three candidate-threshold modes (`absolute`/`ratio`/`hybrid`). The synchronous write fast path still only applies rule-based vector thresholds.
+- **Test-mode write isolation**: when the `~/.memrec/.debug` flag file exists, test mode is active (auto-expires after `test_mode_max_age_secs`). The daemon listens on both the production and test sockets; the production socket rejects mutating requests with `-32010` while reads keep working, and Dream is skipped during tests. Companion script: `scripts/test-mode.sh`.
+- **Multi-step verification script**: `scripts/multistep-test.sh` codifies "build → unit tests → stop service → backup → deploy to both directories → start → retrieval gate", with `status`/`list`/`restore`/`restore-bin`/`prune` subcommands.
+
+### Changed
+
+- **Retrieval scoring now uses IDF evidence strength**: the full-text route no longer uses raw query-term coverage. Its score is `coverage × (1 - exp(-sum(matched_idf) / (4·√query_terms)))`, so single-token queries never saturate at 1.0, rare terms keep their weight and common terms are down-weighted. Dual-route fusion remains noisy-OR.
+- **Candidate pool decoupled from result count**: hybrid search over-fetches both routes with `max(4×top_k, 50)` (capped at 500) before fusion and MMR. `top_k` only controls how many results are returned, and a small-k result list is guaranteed to be a prefix of a large-k one.
+- **Default `min_score` raised from 0.5 to 0.60** across protocol, CLI, MCP, the DSH plugin and the pi extension. Justification: measured BGE-M3 cosine noise on unrelated Chinese text reaches about 0.57.
+- **Retrieval gate expanded**: negatives grow from 3 to 8 queries, each requiring a top1 below the threshold with non-empty content; a top-k prefix consistency check was added (k=3 results must be contained in k=10 results, with an identical top1).
+
+### Fixed
+
+- **Empty-content memories polluting retrieval**: the Dream summary path could emit memories with empty content. Empty strings embed near the corpus centroid, scoring about 0.52 for any query and hijacking top1 (12 of 16 unrelated queries in the measurement). The write path, the indexing decorator and startup self-healing now all keep empty content out of the vector and full-text indexes, and legacy empty vectors are removed.
+- **Single-token queries scoring 1.0**: queries such as `route` and `infrastructure` previously scored 1.0 because coverage was 1.0, returning unrelated memories.
+- **Top1 drifting with `top_k`**: the same query could return different top1 results at k=3/5/10/20, and small-k results were not always contained in large-k ones.
+
 ## [0.11.0] - 2026-11-08
 
 ### Added
