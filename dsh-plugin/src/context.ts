@@ -105,9 +105,12 @@ function memoriesOf(result: unknown): RuleMemoryLike[] {
  * 这里不复用语义检索：规则必须**无条件**进入上下文，不能依赖查询相似度命中。
  * 项目定位交给守护进程（`get_project_info` + `.mr_pid`），与检索侧口径一致。
  */
-async function fetchRuleSets(daemon: MemrecDaemon, cwd: string): Promise<RuleMemoryLike[]> {
+export async function fetchRuleSets(
+  daemon: MemrecDaemon,
+  cwd: string,
+): Promise<RuleMemoryLike[]> {
   const global = await daemon
-    .call('list_memory', { tags: ['rule-set'], global_only: true, limit: 2 })
+    .call('list', { tags: ['rule-set'], global_only: true, limit: 2 })
     .then(memoriesOf)
     .catch(() => [])
 
@@ -118,7 +121,7 @@ async function fetchRuleSets(daemon: MemrecDaemon, cwd: string): Promise<RuleMem
       projectId === undefined
         ? []
         : daemon
-            .call('list_memory', {
+            .call('list', {
               tags: ['rule-set'],
               project_only: true,
               project_id: projectId,

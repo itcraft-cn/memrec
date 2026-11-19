@@ -14,7 +14,7 @@ import path from 'node:path'
 
 import { MemrecDaemon } from '../lib/daemon.js'
 import { registerMemrecTools, envFromExec } from '../lib/tools.js'
-import { renderContextText, renderRuleText } from '../lib/context.js'
+import { fetchRuleSets, renderContextText, renderRuleText } from '../lib/context.js'
 import { parseExtraction } from '../lib/lifecycle.js'
 
 const daemon = new MemrecDaemon(path.join(os.homedir(), '.memrec', 'memrecd.sock'))
@@ -179,6 +179,32 @@ test('renderContextText 空结果返回空串', () => {
   assert.equal(
     renderContextText({ results: [{ score: 0.8, content_preview: '' }] }, 0.45),
     '',
+  )
+})
+
+test('fetchRuleSets 使用 list RPC 拉取项目与全局规则集', async () => {
+  const calls = []
+  const fake = {
+    call: async (method, params) => {
+      calls.push({ method, params })
+      if (method === 'get_project_info') return { project_id: 'proj-1' }
+      if (params?.global_only === true) return { memories: [{ content: '- 全局规则' }] }
+      return { memories: [{ content: '- 项目规则' }] }
+    },
+  }
+
+  const sets = await fetchRuleSets(fake, '/tmp/project')
+  assert.deepEqual(
+    calls.map((c) => c.method),
+    ['list', 'get_project_info', 'list'],
+    '必须使用 list（而非 list_memory）并以项目 id 过滤',
+  )
+  assert.equal(calls[0].params.global_only, true)
+  assert.equal(calls[2].params.project_only, true)
+  assert.equal(calls[2].params.project_id, 'proj-1')
+  assert.deepEqual(
+    sets.map((m) => m.content),
+    ['- 项目规则', '- 全局规则'],
   )
 })
 
