@@ -18,7 +18,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { AgentRegistry } from '@deepseek-ai/dsh-agent'
-import type { LlmRuntime, Message, StreamChunk } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type LlmRuntime, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { MemrecDaemon } from './daemon.js'
 
 /** 自动记录配置。 */
@@ -211,12 +211,12 @@ export function installAutoRecord(
       return 0
     }
 
+    // 消息必须经工厂构造：新版 Message 强制要求稳定 id，裸对象无法通过校验。
     const messages: Message[] = [
-      {
-        role: 'user',
+      createUserMessage({
         content: [{ type: 'text', text: transcript }],
         source: { kind: 'user' },
-      } as Message,
+      }),
     ]
 
     const stream = llm.stream({

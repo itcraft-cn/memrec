@@ -12,9 +12,17 @@
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
-import type { JsonValue } from '@deepseek-ai/dsh-session'
 import type { MemrecDaemon } from './daemon.js'
 import { MemrecDaemonError } from './daemon.js'
+
+/**
+ * 无损 JSON 值类型。
+ *
+ * DSH 0.2.2 起 `JsonValue` 不再由 `dsh-session`/`dsh-tools` 根入口导出，
+ * 而从 `@deepseek-ai/dsh-util-values` 提供。本插件只需一个结构等价
+ * 的别名用于 render 签名，避免为一个纯类型引入额外包依赖。
+ */
+type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
 /** 工具执行时可用的上下文派生。 */
 export interface ToolEnv {

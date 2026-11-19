@@ -837,6 +837,17 @@ dsh plugin --profile web add /abs/path/to/memrec/dsh-plugin
 `autoRecordMaxPerSession`。详见 `dsh-plugin/README.md` 与
 `docs/design/dsh-plugin-design.md`。
 
+### 版本兼容
+
+插件用 `engines.dsh` 声明兼容的 DSH 版本（当前 `^0.2.2-rc.5`）；该字段存在时
+单独决定兼容性，`peerDependencies` 中的 `@deepseek-ai/dsh-*` 范围被忽略。
+DSH 升级后若版本不匹配，profile 会禁用该插件并提示 `incompatible-version`。
+
+恢复步骤：把 `engines.dsh` 与全部 `@deepseek-ai/dsh-*` 依赖改成运行版本（保留
+prerelease 后缀），`npm install && npm run build && npm test`，类型错误必须逐项
+修复（即为真实 API 断裂），随后重启 DSH 并确认启动日志中该行 `state: active`。
+不要用 `dsh plugin allow-version` 豁免绕过。完整说明见 `dsh-plugin/README.md`。
+
 ## 性能参考
 
 | 指标 | MiniLM-L6-v2 | BGE-M3 |

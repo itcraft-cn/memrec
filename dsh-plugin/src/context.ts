@@ -14,8 +14,21 @@
  */
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { Context } from '@deepseek-ai/cordis'
-import { createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type ContextFormed, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { MemrecDaemon } from './daemon.js'
+
+/**
+ * 声明本插件自己的消息来源 kind。
+ *
+ * DSH 0.2.2 起移除了通用的 `plugin` 来源，改为"每个生产者在自己的模块里
+ * 声明 kind"的合并扩展点（与 `@deepseek-ai/dsh-time-context` 一致）。
+ * 注入消息的来源因此是 `memrec`，会话日志可据此回溯注入者。
+ */
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    memrec: { kind: 'memrec' } & ContextFormed
+  }
+}
 
 /** 注入模块配置。 */
 export interface ContextConfig {
@@ -173,8 +186,7 @@ function buildInjection(text: string): UserMessage {
   return createUserMessage({
     content: [{ type: 'text', text }],
     source: {
-      kind: 'plugin',
-      plugin: 'memrec',
+      kind: 'memrec',
       form: 'snapshot',
       sections: [{ name: 'memrec-project-context', text }],
     },
