@@ -18,7 +18,7 @@ memrecd 的原生工具 + 项目记忆上下文注入 + 会话自动记录。
 
 | 能力 | 说明 |
 |---|---|
-| 原生工具 | `mr_add` / `mr_search` / `mr_get` / `mr_list` / `mr_delete` / `mr_stats` / `mr_dream`，无 `mcp__` 前缀 |
+| 原生工具 | 9 个：`mr_add` / `mr_search` / `mr_get` / `mr_list` / `mr_timeline` / `mr_delete` / `mr_stats` / `mr_dream` / `mr_dream_report`，无 `mcp__` 前缀，与 MCP 工具口径一致 |
 | 项目隔离 | 工具执行自动携带会话工作目录（`working_dir`），memrecd 据此检测项目（git root + `.mr_pid`）。MCP 模式不传 `working_dir`，项目隔离失效，本插件修复此问题 |
 | 上下文注入 | `agent/pre-step` 钩子：模型请求前自动检索当前项目相关记忆，以 plugin 消息注入，减少"想不起来" |
 | 自动记录 | turn 结束时由 LLM 提取决策/知识/偏好/上下文写入 memrec（`source: inferred`），有频率与条数上限 |

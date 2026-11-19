@@ -267,31 +267,107 @@ export function readProjectId(startDir: string): string | null {
   return null
 }
 
-/** 列出记忆。 */
+/**
+ * `mr_list` / `mr_timeline` 共用的参数 schema。
+ *
+ * 字段与 MCP 的 `mr_list`/`mr_timeline` 对齐：分页（limit/skip）、范围
+ * （project_only/global_only）、过滤（tags/memory_type/include_deleted）、
+ * 原始视图（raw/with_dream）。
+ */
+const LIST_PARAMETERS = {
+  limit: { type: 'integer', description: 'Max memories to return', default: 20 },
+  skip: { type: 'integer', description: 'Skip the first N memories (pagination)', default: 0 },
+  project_only: { type: 'boolean', description: 'List only the current project' },
+  global_only: { type: 'boolean', description: 'List only global memories' },
+  tags: {
+    type: 'array',
+    items: { type: 'string' },
+    description: 'Only memories carrying ALL of these tags',
+  },
+  memory_type: {
+    type: 'string',
+    enum: [...MEMORY_TYPES],
+    description: 'Filter by memory type',
+  },
+  include_deleted: {
+    type: 'boolean',
+    description: 'Include soft-deleted raw records',
+    default: false,
+  },
+  raw: {
+    type: 'boolean',
+    description:
+      'Raw storage view: read the storage layer directly, including records Dream soft-deleted as merge sources',
+    default: false,
+  },
+  with_dream: {
+    type: 'boolean',
+    description: 'With raw=true, also return Dream merge outputs (metadata.source_ids producers)',
+    default: false,
+  },
+} as const
+
+/**
+ * 构造 `List` 请求参数（`mr_list` / `mr_timeline` 共用）。
+ *
+ * 项目范围必须在客户端解析成 `project_id`：服务端 `ListParams` 没有
+ * `working_dir`，`project_only` 缺 `project_id` 时会退化为匹配任意项目。
+ *
+ * @param args - 模型提供的工具参数
+ * @param env - 执行环境（会话工作目录）
+ * @param order - 排序方式（`storage` 供 list，`created_desc` 供 timeline）
+ * @param toolName - 报错信息中的工具名
+ */
+function buildListParams(
+  args: Record<string, unknown>,
+  env: ToolEnv,
+  order: 'storage' | 'created_desc',
+  toolName: string,
+): Record<string, unknown> {
+  const projectOnly = Boolean(args.project_only)
+  const projectId = projectOnly ? readProjectId(env.workingDir) : null
+  if (projectOnly && projectId === null) {
+    throw new MemrecDaemonError(
+      `${toolName}: 目录 ${env.workingDir} 未注册为 memrec 项目（未找到 .mr_pid），无法按项目过滤；请先在该项目写入一条非全局记忆`,
+    )
+  }
+  return {
+    limit: Number(args.limit ?? 20),
+    skip: Number(args.skip ?? 0),
+    project_only: projectOnly,
+    global_only: Boolean(args.global_only),
+    project_id: projectId,
+    tags: Array.isArray(args.tags) ? args.tags.map(String) : [],
+    memory_type: args.memory_type !== undefined ? String(args.memory_type) : undefined,
+    include_deleted: Boolean(args.include_deleted),
+    order,
+    raw: Boolean(args.raw),
+    with_dream: Boolean(args.with_dream),
+  }
+}
+
+/** 列出记忆（存储顺序）。 */
 function listTool(daemon: MemrecDaemon) {
   return defineMemrecTool(
     'mr_list',
-    'List memories with optional filtering.',
-    {
-      limit: { type: 'integer', description: 'Max memories to return', default: 20 },
-      project_only: { type: 'boolean', description: 'List only the current project' },
-      global_only: { type: 'boolean', description: 'List only global memories' },
-    },
+    'List memories with optional filtering (storage order). Use mr_timeline for chronological recency.',
+    LIST_PARAMETERS as unknown as Record<string, unknown>,
     async (args, env) => {
-      const projectOnly = Boolean(args.project_only)
-      // 项目范围必须在客户端解析为 project_id，否则服务端会返回所有项目
-      const projectId = projectOnly ? readProjectId(env.workingDir) : null
-      if (projectOnly && projectId === null) {
-        throw new MemrecDaemonError(
-          `mr_list: 目录 ${env.workingDir} 未注册为 memrec 项目（未找到 .mr_pid），无法按项目过滤；请先在该项目写入一条非全局记忆`,
-        )
-      }
-      return daemon.call('list', {
-        limit: Number(args.limit ?? 20),
-        project_only: projectOnly,
-        global_only: Boolean(args.global_only),
-        project_id: projectId,
-      })
+      return daemon.call('list', buildListParams(args, env, 'storage', 'mr_list'))
+    },
+  )
+}
+
+/** 按创建时间倒序浏览（时间线）。 */
+function timelineTool(daemon: MemrecDaemon) {
+  return defineMemrecTool(
+    'mr_timeline',
+    'Browse memories newest-first by creation time. Use this to answer "what happened recently" ' +
+      'or "where did we leave off" instead of searching by relevance. Supports the same filters ' +
+      'as mr_list, including raw / with_dream for the raw record view.',
+    LIST_PARAMETERS as unknown as Record<string, unknown>,
+    async (args, env) => {
+      return daemon.call('list', buildListParams(args, env, 'created_desc', 'mr_timeline'))
     },
   )
 }
@@ -329,23 +405,66 @@ function dreamTool(daemon: MemrecDaemon) {
   return defineMemrecTool(
     'mr_dream',
     'Execute Dream memory integration: consolidate and compress older memories into summary memories. ' +
-      'Bypasses time/session gates when force=true.',
+      'It may merge, rewrite, or soft-delete source memories, so call it only when the user explicitly ' +
+      'asks to consolidate or clean up memories — and preview with dry_run=true first.',
     {
       force: {
         type: 'boolean',
-        description: 'If true, bypass gate checks (time interval, session count)',
+        description:
+          'If true, bypass gate checks (time interval, new-memory count). Do not use force instead of normal gating',
+        default: false,
+      },
+      dry_run: {
+        type: 'boolean',
+        description: 'Preview only: compute what Dream would do without writing, deleting, or adding edges',
         default: false,
       },
     },
     async (args) => {
       // DreamParams 没有 working_dir 字段（整合作用于全局/全部项目），
       // 不额外传字段，避免依赖服务端对未知字段的容忍行为。
-      return daemon.call('dream', { force: Boolean(args.force) })
+      return daemon.call('dream', {
+        force: Boolean(args.force),
+        dry_run: Boolean(args.dry_run),
+      })
+    },
+  )
+}
+
+/** 查询 Dream 运行审计报告。 */
+function dreamReportTool(daemon: MemrecDaemon) {
+  return defineMemrecTool(
+    'mr_dream_report',
+    'Inspect recent Dream runs: candidates, clusters, edges, gate outcomes, and quality metrics. ' +
+      'Use it to audit what a consolidation did or why a run was skipped.',
+    {
+      last: {
+        type: 'integer',
+        description: 'Return the most recent N runs (default 10, max 100)',
+        default: 10,
+      },
+      offset: {
+        type: 'integer',
+        description: 'Offset for pagination',
+        default: 0,
+      },
+    },
+    async (args) => {
+      return daemon.call('dream_report', {
+        last: Number(args.last ?? 10),
+        offset: Number(args.offset ?? 0),
+      })
     },
   )
 }
 
 /** 注册全部 memrec 工具。 */
+/**
+ * 注册全部 memrec 工具。
+ *
+ * 共 9 个：读写 5 个（add/search/get/list/delete）、统计 1 个（stats）、
+ * 时间线 1 个（timeline）、Dream 2 个（dream/dream_report）。
+ */
 export function registerMemrecTools(
   ctx: { tools: { register(definition: unknown): unknown } },
   daemon: MemrecDaemon,
@@ -355,9 +474,11 @@ export function registerMemrecTools(
     searchTool(daemon),
     getTool(daemon),
     listTool(daemon),
+    timelineTool(daemon),
     deleteTool(daemon),
     statsTool(daemon),
     dreamTool(daemon),
+    dreamReportTool(daemon),
   ]) {
     ctx.tools.register(tool as never)
   }

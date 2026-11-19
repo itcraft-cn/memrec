@@ -1,7 +1,7 @@
 /**
  * 装配冒烟测试（不依赖 LLM 与 daemon）：
  * 用假 ctx 调用插件 apply，验证在新版 DSH 运行时下：
- * - 7 个工具定义通过 dsh-tools 的 schema 校验（旧版曾因非法 schema 直接失败）
+ * - 9 个工具定义通过 dsh-tools 的 schema 校验（旧版曾因非法 schema 直接失败）
  * - agent/pre-step 与 session/event 监听器成功注册
  * - 自定义来源 kind 的消息可被 createUserMessage 构造
  */
@@ -21,9 +21,9 @@ const fakeCtx = {
 const config = Config({})
 apply(fakeCtx, config)
 
-assert.equal(tools.length, 7, `应注册 7 个工具，实际 ${tools.length}`)
+assert.equal(tools.length, 9, `应注册 9 个工具，实际 ${tools.length}`)
 const names = tools.map((t) => t.name).sort()
-assert.deepEqual(names, ['mr_add','mr_delete','mr_dream','mr_get','mr_list','mr_search','mr_stats'])
+assert.deepEqual(names, ['mr_add','mr_delete','mr_dream','mr_dream_report','mr_get','mr_list','mr_search','mr_stats','mr_timeline'])
 for (const t of tools) {
   assert.equal(t.output.schema.type, 'object', `${t.name} output schema 非法`)
   assert.equal(typeof t.execute, 'function')

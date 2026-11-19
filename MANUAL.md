@@ -805,7 +805,7 @@ MemRec 提供 DSH 原生插件（仓库 `dsh-plugin/` 目录，npm 包 `@memrec/
 
 | 能力 | 说明 |
 |------|------|
-| 原生工具 | `mr_add` / `mr_search` / `mr_get` / `mr_list` / `mr_delete` / `mr_stats` / `mr_dream`，无 `mcp__` 前缀 |
+| 原生工具 | 9 个：`mr_add` / `mr_search` / `mr_get` / `mr_list` / `mr_timeline` / `mr_delete` / `mr_stats` / `mr_dream` / `mr_dream_report`，无 `mcp__` 前缀，与 MCP 工具口径一致 |
 | 项目隔离 | 工具自动携带会话工作目录（MCP 模式不传 `working_dir`，项目隔离失效；插件修复此问题） |
 | 上下文注入 | 模型请求前自动检索当前项目相关记忆注入会话 |
 | 自动记录 | turn 结束时 LLM 提取决策/知识/偏好写入 memrec（`source: inferred`） |

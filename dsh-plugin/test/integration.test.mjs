@@ -75,7 +75,7 @@ test('envFromExec 无 agent 时回退 process.cwd()', () => {
   assert.equal(envFromExec(exec).workingDir, process.cwd())
 })
 
-test('工具注册：7 个 mr_* 工具定义完整', () => {
+test('工具注册：9 个 mr_* 工具定义完整', () => {
   const registered = []
   registerMemrecTools({ tools: { register: (d) => registered.push(d) } }, daemon)
   const names = registered.map((d) => d.name).sort()
@@ -83,10 +83,12 @@ test('工具注册：7 个 mr_* 工具定义完整', () => {
     'mr_add',
     'mr_delete',
     'mr_dream',
+    'mr_dream_report',
     'mr_get',
     'mr_list',
     'mr_search',
     'mr_stats',
+    'mr_timeline',
   ])
   for (const tool of registered) {
     assert.ok(tool.description.length > 10, `${tool.name} 应有描述`)
@@ -315,4 +317,58 @@ test('mr_list project_only 不跨项目（回归：曾返回其他项目记忆�
   for (const m of result.memories ?? []) {
     assert.equal(m.project_id, expected, `越界返回了其他项目记忆：${m.project_id}`)
   }
+})
+
+test('mr_timeline 按创建时间严格倒序且不跨项目', async () => {
+  const registered = []
+  registerMemrecTools({ tools: { register: (d) => registered.push(d) } }, daemon)
+  const timeline = registered.find((d) => d.name === 'mr_timeline')
+  const exec = { agent: { session: { header: { cwd: WORKING_DIR } } } }
+  const result = await timeline.execute({ limit: 8, project_only: true }, exec)
+  assert.ok(result.error === undefined, `不应报错：${result.error}`)
+  const times = (result.memories ?? []).map((m) => m.created_at)
+  assert.ok(times.length > 1, '应返回多条记忆')
+  for (let i = 1; i < times.length; i++) {
+    assert.ok(times[i - 1] >= times[i], `时间未倒序：${times[i - 1]} < ${times[i]}`)
+  }
+  const expected = readProjectId(WORKING_DIR)
+  for (const m of result.memories ?? []) {
+    assert.equal(m.project_id, expected, '时间线越界返回了其他项目记忆')
+  }
+})
+
+test('mr_timeline raw 透传包含软删记录', async () => {
+  const registered = []
+  registerMemrecTools({ tools: { register: (d) => registered.push(d) } }, daemon)
+  const timeline = registered.find((d) => d.name === 'mr_timeline')
+  const exec = { agent: { session: { header: { cwd: WORKING_DIR } } } }
+  const plain = await timeline.execute({ limit: 50, project_only: true }, exec)
+  const raw = await timeline.execute({ limit: 50, project_only: true, raw: true }, exec)
+  assert.ok(
+    raw.total >= plain.total,
+    `raw 总数应不少于普通视图：raw=${raw.total} plain=${plain.total}`,
+  )
+})
+
+test('mr_dream_report 返回运行审计结构', async () => {
+  const registered = []
+  registerMemrecTools({ tools: { register: (d) => registered.push(d) } }, daemon)
+  const report = registered.find((d) => d.name === 'mr_dream_report')
+  const result = await report.execute({ last: 2 }, {})
+  assert.equal(result.type, 'dream_report')
+  assert.ok(Array.isArray(result.runs), 'runs 应为数组')
+  assert.ok(result.runs.length <= 2, 'last=2 应最多返回 2 条运行记录')
+  assert.equal(typeof result.total, 'number')
+})
+
+test('mr_dream dry_run 不写入且门控拒绝可读', async () => {
+  const registered = []
+  registerMemrecTools({ tools: { register: (d) => registered.push(d) } }, daemon)
+  const dream = registered.find((d) => d.name === 'mr_dream')
+  const before = (await daemon.call('stats')).active_memories
+  const result = await dream.execute({ dry_run: true }, {})
+  const after = (await daemon.call('stats')).active_memories
+  // 门控拒绝（Too soon）或预演成功都不应改变活跃记忆数
+  assert.equal(after, before, `dry_run 不应改变活跃记忆数：${before} -> ${after}`)
+  assert.ok(result !== undefined)
 })
