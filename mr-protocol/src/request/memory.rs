@@ -27,6 +27,11 @@ pub struct AddParams {
     /// 是否执行写入去重检测；None 时使用服务端配置
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dedup: Option<bool>,
+    /// 过期时间（RFC3339）。到期后由守护进程清扫并软删除；缺省表示永不过期。
+    ///
+    /// 客户端可传绝对时间，也可用 CLI 的 `--ttl` 换算后传入。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<DateTime<Utc>>,
 }
 
 /// 获取单条记忆的参数。

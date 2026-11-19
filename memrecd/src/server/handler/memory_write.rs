@@ -106,6 +106,20 @@ impl Router {
             }
         }
 
+        // 过期时间：仅接受未来时间。已过期的时间点若照写，会让记忆在下一轮
+        // 清扫中立即消失，容易造成“写入成功但查不到”的困惑，故直接忽略。
+        if let Some(expires_at) = p.expires_at {
+            if expires_at > chrono::Utc::now() {
+                memory = memory.with_expires_at(Some(expires_at));
+            } else {
+                tracing::warn!(
+                    target: "expiry",
+                    "Ignore past expires_at {} for new memory: would expire immediately",
+                    expires_at
+                );
+            }
+        }
+
         memory
     }
 

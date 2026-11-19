@@ -14,7 +14,7 @@ import path from 'node:path'
 
 import { MemrecDaemon } from '../lib/daemon.js'
 import { registerMemrecTools, envFromExec } from '../lib/tools.js'
-import { renderContextText } from '../lib/context.js'
+import { renderContextText, renderRuleText } from '../lib/context.js'
 import { parseExtraction } from '../lib/lifecycle.js'
 
 const daemon = new MemrecDaemon(path.join(os.homedir(), '.memrec', 'memrecd.sock'))
@@ -180,6 +180,25 @@ test('renderContextText 空结果返回空串', () => {
     renderContextText({ results: [{ score: 0.8, content_preview: '' }] }, 0.45),
     '',
   )
+})
+
+test('renderRuleText 渲染常驻规则并去空', () => {
+  const text = renderRuleText([
+    { content: '- 报告用项目符号\n- 价格不含税' },
+    { content: '  ' },
+    { content: '- 不使用旧 CRM' },
+  ])
+  assert.ok(text.includes('MemRec 常驻规则'))
+  assert.ok(text.includes('- 报告用项目符号'))
+  assert.ok(text.includes('- 不使用旧 CRM'))
+  assert.equal(renderRuleText([]), '')
+})
+
+test('renderRuleText 按字符预算截断', () => {
+  const long = '- ' + 'R'.repeat(500)
+  const text = renderRuleText([{ content: long }, { content: '- 第二条规则' }], 200)
+  assert.ok(text.length <= 200 + '## MemRec 常驻规则（Dream 从决策/偏好提炼，覆盖式更新）\n'.length)
+  assert.ok(!text.includes('第二条规则'), '超出预算的后续规则应被丢弃')
 })
 
 test('parseExtraction 容错解析 LLM 输出', () => {

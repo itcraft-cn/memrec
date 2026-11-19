@@ -36,6 +36,31 @@ impl DreamProcessor {
             phase_results.push(cleaner.execute().await);
         }
 
+        // Phase 5: 规则提炼。反思的出口——把决策/偏好收敛为可常驻注入的规则集。
+        // 失败不中止 Dream（与其余阶段一致），但会记入阶段结果供审计。
+        if self.config.phase_rule_distill {
+            if let Some(llm) = &self.llm {
+                match crate::dream::rules::distill(
+                    &self.storage,
+                    llm,
+                    self.config.rule_distill_max_rules,
+                    self.config.rule_distill_min_sources,
+                )
+                .await
+                {
+                    Ok(report) => phase_results.push(PhaseResult::ok(
+                        "rule_distill",
+                        report.scanned,
+                        report.written,
+                    )),
+                    Err(e) => {
+                        warn!(target: "dream", "Rule distillation failed: {e:#}");
+                        phase_results.push(PhaseResult::err("rule_distill", format!("{e:#}")));
+                    }
+                }
+            }
+        }
+
         if self.config.phase_vector_regen {
             if let (Some(vector_store), Some(embedder)) = (&self.vector_store, &self.embedder) {
                 let regenerator = VectorRegenerator::new(

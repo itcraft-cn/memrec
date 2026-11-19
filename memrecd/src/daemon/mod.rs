@@ -38,6 +38,12 @@ use mr_ability::storage::{
 /// 向量存储定时同步间隔（秒）
 const SYNC_INTERVAL_SECS: u64 = 30;
 
+/// 过期记忆清扫间隔（秒）。
+///
+/// 5 分钟：足够让“一次性记忆”在过期后及时退出检索池与注入预算，
+/// 又不会因频繁全量扫描带来持续 IO 压力。
+const EXPIRY_SWEEP_SECS: u64 = 300;
+
 /// 守护进程主结构，持有配置并协调各子系统生命周期。
 pub struct Daemon {
     config: DaemonConfig,
@@ -171,6 +177,11 @@ impl Daemon {
             // 的记忆被误判相似。
             .with_text_provider(
                 storage.clone() as std::sync::Arc<dyn mr_ability::storage::TextProvider>
+            )
+            // 排序修饰（新近/重要性/来源）需要主存储中的元数据；索引载荷不携带
+            // 这些字段，且历史载荷无回收路径，故按 id 回表取。
+            .with_memory_storage(
+                storage.clone() as std::sync::Arc<dyn mr_ability::storage::MemoryStorage>
             ),
         );
 
@@ -362,6 +373,8 @@ impl Daemon {
         });
 
         let sync_task = tokio::spawn(Self::sync_loop(vector_store.clone()));
+        // 过期清扫走索引一致型存储：软删同时摘除向量与全文索引，避免幽灵命中。
+        let expiry_task = tokio::spawn(Self::expiry_loop(indexing_storage.clone()));
         let idle_task = tokio::spawn(idle_monitor.run());
         let dream_task = tokio::spawn(Self::dream_loop(
             dream_processor,
@@ -389,6 +402,7 @@ impl Daemon {
             task.abort();
         }
         sync_task.abort();
+        expiry_task.abort();
         idle_task.abort();
         dream_task.abort();
         if let Some(task) = access_task {
@@ -612,6 +626,27 @@ impl Daemon {
                     }
                 }
                 Err(e) => warn!("Failed to sync vector store: {}", e),
+            }
+        }
+    }
+
+    /// 过期记忆清扫循环。
+    ///
+    /// 启动后立即执行一轮（清理停机期间到期的记忆），此后每
+    /// [`EXPIRY_SWEEP_SECS`] 秒一轮。清扫失败只告警，不影响守护进程存活。
+    async fn expiry_loop(storage: Arc<dyn MemoryStorage>) {
+        let mut ticker = interval(Duration::from_secs(EXPIRY_SWEEP_SECS));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+        loop {
+            ticker.tick().await;
+            match mr_ability::expiry::sweep_expired(storage.as_ref(), chrono::Utc::now()).await {
+                Ok(report) if report.swept > 0 => info!(
+                    "Expiry sweep: {} of {} scanned memories soft-deleted",
+                    report.swept, report.scanned
+                ),
+                Ok(_) => {}
+                Err(e) => warn!("Expiry sweep failed: {:#}", e),
             }
         }
     }

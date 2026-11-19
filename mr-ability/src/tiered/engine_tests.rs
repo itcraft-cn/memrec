@@ -226,6 +226,7 @@
             chunk_group_id: None,
             chunk_index: None,
             chunk_total: None,
+            expires_at: None,
             scope: mr_common::MemoryScope::default(),
         }
     }

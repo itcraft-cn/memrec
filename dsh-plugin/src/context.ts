@@ -31,6 +31,11 @@ export interface ContextConfig {
   readonly maxTokens: number
 }
 
+/** 常驻规则正文的字符上限：防止异常数据挤占上下文。 */
+const MAX_RULE_CHARS = 1600
+/** 规则集缓存刷新间隔（turn）。Dream 按天运行，30 个 turn 足以覆盖更新。 */
+const RULE_CACHE_TURNS = 30
+
 /** 单条注入结果的兼容形态：普通检索用 `content_preview`，分层检索用 `content`。 */
 interface RawHit {
   score?: number
@@ -81,6 +86,76 @@ export function renderContextText(result: unknown, minScore = 0): string {
   return `## MemRec 项目记忆（自动检索，按类型优先级预算注入）\n${lines.join('\n')}`
 }
 
+/** 规则集记忆的最小形态。 */
+interface RuleMemoryLike {
+  content?: string
+  tags?: string[]
+}
+
+/** 从 list 响应中取出记忆数组。 */
+function memoriesOf(result: unknown): RuleMemoryLike[] {
+  const list = (result as { memories?: unknown[] } | undefined)?.memories
+  return Array.isArray(list) ? (list as RuleMemoryLike[]) : []
+}
+
+/**
+ * 拉取当前项目的常驻规则集（项目 + 全局各一条）。
+ *
+ * 规则集由 Dream 的规则提炼阶段产出，标签为 `rule-set`，每作用域覆盖式更新。
+ * 这里不复用语义检索：规则必须**无条件**进入上下文，不能依赖查询相似度命中。
+ * 项目定位交给守护进程（`get_project_info` + `.mr_pid`），与检索侧口径一致。
+ */
+async function fetchRuleSets(daemon: MemrecDaemon, cwd: string): Promise<RuleMemoryLike[]> {
+  const global = await daemon
+    .call('list_memory', { tags: ['rule-set'], global_only: true, limit: 2 })
+    .then(memoriesOf)
+    .catch(() => [])
+
+  const project = await daemon
+    .call('get_project_info', { working_dir: cwd })
+    .then((info) => (info as { project_id?: string } | undefined)?.project_id)
+    .then((projectId) =>
+      projectId === undefined
+        ? []
+        : daemon
+            .call('list_memory', {
+              tags: ['rule-set'],
+              project_only: true,
+              project_id: projectId,
+              limit: 2,
+            })
+            .then(memoriesOf)
+            .catch(() => []),
+    )
+    .catch(() => [])
+
+  return [...project, ...global]
+}
+
+/**
+ * 把规则集渲染为注入文本。
+ *
+ * 只做长度约束与空内容过滤；规则集本身已由服务端覆盖式更新并限制条数，
+ * 客户端不再按条数切割。
+ */
+export function renderRuleText(memories: RuleMemoryLike[], maxChars = MAX_RULE_CHARS): string {
+  const kept: string[] = []
+  let used = 0
+  for (const memory of memories) {
+    const body = (memory.content ?? '').trim()
+    if (body.length === 0) continue
+    if (used + body.length > maxChars) {
+      const room = maxChars - used
+      if (room > 40) kept.push(body.slice(0, room))
+      break
+    }
+    kept.push(body)
+    used += body.length
+  }
+  if (kept.length === 0) return ''
+  return `## MemRec 常驻规则（Dream 从决策/偏好提炼，覆盖式更新）\n${kept.join('\n')}`
+}
+
 /** 从 user 消息块中提取纯文本。 */
 function textOfUserMessage(message: UserMessage): string {
   const parts: string[] = []
@@ -118,6 +193,8 @@ export function installContextInjection(
 
   // 每个 agent 最后注入的 turn 号：按 (agentId) 记录，turn 单调递增
   const lastInjectedTurn = new Map<string, number>()
+  // 每个 agent 最近一次拉取的常驻规则文本与轮次（规则变化频率远低于检索）
+  const ruleCache = new Map<string, { turn: number; text: string }>()
   const warned = new Set<string>()
 
   ctx.on(
@@ -131,41 +208,55 @@ export function installContextInjection(
       const lastTurn = lastInjectedTurn.get(agentId) ?? -Infinity
       if (payload.turn - lastTurn < config.refreshTurns) return decision
 
+      const cwd = payload.agent.session.header.cwd ?? process.cwd()
+
+      // 常驻规则：不依赖查询命中，按 turn 间隔缓存；Dream 覆盖式更新后自动生效。
+      const cached = ruleCache.get(agentId)
+      if (cached === undefined || payload.turn - cached.turn >= RULE_CACHE_TURNS) {
+        try {
+          const ruleText = renderRuleText(await fetchRuleSets(daemon, cwd))
+          ruleCache.set(agentId, { turn: payload.turn, text: ruleText })
+        } catch {
+          // 拉取失败不缓存，下一轮重试
+        }
+      }
+      const rulesText = ruleCache.get(agentId)?.text ?? ''
+
       // 查询词：最新一条用户消息（过滤掉其他插件注入）
       const userText = [...payload.messages]
         .reverse()
         .map(textOfUserMessage)
         .find((t) => t.length > 0)
-      if (userText === undefined || userText.length === 0) return decision
 
-      // 查询词过长时截断（检索不需要全文）
-      const query = userText.slice(0, 200)
-
-      let result: unknown
-      try {
-        // 请求分层检索：服务端在总预算内按记忆类型优先级裁剪，
-        // 返回带完整内容与层级标注（full/truncated/summary/dense_proxy）的结果。
-        result = await daemon.call('search_memory', {
-          query,
-          top_k: Math.max(config.topK, 24),
-          min_score: config.minScore,
-          include_global: true,
-          max_total_tokens: config.maxTokens,
-          working_dir: payload.agent.session.header.cwd ?? process.cwd(),
-        })
-      } catch (err) {
-        // daemon 不可用：每 agent 仅告警一次，静默降级
-        if (!warned.has(agentId)) {
-          warned.add(agentId)
-          // eslint-disable-next-line no-console
-          console.warn(
-            `[memrec] 上下文注入失败（仅提示一次）：${err instanceof Error ? err.message : String(err)}`,
-          )
+      let contextText = ''
+      if (userText !== undefined && userText.length > 0) {
+        // 查询词过长时截断（检索不需要全文）
+        const query = userText.slice(0, 200)
+        try {
+          // 请求分层检索：服务端在总预算内按记忆类型优先级裁剪，
+          // 返回带完整内容与层级标注（full/truncated/summary/dense_proxy）的结果。
+          const result = await daemon.call('search_memory', {
+            query,
+            top_k: Math.max(config.topK, 24),
+            min_score: config.minScore,
+            include_global: true,
+            max_total_tokens: config.maxTokens,
+            working_dir: cwd,
+          })
+          contextText = renderContextText(result, config.minScore)
+        } catch (err) {
+          // daemon 不可用：每 agent 仅告警一次，静默降级
+          if (!warned.has(agentId)) {
+            warned.add(agentId)
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[memrec] 上下文注入失败（仅提示一次）：${err instanceof Error ? err.message : String(err)}`,
+            )
+          }
         }
-        return decision
       }
 
-      const text = renderContextText(result, config.minScore)
+      const text = [rulesText, contextText].filter((s) => s.length > 0).join('\n\n')
       if (text.length === 0) return decision
 
       lastInjectedTurn.set(agentId, payload.turn)

@@ -7,6 +7,7 @@ pub mod dedup;
 pub mod dream;
 pub mod edge;
 pub mod embedding;
+pub mod expiry;
 pub mod facet;
 pub mod idle;
 pub mod importance;

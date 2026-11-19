@@ -24,7 +24,11 @@ impl McpServer {
                                 "items": { "type": "string" },
                                 "description": "Tags for categorization. Use 'critical' for important, 'fact' for objective facts, 'best-practice' for patterns"
                             },
-                            "is_global": { "type": "boolean", "description": "If true, memory is accessible from all projects (use for user preferences)" }
+                            "is_global": { "type": "boolean", "description": "If true, memory is accessible from all projects (use for user preferences)" },
+                            "ttl": {
+                                "type": "string",
+                                "description": "Optional lifetime such as 7d / 12h / 30m. Use for one-off or temporary notes; the memory is soft-deleted after expiry. Omit for permanent memories."
+                            }
                         },
                         "required": ["content", "memory_type"]
                     }
@@ -226,6 +230,12 @@ impl McpServer {
             .get("is_global")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        let expires_at = match args.get("ttl").and_then(|v| v.as_str()) {
+            Some(spec) if !spec.trim().is_empty() => {
+                Some(crate::commands::parse_ttl(spec).map_err(|e| e.to_string())?)
+            }
+            _ => None,
+        };
 
         let resp = self
             .call_daemon(JsonRpcRequest::new(
@@ -240,6 +250,7 @@ impl McpServer {
                     source: None,
                     scope: None,
                     dedup: None,
+                    expires_at,
                 })),
                 1,
             ))

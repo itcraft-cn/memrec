@@ -16,6 +16,7 @@ use super::*;
                 source: None,
                 scope: None,
                 dedup: None,
+                expires_at: None,
             })),
             1,
         );

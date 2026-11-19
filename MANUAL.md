@@ -125,8 +125,22 @@ systemctl --user restart memrecd   # 或直接：memrecd
 ### 添加记忆
 
 ```bash
-memrec add "内容" --mtype <类型> [--tag <标签>] [--global] [--source <来源>] [--scope <范围>]
+memrec add "内容" --mtype <类型> [--tag <标签>] [--global] [--source <来源>] [--scope <范围>] \
+                [--ttl <时长> | --expires-at <RFC3339>]
 ```
+
+#### 过期时间（TTL）
+
+临时性内容（一次性任务约定、短期上下文）应设置存活时长，避免长期占用检索池与注入预算：
+
+```bash
+memrec add "本周临时启用灰度开关 X" --mtype context --ttl 7d
+memrec add "发布会前使用临时预约链接" --mtype context --expires-at 2026-12-01T00:00:00Z
+```
+
+- 单位：`s` 秒、`m` 分、`h` 时、`d` 天、`w` 周，必须显式给出；
+- 到期后由守护进程每 5 分钟清扫一次，执行**软删除**（可 `memrec restore`），并同步摘除向量与全文索引，因此不会再出现在检索与注入结果中；
+- 不设置则永不过期；MCP `mr_add` 使用同名参数 `ttl`。
 
 #### 记忆类型
 

@@ -20,7 +20,8 @@ mod crud;
 mod dream;
 
 pub use crud::{
-    add, delete, get, list, restore, stats, timeline, version, AddOptions, ListOptions,
+    add, delete, get, list, parse_expires_at, parse_ttl, restore, stats, timeline, version,
+    AddOptions, ListOptions,
 };
 pub use dream::{dream, dream_report};
 

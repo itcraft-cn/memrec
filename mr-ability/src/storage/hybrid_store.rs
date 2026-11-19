@@ -9,12 +9,12 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use super::traits::{
-    FtsPayload, FtsStorage, HybridSearchRequest, HybridSearchResult, HybridStorage, SearchHit,
-    TextProvider, VectorPayload, VectorStorage,
+    FtsPayload, FtsStorage, HybridSearchRequest, HybridSearchResult, HybridStorage, MemoryStorage,
+    SearchHit, TextProvider, VectorPayload, VectorStorage,
 };
 use crate::search::mmr::{mmr_rerank, MmrConfig, MmrHit};
 
-use crate::search::scorer::ScorerConfig;
+use crate::search::scorer::{apply_ranking_modifier, ScorerConfig};
 /// 混合搜索配置。
 #[derive(Debug, Clone)]
 pub struct HybridConfig {
@@ -51,6 +51,10 @@ pub struct HybridStore {
     /// 重排文本提供者：MMR 相似度用全文而非 200 字符 content_preview，
     /// 避免"开头相同、结论相反"的记忆被误判相似（与多样性目标相反）。
     text_provider: Option<Arc<dyn TextProvider>>,
+    /// 记忆元数据提供者：排序修饰（新近/重要性/来源）需要 `created_at`、
+    /// `scope`、`source`、`importance`，这些字段不在索引载荷中（载荷会与
+    /// 主存储漂移，历史上还缺少回收路径）。缺失时按纯相关度排序。
+    memory_storage: Option<Arc<dyn MemoryStorage>>,
 }
 
 impl HybridStore {
@@ -67,12 +71,22 @@ impl HybridStore {
             mmr_config,
             scorer_config,
             text_provider: None,
+            memory_storage: None,
         }
     }
 
     /// 附加重排文本提供者（builder 风格，不破坏既有构造签名）。
     pub fn with_text_provider(mut self, provider: Arc<dyn TextProvider>) -> Self {
         self.text_provider = Some(provider);
+        self
+    }
+
+    /// 附加记忆元数据提供者（builder 风格），启用新近/重要性/来源排序修饰。
+    ///
+    /// 注意：应传入**底层记忆存储**而非索引装饰器，避免在检索链路中触发
+    /// 索引重建。装饰器只影响写路径，`get_many` 语义两者一致。
+    pub fn with_memory_storage(mut self, storage: Arc<dyn MemoryStorage>) -> Self {
+        self.memory_storage = Some(storage);
         self
     }
 
@@ -192,6 +206,69 @@ impl HybridStore {
         });
         result
     }
+
+    /// 对已通过证据过滤的候选应用新近/重要性/来源修正，并按排序分重排。
+    ///
+    /// - 未配置元数据提供者、批量取数失败、或某条记忆已不存在时，保持原相关度
+    ///   排序（静默降级，检索不可因排序修饰而失败）；
+    /// - 修饰只影响排序，`min_score` 阈值判定在此之前已完成（见调用点）。
+    async fn apply_ranking(&self, hits: &mut [SearchHit]) {
+        if hits.is_empty() {
+            return;
+        }
+        let Some(storage) = &self.memory_storage else {
+            return;
+        };
+
+        let ids: Vec<Uuid> = hits.iter().map(|h| h.memory_id).collect();
+        let fetched = match storage.get_many(&ids).await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(
+                    target: "recall",
+                    "ranking metadata fetch failed, keep relevance order: {:#}",
+                    e
+                );
+                return;
+            }
+        };
+        let by_id: HashMap<Uuid, mr_common::Memory> = fetched
+            .into_iter()
+            .flatten()
+            .filter(|m| !m.is_deleted)
+            .map(|m| (m.id, m))
+            .collect();
+        if by_id.is_empty() {
+            return;
+        }
+
+        for hit in hits.iter_mut() {
+            if let Some(memory) = by_id.get(&hit.memory_id) {
+                hit.score = apply_ranking_modifier(
+                    hit.score as f64,
+                    memory.created_at,
+                    memory.scope,
+                    memory.source,
+                    memory.importance,
+                    memory.memory_type,
+                    &self.scorer_config,
+                ) as f32;
+            }
+        }
+
+        hits.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    b.rank_score
+                        .unwrap_or(0.0)
+                        .partial_cmp(&a.rank_score.unwrap_or(0.0))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .then_with(|| a.memory_id.cmp(&b.memory_id))
+        });
+    }
 }
 
 /// MMR 搜索命中包装。
@@ -236,11 +313,6 @@ impl HybridStorage for HybridStore {
 
         let merged = Self::merge_and_calibrate(vec_hits, fts_hits, req.hybrid_alpha);
 
-        // 3. Apply scoring (time decay + source weight)
-        // TODO: Need created_at/scope/source in VectorPayload or SearchHit for scoring
-        // For now, skip scoring step - scorer_config is reserved for future use
-        let _ = &self.scorer_config;
-
         // 融合后按"绝对证据"统一过滤：
         // - 向量证据：原始余弦 >= min_score；
         // - 全文证据：查询词覆盖率 >= MIN_FTS_COVERAGE（单路低覆盖视为字词碰撞）；
@@ -268,6 +340,11 @@ impl HybridStorage for HybridStore {
                 })
                 .then_with(|| a.memory_id.cmp(&b.memory_id))
         });
+
+        // 3. 排序修饰（新近 / 重要性 / 来源）：放在绝对证据过滤之后、MMR 之前。
+        //    只改排序分，不参与 min_score 判定，因此不会把“旧但精确命中”过滤掉，
+        //    只会在同量级内把它排到更靠后的位置。
+        self.apply_ranking(&mut sorted).await;
 
         let final_hits = if req.mmr_enabled {
             let mut mmr_hits: Vec<MmrSearchHit> = sorted
@@ -503,6 +580,114 @@ mod tests {
                 .map(|h| (h.memory_id, h.score))
                 .collect::<Vec<_>>()
         );
+    }
+
+    /// 排序修饰（新近）：相关度相同时，新记忆应排在旧记忆之前。
+    ///
+    /// 两条记忆使用同一向量（余弦完全相等），仅创建时间不同；若没有排序修饰，
+    /// 顺序只能由 memory_id 决定。该用例锁定“打分已真正接入检索链路”。
+    #[tokio::test]
+    async fn test_recency_modifier_orders_equal_relevance() {
+        use crate::storage::{MemoryStore, RocksDBStore};
+        use chrono::Duration;
+        use mr_common::{Memory, MemorySource, MemoryType};
+
+        let dir = tempfile::tempdir().unwrap();
+        let rocks = Arc::new(RocksDBStore::open(dir.path()).unwrap());
+        let memory_store: Arc<dyn MemoryStorage> = Arc::new(MemoryStore::new(rocks));
+
+        // 情景类记忆才参与新近折损（语义类不因时间降权）。
+        let mut old = Memory::new("同等内容".to_string(), MemoryType::Context);
+        old.created_at = chrono::Utc::now() - Duration::hours(5_000);
+        old.source = MemorySource::User;
+        let mut recent = old.clone();
+        recent.id = Uuid::new_v4();
+        recent.created_at = chrono::Utc::now();
+
+        memory_store.save(&old).await.unwrap();
+        memory_store.save(&recent).await.unwrap();
+
+        let hybrid = vector_only_store().with_memory_storage(memory_store.clone());
+        for id in [old.id, recent.id] {
+            hybrid
+                .add(
+                    &id,
+                    &[1.0, 0.0, 0.0],
+                    "同等内容",
+                    VectorPayload {
+                        content_preview: "同等内容".to_string(),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        hybrid.reload().unwrap();
+
+        let req = HybridSearchRequest {
+            query: "同等内容".to_string(),
+            query_embedding: vec![1.0, 0.0, 0.0],
+            filter: SearchFilter {
+                min_score: 0.0,
+                ..Default::default()
+            },
+            top_k: 2,
+            hybrid_alpha: 1.0,
+            mmr_lambda: 0.5,
+            mmr_enabled: false,
+        };
+        let result = hybrid.search(req).await.unwrap();
+        assert_eq!(result.hits.len(), 2);
+        assert_eq!(
+            result.hits.first().map(|h| h.memory_id),
+            Some(recent.id),
+            "相关度相同时新记忆应排在前"
+        );
+        assert!(
+            result.hits[0].score >= result.hits[1].score,
+            "排序分必须单调不增"
+        );
+    }
+
+    /// 排序修饰：未配置元数据提供者时保持纯相关度排序（降级路径）。
+    #[tokio::test]
+    async fn test_without_memory_storage_keeps_relevance_order() {
+        let hybrid = vector_only_store();
+        let best = Uuid::new_v4();
+        let worst = Uuid::new_v4();
+        for (id, emb) in [
+            (best, vec![1.0_f32, 0.0, 0.0]),
+            (worst, vec![0.2, 1.0, 0.0]),
+        ] {
+            hybrid
+                .add(
+                    &id,
+                    &emb,
+                    "zzz_no_lexical_overlap",
+                    VectorPayload {
+                        content_preview: "zzz_no_lexical_overlap".to_string(),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        hybrid.reload().unwrap();
+
+        let req = HybridSearchRequest {
+            query: "zzz_no_lexical_overlap".to_string(),
+            query_embedding: vec![1.0, 0.0, 0.0],
+            filter: SearchFilter {
+                min_score: 0.0,
+                ..Default::default()
+            },
+            top_k: 2,
+            hybrid_alpha: 1.0,
+            mmr_lambda: 0.5,
+            mmr_enabled: false,
+        };
+        let result = hybrid.search(req).await.unwrap();
+        assert_eq!(result.hits.first().map(|h| h.memory_id), Some(best));
     }
 
     /// 构造内部命中，便于直接验证融合函数。

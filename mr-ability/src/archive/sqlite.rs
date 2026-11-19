@@ -240,6 +240,7 @@ mod tests {
             chunk_group_id: None,
             chunk_index: None,
             chunk_total: None,
+            expires_at: None,
         };
 
         archive.archive_sync(&memory).unwrap();
@@ -277,6 +278,7 @@ mod tests {
             chunk_group_id: None,
             chunk_index: None,
             chunk_total: None,
+            expires_at: None,
         };
 
         archive.archive_sync(&memory).unwrap();

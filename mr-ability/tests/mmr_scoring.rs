@@ -148,6 +148,7 @@ fn test_scorer_time_decay() {
         // T4 起 Workspace 已废弃并归一为 Global，时间衰减豁免集合仅需 Global
         evergreen_scopes: vec![MemoryScope::Global],
         source_weights: SourceWeights::default(),
+        ..Default::default()
     };
 
     let old_time = chrono::Utc::now() - chrono::Duration::hours(336);
@@ -322,4 +323,3 @@ async fn test_vector_store_search() {
     assert_eq!(results[0].memory_id, id1);
     assert!(results[0].score > 0.99);
 }
-

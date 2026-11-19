@@ -11,6 +11,9 @@
 
 ### 新增
 
+- **记忆过期（TTL）**：`Memory.expires_at` 与协议 `AddParams.expires_at` / `MemoryView.expires_at` 向后兼容；`memrec add --ttl 7d|12h|30m|15s|1w`、`--expires-at <RFC3339>` 与 MCP `mr_add.ttl` 均可用。守护进程每 5 分钟清扫到期记忆并软删除（可 `restore`），并经索引一致型存储同步摘除向量与全文索引，避免“已过期仍被检索”。时间单位必须显式给出，避免把 `7` 误读成 7 秒。
+- **Dream 规则提炼（反思的规则出口）**：新增阶段 `rule_distill`，把用户来源的 `decision`/`preference` 按作用域归纳为至多 `rule_distill_max_rules` 条规则，写为**每作用域一条** `rule-set` 记忆（`Preference` 类型、`importance = 1.0`、覆盖式更新、不随轮次增长）。来源不足 `rule_distill_min_sources` 时跳过；只采用 `source = User` 的记录，避免 Dream 自产自用造成规则漂移。DSH 插件注入时无条件携带项目与全局规则集（按 turn 缓存，最长 1600 字符）。
+- **检索排序修饰**：混合检索在绝对证据过滤之后、MMR 之前应用有界折损。新近折损（10%）**只作用于情景类记忆**（`conversation`/`context`），语义类（知识/决策/偏好）是可复用结论，不因时间流逝降权；重要性与来源只做 2% 量级的 tie-break。`Global` 作用域豁免时间折损；`ScorerConfig` 新增 `recency_weight` / `importance_weight` / `source_weight_strength`。元数据取数失败时降级为纯相关度排序。阈值与自检索不变量不受影响。
 - **预算感知的分层注入**：`memrec search`、MCP `mr_search` 与协议 `search_memory` 新增 `max_total_tokens`；结果按 `Full`/`Truncated`/`Summary`/`DenseProxy` 四级表示与记忆类型优先级（`preference` 50%、`decision` 30%、`knowledge` 20%）裁剪，token 估算区分中英文（CJK 约 1 token/字）。DSH 插件在 `agent/pre-step` 注入时固定携带预算（默认 4000，可经 `contextMaxTokens` 配置）。
 - **异步访问反馈与检索指标**：命中 id 经后台通道批量回写 `last_accessed`/`access_count`（`access_recording`、`access_flush_secs`），请求链路不执行同步写；`stats` 新增空注入率、预算溢出率、降级率、去重命中率与冲突审查计数。
 - **异步 LLM 冲突审查**：`llm_review_enabled` 开启后按 `llm_review_cron`（5 段 cron，本地时间）周期批量审查窗口内的新增记忆，支持 `llm_review_max_per_run`、`llm_review_max_candidates` 与 `absolute`/`ratio`/`hybrid` 三种候选阈值口径；写入快路径仍只做规则版向量阈值判断。

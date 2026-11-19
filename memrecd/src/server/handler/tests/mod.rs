@@ -171,6 +171,7 @@
                 source: None,
                 scope: None,
                 dedup: None,
+                expires_at: None,
             })),
             id,
         )

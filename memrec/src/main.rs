@@ -66,6 +66,12 @@ enum Commands {
         /// 跳过写入去重检测
         #[arg(long)]
         no_dedup: bool,
+        /// 存活时长（如 7d / 12h / 30m），到期后自动软删除
+        #[arg(long, group = "expiry")]
+        ttl: Option<String>,
+        /// 绝对过期时间（RFC3339，如 2026-12-01T00:00:00Z）
+        #[arg(long, group = "expiry")]
+        expires_at: Option<String>,
     },
     Get {
         id: String,
@@ -275,11 +281,18 @@ async fn main() -> Result<()> {
             source,
             scope,
             no_dedup,
+            ttl,
+            expires_at,
         } => {
             let working_dir = if global {
                 None
             } else {
                 Some(detect_working_dir()?)
+            };
+            let expires_at = match (ttl.as_deref(), expires_at.as_deref()) {
+                (Some(spec), _) => Some(commands::parse_ttl(spec)?),
+                (None, Some(spec)) => Some(commands::parse_expires_at(spec)?),
+                (None, None) => None,
             };
             add(
                 &client,
@@ -292,6 +305,7 @@ async fn main() -> Result<()> {
                     source,
                     scope,
                     dedup: Some(!no_dedup),
+                    expires_at,
                 },
                 human,
             )

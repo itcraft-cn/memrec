@@ -58,6 +58,21 @@ pub struct DreamConfig {
     #[serde(default = "default_phase_vector_regen")]
     pub phase_vector_regen: bool,
 
+    /// Phase 5: 规则提炼开关。
+    ///
+    /// 把用户来源的决策/偏好归纳为每作用域一条的规则集记忆（`rule-set` 标签），
+    /// 覆盖式更新。需要 LLM；未注入 LLM 时静默跳过。
+    #[serde(default = "default_phase_rule_distill")]
+    pub phase_rule_distill: bool,
+
+    /// 规则集最大条数：超过则截断（规则必须收敛，不能退化为事实流水账）。
+    #[serde(default = "default_rule_distill_max_rules")]
+    pub rule_distill_max_rules: usize,
+
+    /// 触发规则提炼的最少来源记忆数（同一作用域内）。
+    #[serde(default = "default_rule_distill_min_sources")]
+    pub rule_distill_min_sources: usize,
+
     /// 单次整合的最大记忆条数（防止 LLM 输入超窗）
     #[serde(default = "default_integration_max_memories")]
     pub integration_max_memories: usize,
@@ -222,6 +237,15 @@ fn default_phase_cleanup() -> bool {
 fn default_phase_vector_regen() -> bool {
     false
 }
+fn default_phase_rule_distill() -> bool {
+    true
+}
+fn default_rule_distill_max_rules() -> usize {
+    20
+}
+fn default_rule_distill_min_sources() -> usize {
+    5
+}
 fn default_integration_max_memories() -> usize {
     100
 }
@@ -357,6 +381,9 @@ impl Default for DreamConfig {
             phase_personal_summary: true,
             phase_cleanup: true,
             phase_vector_regen: false,
+            phase_rule_distill: true,
+            rule_distill_max_rules: 20,
+            rule_distill_min_sources: 5,
             integration_max_memories: 100,
             integration_preserve_importance: 0.85,
             integration_preserve_tags: vec!["critical".to_string()],

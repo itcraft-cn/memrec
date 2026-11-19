@@ -111,6 +111,7 @@ mr-install --mirror-base-url <URL>   # Custom mirror
 memrec add "Choose JWT auth" --mtype decision --tag critical
 memrec add "RAII: resource acquisition is initialization" --mtype knowledge --tag best-practice --tag rust
 memrec add "User prefers verbose output" --mtype preference --tag output --global
+memrec add "Temporarily enable feature flag X" --mtype context --ttl 7d  # auto soft-delete on expiry
 
 # Hybrid search (KNN + BM25)
 memrec search "auth"                        # default scope: project if .mr_pid exists, else global

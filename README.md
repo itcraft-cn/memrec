@@ -13,6 +13,9 @@
 - **场景聚合** — L2场景聚合层，按主题聚合记忆卡片，热度排序（记忆金字塔 L0-L3）
 - **Dream 整合** — 空闲时自动触发的四阶段记忆整合，可选 LLM 摘要
 - **Dream 两段式重构与审计** — Stage F 分簇提炼 + Stage N 成网；每次运行落库 `DreamRun`，`memrec dream-report` 可查，`--dry-run` 预演
+- **Dream 规则提炼** — 把用户来源的决策/偏好收敛为每作用域一条的 `rule-set` 记忆（覆盖式更新、最多 20 条），插件注入时无条件携带，避免"笔记越积越多、规则从未形成"
+- **记忆过期（TTL）** — `--ttl 7d` / `--expires-at`，到期软删除并同步摘除索引，临时上下文不再长期占用注入预算
+- **检索排序修饰** — 情景类记忆按新近折损，重要性与来源做 tie-break；语义类结论不因时间降权
 - **检索图扩散** — 混合检索后按 1 跳图扩散补充召回，图命中带 EdgeHint；`retrieval_graph_quota` 为图命中预留 top_k 名额
 - **离线检索评测** — `memrec eval` 以 JSONL 数据集输出 hit@k/recall@k/MRR/nDCG
 - **LLM 接入** — 可选 OpenAI 兼容大模型，驱动 Dream 摘要（可选 LLM 语义边）
@@ -105,6 +108,7 @@ mr-install --mirror-base-url <URL>   # 自定义镜像
 memrec add "选择JWT认证方案" --mtype decision --tag critical
 memrec add "RAII模式：资源获取即初始化" --mtype knowledge --tag best-practice --tag rust
 memrec add "用户偏好详细输出" --mtype preference --tag output --global
+memrec add "本周临时启用灰度开关" --mtype context --ttl 7d   # 到期自动软删除
 
 # 混合检索（KNN + BM25）
 memrec search "认证方案"                   # 默认范围：有 .mr_pid → 仅当前项目；无 → 仅公共记忆

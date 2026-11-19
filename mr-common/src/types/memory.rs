@@ -172,6 +172,16 @@ pub struct Memory {
 
     #[serde(default)]
     pub scope: MemoryScope,
+
+    /// 过期时间；`Some(t)` 表示 `t` 之后该记忆不再参与检索与注入。
+    ///
+    /// 用于“一次性任务”类记忆（临时上下文、脚手架信息、短期约定）：
+    /// 到期后由守护进程的过期清扫任务软删除（可 restore），而不是永久驻留
+    /// 检索池占用注入预算。`None` 表示永不过期。
+    ///
+    /// 兼容性：旧数据无该字段，`serde(default)` 视为永不过期。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<DateTime<Utc>>,
 }
 
 impl Memory {
@@ -198,6 +208,7 @@ impl Memory {
             chunk_total: None,
             source: MemorySource::default(),
             scope: MemoryScope::default(),
+            expires_at: None,
         }
     }
 
@@ -235,6 +246,19 @@ impl Memory {
     pub fn with_scope(mut self, scope: MemoryScope) -> Self {
         self.scope = scope;
         self
+    }
+
+    /// 设置过期时间，返回自身以支持链式调用。
+    pub fn with_expires_at(mut self, expires_at: Option<DateTime<Utc>>) -> Self {
+        self.expires_at = expires_at;
+        self
+    }
+
+    /// 判断记忆在给定时刻是否已过期（已软删的记忆同样不参与检索，但不算“过期”）。
+    ///
+    /// 仅做过期与否的事实判断，不做副作用；清扫由上层调用方负责。
+    pub fn is_expired(&self, now: DateTime<Utc>) -> bool {
+        self.expires_at.is_some_and(|t| t <= now)
     }
 
     /// 记录一次访问，更新最后访问时间并递增访问计数。
@@ -326,6 +350,33 @@ mod tests {
 
         assert_eq!(memory.tags.len(), 2);
         assert!(memory.tags.contains(&"important".to_string()));
+    }
+
+    #[test]
+    fn test_memory_expires_at() {
+        let now = Utc::now();
+        let expired = Memory::new("临时".to_string(), MemoryType::Context)
+            .with_expires_at(Some(now - chrono::Duration::seconds(1)));
+        let pending = Memory::new("未到期".to_string(), MemoryType::Context)
+            .with_expires_at(Some(now + chrono::Duration::hours(1)));
+        let permanent = Memory::new("永久".to_string(), MemoryType::Knowledge);
+
+        assert!(expired.is_expired(now));
+        assert!(!pending.is_expired(now));
+        assert!(!permanent.is_expired(now));
+    }
+
+    #[test]
+    fn test_memory_expires_at_serde_backward_compatible() {
+        // 旧数据没有 expires_at 字段，反序列化后应视为永不过期。
+        let mut value = serde_json::to_value(Memory::new("x".to_string(), MemoryType::Knowledge))
+            .expect("serialize memory");
+        value
+            .as_object_mut()
+            .expect("memory object")
+            .remove("expires_at");
+        let parsed: Memory = serde_json::from_value(value).expect("deserialize legacy memory");
+        assert!(parsed.expires_at.is_none());
     }
 
     #[test]

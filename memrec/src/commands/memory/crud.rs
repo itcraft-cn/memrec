@@ -14,6 +14,49 @@ pub struct AddOptions {
     pub scope: Option<String>,
     /// 去重检测开关：`None` 用服务端配置，`Some(false)` 显式关闭
     pub dedup: Option<bool>,
+    /// 绝对过期时间；`None` 表示永不过期
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// 解析 `--ttl` 规格（如 `7d`、`12h`、`30m`）为绝对过期时间。
+///
+/// 单位：`s` 秒、`m` 分、`h` 时、`d` 天、`w` 周；必须带单位，避免把
+/// “7” 误读成 7 秒。数值与单位之间允许空格。
+pub fn parse_ttl(spec: &str) -> Result<chrono::DateTime<chrono::Utc>> {
+    let s = spec.trim();
+    let split = s
+        .find(|c: char| !c.is_ascii_digit() && !c.is_whitespace())
+        .ok_or_else(|| anyhow::anyhow!("ttl 缺少单位（s/m/h/d/w）：{}", spec))?;
+    let (num, unit) = s.split_at(split);
+    let n: i64 = num
+        .trim()
+        .parse()
+        .map_err(|_| anyhow::anyhow!("ttl 数值非法：{}", spec))?;
+    if n <= 0 {
+        return Err(anyhow::anyhow!("ttl 必须为正数：{}", spec));
+    }
+    let unit_secs = match unit.trim().to_ascii_lowercase().as_str() {
+        "s" => 1,
+        "m" => 60,
+        "h" => 3600,
+        "d" => 86_400,
+        "w" => 604_800,
+        other => {
+            return Err(anyhow::anyhow!(
+                "不支持的 ttl 单位 `{}`（可用 s/m/h/d/w）：{}",
+                other,
+                spec
+            ))
+        }
+    };
+    Ok(chrono::Utc::now() + chrono::Duration::seconds(n * unit_secs))
+}
+
+/// 解析 `--expires-at` 的 RFC3339 时间。
+pub fn parse_expires_at(spec: &str) -> Result<chrono::DateTime<chrono::Utc>> {
+    Ok(chrono::DateTime::parse_from_rfc3339(spec.trim())
+        .map_err(|e| anyhow::anyhow!("expires-at 需为 RFC3339 时间（{}）：{}", e, spec))?
+        .with_timezone(&chrono::Utc))
 }
 
 /// 添加记忆命令。
@@ -30,6 +73,7 @@ pub async fn add(client: &Client, opts: AddOptions, human: bool) -> Result<()> {
         source,
         scope,
         dedup,
+        expires_at,
     } = opts;
     let memory_type = parse_memory_type(&mtype)?;
 
@@ -64,6 +108,7 @@ pub async fn add(client: &Client, opts: AddOptions, human: bool) -> Result<()> {
                     source: source.clone(),
                     scope: scope.clone(),
                     dedup,
+                    expires_at,
                 })),
                 i as u64 + 1,
             );
@@ -97,6 +142,7 @@ pub async fn add(client: &Client, opts: AddOptions, human: bool) -> Result<()> {
                 source,
                 scope,
                 dedup,
+                expires_at,
             })),
             1,
         );

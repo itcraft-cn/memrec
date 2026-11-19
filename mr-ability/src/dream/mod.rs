@@ -23,6 +23,7 @@ mod lock;
 mod networking;
 mod phases;
 mod processor;
+mod rules;
 
 pub use fusion::{
     cluster_candidates, cosine, extract_cluster, ClusterExtraction, ContradictionItem, FactItem,
@@ -34,3 +35,4 @@ pub use phases::{
     CrossProjectExtractor, MemoryCleaner, PersonalSummarizer, PhaseResult, VectorRegenerator,
 };
 pub use processor::{extract_summary_clues, DreamError, DreamProcessor, DreamResult};
+pub use rules::{DistillReport, TAG_DREAM_RULE, TAG_RULE_SET};

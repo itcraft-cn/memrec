@@ -263,5 +263,7 @@ pub(super) fn build_produced_memory(
         chunk_group_id: None,
         chunk_index: None,
         chunk_total: None,
+        // Dream 产出是长期结论，不设过期时间。
+        expires_at: None,
     }
 }

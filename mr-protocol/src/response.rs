@@ -130,6 +130,9 @@ pub struct MemoryView {
     pub source: MemorySource,
     /// 作用域（项目/全局）
     pub scope: MemoryScope,
+    /// 过期时间；缺省（`None`）表示永不过期
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<DateTime<Utc>>,
 }
 
 impl From<&Memory> for MemoryView {
@@ -150,6 +153,7 @@ impl From<&Memory> for MemoryView {
             chunk_total: memory.chunk_total,
             source: memory.source,
             scope: memory.scope,
+            expires_at: memory.expires_at,
         }
     }
 }
