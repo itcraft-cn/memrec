@@ -13,7 +13,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { MemrecDaemon } from '../lib/daemon.js'
-import { registerMemrecTools, envFromExec } from '../lib/tools.js'
+import { registerMemrecTools, envFromExec, readProjectId } from '../lib/tools.js'
 import { fetchRuleSets, renderContextText, renderRuleText } from '../lib/context.js'
 import { parseExtraction } from '../lib/lifecycle.js'
 
@@ -271,4 +271,48 @@ test('renderContextText 支持分层结果（content/tier/token 预算）', () =
   assert.ok(text.includes('preference full'), '应标注类型与层级')
   assert.ok(text.includes('decision summary'), '应标注类型与层级')
   assert.ok(text.includes('按类型优先级预算注入'), '标题应体现预算注入')
+})
+
+test('readProjectId 从 .mr_pid 解析项目 UUID', async () => {
+  const fs = await import('node:fs')
+  const os = await import('node:os')
+  const path = await import('node:path')
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'memrec-pid-'))
+  const nested = path.join(root, 'a', 'b')
+  fs.mkdirSync(nested, { recursive: true })
+  const uuid = '312a9769-4e0c-4a81-8e69-44741c90eddd'
+  fs.writeFileSync(
+    path.join(root, '.mr_pid'),
+    `memrec_project_id=${uuid}\ncreated_at=2026-04-23T01:57:02Z\n`,
+  )
+  try {
+    // 从子目录向上查找
+    assert.equal(readProjectId(nested), uuid)
+    // 根目录自身
+    assert.equal(readProjectId(root), uuid)
+    // 无标记文件的目录返回 null
+    const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'memrec-bare-'))
+    try {
+      assert.equal(readProjectId(bare), null)
+    } finally {
+      fs.rmSync(bare, { recursive: true, force: true })
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('mr_list project_only 不跨项目（回归：曾返回其他项目记忆）', async () => {
+  const registered = []
+  registerMemrecTools({ tools: { register: (d) => registered.push(d) } }, daemon)
+  const list = registered.find((d) => d.name === 'mr_list')
+  const exec = { agent: { session: { header: { cwd: WORKING_DIR } } } }
+  const result = await list.execute({ limit: 10, project_only: true }, exec)
+  assert.ok(result.error === undefined, `不应报错：${result.error}`)
+  const expected = readProjectId(WORKING_DIR)
+  assert.ok(expected !== null, '当前项目应已注册 .mr_pid')
+  for (const m of result.memories ?? []) {
+    assert.equal(m.project_id, expected, `越界返回了其他项目记忆：${m.project_id}`)
+  }
 })

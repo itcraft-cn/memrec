@@ -9,11 +9,17 @@
  * 每个工具的结果统一返回 JSON 值（`{type:'json'}`），render 投影为文本，
  * 与 memrec 返回结构保持一致，方便后续接入结构化消费。
  */
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { MemrecDaemon } from './daemon.js'
 import { MemrecDaemonError } from './daemon.js'
+
+/** 项目标记文件名，与 memrec 守护进程及 CLI 保持一致。 */
+const PROJECT_MARKER = '.mr_pid'
 
 /**
  * 无损 JSON 值类型。
@@ -224,6 +230,43 @@ function getTool(daemon: MemrecDaemon) {
   )
 }
 
+/**
+ * 从项目根目录的 `.mr_pid` 标记文件解析项目 UUID。
+ *
+ * 服务端 `ListParams` 只有 `project_id`，**没有** `working_dir`；当
+ * `project_only=true` 而 `project_id` 缺失时，服务端会退化为"匹配任意
+ * 非空项目"，导致跨项目结果混入（CLI 与 MCP 都是客户端先解析再传入）。
+ *
+ * 查找策略：自 `startDir` 逐级向上（与守护进程写入位置一致，即 git 根），
+ * 命中 `.mr_pid` 即解析返回；遇到 `.git` 目录或文件系统根即停止。
+ *
+ * @param startDir - 起始目录（会话工作目录）
+ * @returns 项目 UUID 字符串；未注册或格式异常返回 null
+ */
+export function readProjectId(startDir: string): string | null {
+  let dir = startDir
+  for (let depth = 0; depth < 64; depth++) {
+    try {
+      const content = readFileSync(join(dir, PROJECT_MARKER), 'utf8')
+      for (const line of content.split('\n')) {
+        const [key, value] = line.split('=', 2)
+        if (key !== undefined && key.trim() === 'memrec_project_id' && value !== undefined) {
+          const id = value.trim()
+          if (id.length > 0) return id
+        }
+      }
+    } catch {
+      // 该层没有标记文件，继续向上
+    }
+    // 到达 git 根（标记文件的常规位置）或文件系统根即停止
+    if (existsSync(join(dir, '.git'))) break
+    const parent = dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return null
+}
+
 /** 列出记忆。 */
 function listTool(daemon: MemrecDaemon) {
   return defineMemrecTool(
@@ -235,11 +278,19 @@ function listTool(daemon: MemrecDaemon) {
       global_only: { type: 'boolean', description: 'List only global memories' },
     },
     async (args, env) => {
+      const projectOnly = Boolean(args.project_only)
+      // 项目范围必须在客户端解析为 project_id，否则服务端会返回所有项目
+      const projectId = projectOnly ? readProjectId(env.workingDir) : null
+      if (projectOnly && projectId === null) {
+        throw new MemrecDaemonError(
+          `mr_list: 目录 ${env.workingDir} 未注册为 memrec 项目（未找到 .mr_pid），无法按项目过滤；请先在该项目写入一条非全局记忆`,
+        )
+      }
       return daemon.call('list', {
         limit: Number(args.limit ?? 20),
-        project_only: Boolean(args.project_only),
+        project_only: projectOnly,
         global_only: Boolean(args.global_only),
-        working_dir: env.workingDir,
+        project_id: projectId,
       })
     },
   )
@@ -286,11 +337,10 @@ function dreamTool(daemon: MemrecDaemon) {
         default: false,
       },
     },
-    async (args, env) => {
-      return daemon.call('dream', {
-        force: Boolean(args.force),
-        working_dir: env.workingDir,
-      })
+    async (args) => {
+      // DreamParams 没有 working_dir 字段（整合作用于全局/全部项目），
+      // 不额外传字段，避免依赖服务端对未知字段的容忍行为。
+      return daemon.call('dream', { force: Boolean(args.force) })
     },
   )
 }
