@@ -428,3 +428,79 @@ async fn test_search_graph_min_ratio_filters_weak_neighbor() {
         "下限远低于图命中分时应保留邻居"
     );
 }
+
+/// 图扩散命中必须与种子受同样的项目过滤约束。
+///
+/// 回归背景：邻居来自 `GraphTraversalParams`（只带跳数/衰减/边类型），
+/// 图分支此前只判 `is_deleted`，于是 `project_only=true` 的检索会经扩散
+/// 拿到其他项目的记忆，项目隔离被绕过。
+#[tokio::test]
+async fn test_search_graph_respects_project_filter() {
+    let (router, edge_store) = router_with_graph();
+
+    // 项目 A 的种子记忆（进索引）
+    let a = router
+        .route(add_request_dedup_off(
+            "rust ownership and borrowing rules",
+            1,
+        ))
+        .await;
+    let a_id = match &a.result {
+        Some(ResponseResult::Memory(m)) => m.memory.id,
+        _ => panic!("expected memory"),
+    };
+    let a_pid = match &a.result {
+        Some(ResponseResult::Memory(m)) => m.memory.project_id,
+        _ => panic!("expected memory"),
+    };
+
+    // 另一个项目的记忆：只写库不进索引，只能经图扩散到达
+    let mut b_mem = mr_common::Memory::new(
+        "cargo workspace dependency layout".to_string(),
+        MemoryType::Knowledge,
+    );
+    b_mem = b_mem.with_project(uuid::Uuid::new_v4());
+    let b_id = b_mem.id;
+    router.storage.add(&b_mem).await.unwrap();
+
+    let edge = mr_common::MemoryEdge::new(
+        a_id,
+        b_id,
+        mr_common::EdgeType::References,
+        0.9,
+        "test".to_string(),
+    );
+    edge_store.save(&edge).await.unwrap();
+
+    let resp = router
+        .route(JsonRpcRequest::new(
+            RequestAction::SearchMemory,
+            Some(RequestParams::SearchMemory(SearchMemoryParams {
+                query: "rust ownership and borrowing rules".to_string(),
+                project_id: a_pid,
+                include_global: false,
+                project_only: true,
+                global_only: false,
+                cross_project: false,
+                memory_type: None,
+                top_k: 5,
+                min_score: 0.0,
+                working_dir: None,
+                hybrid_alpha: default_hybrid_alpha(),
+                mmr_enabled: false,
+                mmr_lambda: default_mmr_lambda(),
+                max_total_tokens: None,
+            })),
+            4,
+        ))
+        .await;
+    let results = match resp.result {
+        Some(ResponseResult::SemanticSearchResult(r)) => r.results,
+        _ => panic!("expected semantic search result"),
+    };
+
+    assert!(
+        !results.iter().any(|r| r.memory_id == b_id),
+        "其他项目的记忆不得经图扩散进入 project_only 结果"
+    );
+}

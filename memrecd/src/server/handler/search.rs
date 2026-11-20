@@ -71,9 +71,20 @@ impl Router {
                     })
                 };
 
-                let include_global = !p.project_only && !p.cross_project && !p.global_only;
+                // 全局记忆是否并入：
+                // - 限定单项目（project_only）时，由调用方显式声明的 include_global
+                //   决定（默认 true = 项目 + 全局）。此前该字段被完全忽略、范围靠三个
+                //   布尔反推，导致「限定项目且包含全局」这一组合无法表达。
+                // - 其它情况维持原派生规则，保证既有客户端行为不变。
+                let include_global = if p.project_only {
+                    p.include_global
+                } else {
+                    !p.cross_project && !p.global_only
+                };
 
-                let filter = SearchFilter {
+                // 图扩散分支同样需要过滤条件（邻居须与种子同范围），
+                // 而构造混合检索请求会 move 掉它，故提前留一份副本。
+                let graph_filter = SearchFilter {
                     project_id,
                     include_global,
                     global_only: p.global_only,
@@ -82,6 +93,7 @@ impl Router {
                 };
 
                 let search_start = Instant::now();
+                let filter = graph_filter.clone();
                 let req = HybridSearchRequest {
                     query: p.query.clone(),
                     query_embedding: embedding,
@@ -230,6 +242,19 @@ impl Router {
                                 };
                                 if memory.is_deleted {
                                     tracing::debug!(target:"recall","gh {} skip: deleted", gh.memory_id);
+                                    continue;
+                                }
+                                // 图命中必须与种子走同一套过滤：邻居来自图遍历，
+                                // 而 GraphTraversalParams 只带跳数/衰减/边类型，没有任何
+                                // 项目或类型条件。不在此处补齐，`project_only=true` 的请求
+                                // 会经图扩散拿到其他项目的记忆（项目隔离被绕过），
+                                // memory_type 过滤同样失效。
+                                if !graph_filter.matches(&memory) {
+                                    tracing::debug!(
+                                        target:"recall",
+                                        "gh {} skip: 不满足检索过滤条件（项目/类型/全局范围）",
+                                        gh.memory_id
+                                    );
                                     continue;
                                 }
                                 pushed += 1;
@@ -432,7 +457,16 @@ impl Router {
                     })
                 };
 
-                let include_global = !p.project_only && !p.cross_project && !p.global_only;
+                // 全局记忆是否并入：
+                // - 限定单项目（project_only）时，由调用方显式声明的 include_global
+                //   决定（默认 true = 项目 + 全局）。此前该字段被完全忽略、范围靠三个
+                //   布尔反推，导致「限定项目且包含全局」这一组合无法表达。
+                // - 其它情况维持原派生规则，保证既有客户端行为不变。
+                let include_global = if p.project_only {
+                    p.include_global
+                } else {
+                    !p.cross_project && !p.global_only
+                };
 
                 let filter = SearchFilter {
                     project_id,

@@ -136,6 +136,53 @@ pub struct SearchFilter {
     pub min_score: f32,
 }
 
+impl SearchFilter {
+    /// 判断一条记忆是否满足本过滤条件。
+    ///
+    /// 供「非向量/全文召回」的命中复用同一套范围语义（典型场景：检索图扩散
+    /// 得到的邻居必须与种子受同样的项目、类型与全局范围约束，否则
+    /// `project_only` 会被图扩散绕过）。
+    ///
+    /// 注意：`min_score` 不参与判断——它约束的是相关度，而调用方拿到的是
+    /// 传播分等其它量纲的分数，需自行决定阈值。
+    pub fn matches(&self, memory: &mr_common::Memory) -> bool {
+        self.matches_fields(&memory.project_id, &memory.memory_type, memory.is_deleted)
+    }
+
+    /// 按字段判断是否满足过滤条件（便于不持有完整记忆的调用方复用）。
+    pub fn matches_fields(
+        &self,
+        project_id: &Option<Uuid>,
+        memory_type: &mr_common::MemoryType,
+        is_deleted: bool,
+    ) -> bool {
+        if is_deleted {
+            return false;
+        }
+        let is_global = is_global_project(project_id);
+
+        if self.global_only && !is_global {
+            return false;
+        }
+        if let Some(pid) = self.project_id {
+            // 指定项目时：只收本项目，或（允许时）全局记忆
+            let same_project = project_id.as_ref().is_some_and(|p| *p == pid);
+            if !same_project && !(self.include_global && is_global) {
+                return false;
+            }
+        } else if !self.include_global && !is_global {
+            // 未指定项目且不允许全局：只保留全局记忆
+            return false;
+        }
+        if let Some(ref t) = self.memory_type {
+            if memory_type.to_string() != *t {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 /// 全局记忆判据：project_id 为 None；`Some(nil)` 是历史遗留写法，检索侧等价处理。
 pub fn is_global_project(project_id: &Option<Uuid>) -> bool {
     project_id.is_none_or(|pid| pid.is_nil())

@@ -41,7 +41,7 @@ impl Router {
                 // 窗口外修正路径落在 decision 内部标注 superseded 后返回 None，继续正常新增。
                 let dedup_enabled = p.dedup.unwrap_or(self.dedup_config.enabled);
                 if dedup_enabled {
-                    match self.check_dedup(&p.content).await {
+                    match self.check_dedup(&p.content, memory.project_id).await {
                         Some(decision) => {
                             match decision.action {
                                 DedupAction::Skip => self.metrics.on_dedup_skip(),
@@ -336,25 +336,47 @@ impl Router {
     /// 交由决策器（规则版/LLM 版）判断动作。
     /// 注意：此处直接用向量分数而非混合检索——混合检索的融合归一化分数
     /// 会稀释原始相似度，不适合阈值判断。
-    pub(super) async fn check_dedup(&self, content: &str) -> Option<DedupDecision> {
+    pub(super) async fn check_dedup(
+        &self,
+        content: &str,
+        project_id: Option<Uuid>,
+    ) -> Option<DedupDecision> {
         let decider = self.dedup_decider.as_ref()?;
         if !self.dedup_config.enabled {
             return None;
         }
 
-        let embed = self.embedder.embed(content).ok()?;
+        // 去重范围必须与写入归属一致：旧实现用 project_id: None（不按项目过滤），
+        // 于是 A 项目已有相同文本时，向 B 项目 add 会被判为重复并 skip，
+        // B 项目随即检索不到这条记忆——跨项目「去重」变成新项目的数据丢失。
+        // 全局记忆（project_id=None）保持跨项目去重语义。
+        let embed = match self.embedder.embed(content) {
+            Ok(e) => e,
+            Err(e) => {
+                // 嵌入失败不能折叠成「无相似候选」：那会把本应 skip/update 的写入
+                // 当新记录插入，产生重复记忆且无痕迹。
+                tracing::warn!(target: "dedup", "去重检索跳过：嵌入失败 {e}");
+                return None;
+            }
+        };
         let filter = SearchFilter {
-            project_id: None,
+            project_id,
             include_global: true,
             memory_type: None,
             min_score: 0.0,
             ..Default::default()
         };
-        let hits = self
+        let hits = match self
             .vector_store
             .search(&embed, filter, self.dedup_config.top_k.max(1))
             .await
-            .ok()?;
+        {
+            Ok(hits) => hits,
+            Err(e) => {
+                tracing::warn!(target: "dedup", "去重检索失败，按新增处理：{e}");
+                return None;
+            }
+        };
 
         let candidates: Vec<SimilarMemory> = hits
             .into_iter()
