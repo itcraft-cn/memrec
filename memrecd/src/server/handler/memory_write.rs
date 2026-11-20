@@ -22,7 +22,19 @@ impl Router {
     ) -> JsonRpcResponse {
         match params {
             Some(RequestParams::Add(p)) => {
-                let memory = self.build_add_memory(&p);
+                let memory = match self.build_add_memory(&p) {
+                    Ok(memory) => memory,
+                    Err(message) => {
+                        return JsonRpcResponse::error(
+                            JsonRpcError {
+                                code: -32000,
+                                message,
+                                data: None,
+                            },
+                            id,
+                        )
+                    }
+                };
 
                 // 去重检测：调用方可通过 dedup=false 显式关闭，默认遵循配置。
                 // 返回 Some(response) 表示去重决策已终结本次请求；
@@ -80,13 +92,26 @@ impl Router {
     }
 
     /// 由 Add 请求参数构建记忆实体：归属/来源/范围按 T4 语义落定。
-    pub(super) fn build_add_memory(&self, p: &mr_protocol::AddParams) -> Memory {
+    pub(super) fn build_add_memory(&self, p: &mr_protocol::AddParams) -> Result<Memory, String> {
         // T4: 全局记忆 = project_id None（历史 Some(nil) 语义在启动迁移中归一）
+        //
+        // 项目标记解析失败必须报错而不是降级为 None：降级会把本应属于项目的
+        // 记忆写成全局记忆（跨项目可见），属静默归属错误。
         let project_id = if p.is_global {
             None
         } else {
-            p.project_id
-                .or_else(|| detect_project_id(p.working_dir.as_deref()).ok())
+            match p.project_id {
+                Some(pid) => Some(pid),
+                None => match detect_project_id(p.working_dir.as_deref()) {
+                    Ok(pid) => Some(pid),
+                    Err(e) => {
+                        return Err(format!(
+                            "项目标记解析失败（{:#}）；若 .mr_pid 已损坏请删除该文件后重新注册项目",
+                            e
+                        ))
+                    }
+                },
+            }
         };
 
         let mut memory = Memory::new(p.content.clone(), p.memory_type).with_tags(p.tags.clone());
@@ -120,7 +145,7 @@ impl Router {
             }
         }
 
-        memory
+        Ok(memory)
     }
 
     /// 应用去重决策（T6 拆分）：

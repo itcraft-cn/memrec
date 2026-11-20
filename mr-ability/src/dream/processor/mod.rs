@@ -253,11 +253,16 @@ impl DreamProcessor {
             ));
         }
 
-        if !self.lock.try_acquire(memory_count as u32)? {
-            return Err(DreamError::GateFailed(
-                "Another Dream process is running".to_string(),
-            ));
-        }
+        // RAII 守卫：任何提前返回或 panic 都会经 Drop 释放锁，
+        // 避免旧实现「显式 release 未被执达 → 锁永久残留 → Dream 停摆」。
+        let _lock_guard = match self.lock.try_acquire(memory_count as u32)? {
+            Some(guard) => guard,
+            None => {
+                return Err(DreamError::GateFailed(
+                    "Another Dream process is running".to_string(),
+                ))
+            }
+        };
 
         let mut run = DreamRun::running(force, dry_run);
         let result = self.process_inner(&mut run, dry_run).await;
@@ -286,7 +291,7 @@ impl DreamProcessor {
         run.finish(run.status);
         self.record_run(&run).await;
 
-        self.lock.release()?;
+        // 锁由 _lock_guard 在函数返回时自动释放，无需显式 release。
 
         result.map(|mut r| {
             r.run_id = Some(run.run_id);

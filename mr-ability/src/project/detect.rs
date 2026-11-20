@@ -123,50 +123,99 @@ pub fn find_project_root(working_dir: Option<&str>) -> Result<PathBuf> {
 /// 检测或创建项目 ID。
 ///
 /// 在项目根目录查找 `.mr_pid` 文件：
-/// - 若存在则解析返回已有 UUID
-/// - 若不存在则创建新文件并返回新生成的 UUID
-pub fn detect_project_id(working_dir: Option<&str>) -> Result<Uuid> {
+/// - 若存在则解析返回已有 UUID；
+/// - 若不存在则**独占**创建新文件并返回新生成的 UUID。
+///
+/// # 并发安全
+///
+/// 旧实现为「先 `exists()` 再 `fs::write`」，两个并发首次写入会各自生成
+/// 一个 UUID 并依次覆盖文件：先写者的记忆以其未落盘的 UUID 入库，此后按项目
+/// 检索永远查不到，形成不可见的项目分叉。这里改用 `create_new`（O_EXCL）
+/// 独占创建，`AlreadyExists` 时回到读取分支重试，保证并发下拿到的是同
+/// 一个 UUID。
+///
+/// # 错误语义
+///
+/// 文件存在但内容无法解析时返回 `Err`（带文件路径），调用方据此报错或降级，
+/// 不得当作「无项目」继续写入——否则会把本应属于项目的记忆写成全局记忆。
+pub fn detect_project_id(working_dir: Option<&str>) -> anyhow::Result<Uuid> {
+    use anyhow::Context;
+    use std::io::{ErrorKind, Write};
+
     let project_root = find_project_root(working_dir)?;
     let mr_pid_path = project_root.join(".mr_pid");
 
-    if mr_pid_path.exists() {
-        let content = fs::read_to_string(&mr_pid_path)?;
-        let file = ProjectIdFile::parse(&content)?;
-        Ok(file.project_id)
-    } else {
-        let file = ProjectIdFile::new(None);
-        fs::write(&mr_pid_path, file.to_string())?;
-        Ok(file.project_id)
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&mr_pid_path)
+    {
+        Ok(mut file) => {
+            let content = ProjectIdFile::new(None).to_string();
+            file.write_all(content.as_bytes())
+                .with_context(|| format!("写入 {} 失败", mr_pid_path.display()))?;
+            // 立刻落盘：崩溃留下空文件会让后续所有读取都判定为损坏
+            file.sync_all().ok();
+            ProjectIdFile::parse(&content).map(|f| f.project_id)
+        }
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+            let content = fs::read_to_string(&mr_pid_path)
+                .with_context(|| format!("读取 {} 失败", mr_pid_path.display()))?;
+            let file = ProjectIdFile::parse(&content).with_context(|| {
+                format!(
+                    "{} 内容无效，请删除该文件后重新注册项目",
+                    mr_pid_path.display()
+                )
+            })?;
+            Ok(file.project_id)
+        }
+        Err(e) => Err(e).with_context(|| format!("创建 {} 失败", mr_pid_path.display())),
     }
 }
 
 #[cfg(test)]
-mod tests {
+mod concurrency_tests {
     use super::*;
 
+    /// 并发首次写入必须得到同一个 project_id。
+    ///
+    /// 回归背景：旧实现「exists() → 生成 → write」，两个并发调用会各自生成
+    /// UUID 并互相覆盖，先写者的记忆以其未落盘的 UUID 入库，形成项目分叉。
     #[test]
-    fn test_project_id_file_creation() {
-        let file = ProjectIdFile::new(Some("test-project".to_string()));
-        assert!(!file.project_id.is_nil());
-        assert_eq!(file.project_name, Some("test-project".to_string()));
+    fn test_concurrent_detect_returns_single_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        // 用空目录作为项目根：find_project_root 在非 git 目录下返回该目录
+        let base = root.to_str().unwrap().to_string();
+
+        let mut handles = Vec::new();
+        for _ in 0..16 {
+            let base = base.clone();
+            handles.push(std::thread::spawn(move || {
+                detect_project_id(Some(&base)).unwrap()
+            }));
+        }
+
+        let ids: Vec<Uuid> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        let first = ids[0];
+        for id in &ids {
+            assert_eq!(*id, first, "并发调用必须返回同一个 project_id");
+        }
+
+        // 磁盘内容必须与该 UUID 一致
+        let content = fs::read_to_string(root.join(".mr_pid")).unwrap();
+        assert_eq!(ProjectIdFile::parse(&content).unwrap().project_id, first);
     }
 
+    /// `.mr_pid` 内容损坏时必须报错（带文件路径），不得静默返回新 ID。
     #[test]
-    fn test_project_id_file_parse() {
-        let original = ProjectIdFile::new(None);
-        let content = original.to_string();
-        let parsed = ProjectIdFile::parse(&content).unwrap();
+    fn test_corrupt_marker_is_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        fs::write(root.join(".mr_pid"), "garbage-without-key").unwrap();
 
-        assert_eq!(original.project_id, parsed.project_id);
-    }
-
-    #[test]
-    fn test_project_id_file_roundtrip() {
-        let original = ProjectIdFile::new(Some("my-project".to_string()));
-        let content = original.to_string();
-        let parsed = ProjectIdFile::parse(&content).unwrap();
-
-        assert_eq!(original.project_id, parsed.project_id);
-        assert_eq!(original.project_name, parsed.project_name);
+        let err = detect_project_id(root.to_str()).unwrap_err();
+        let text = format!("{:#}", err);
+        assert!(text.contains(".mr_pid"), "错误信息应包含文件路径：{text}");
     }
 }

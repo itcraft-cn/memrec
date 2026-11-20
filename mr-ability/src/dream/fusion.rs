@@ -55,6 +55,15 @@ pub struct ClusterExtraction {
     /// 矛盾对（下标）
     #[serde(default)]
     pub contradictions: Vec<ContradictionItem>,
+    /// 是否因 LLM 输出无法解析而退化为模板结果。
+    ///
+    /// 由 `true` 表示「这是兜底占位，不是模型提炼的结论」，调用方据此
+    /// **不得写库**：旧实现把兜底结果直接落库，产生「[Dream 分簇摘要] 本簇
+    /// 整合了 N 条记忆」+ 逐条原文复制的永久垃圾，且这些产出带
+    /// `dream-integrated` 标签后不会再进入候选，无法被下一轮清理。
+    /// 该字段仅用于进程内判定，不参与序列化。
+    #[serde(skip)]
+    pub from_fallback: bool,
 }
 
 /// 聚类结果：每个簇是候选下标的有序集合。
@@ -292,6 +301,11 @@ pub async fn extract_cluster(
                 return Ok(parsed);
             }
             warn!(target: "dream", "Fusion extraction JSON parse failed, falling back");
+            // 标记为兜底：调用方必须跳过该簇而不是写库
+            let mut fallback = fallback_extraction(memories);
+            fallback.facts.truncate(max_facts);
+            fallback.from_fallback = true;
+            return Ok(fallback);
         }
     }
     let mut fallback = fallback_extraction(memories);
@@ -362,6 +376,8 @@ fn fallback_extraction(memories: &[Memory]) -> ClusterExtraction {
         facts,
         summary,
         contradictions: Vec::new(),
+        // 默认非兜底：只有「LLM 输出解析失败」分支会置 true
+        from_fallback: false,
     }
 }
 
@@ -462,5 +478,39 @@ mod tests {
         let x = extract_cluster(None, &memories, true, 0).await.unwrap();
         assert!(x.facts.is_empty(), "max_facts=0 should emit no facts");
         assert!(!x.summary.is_empty());
+    }
+
+    /// LLM 输出无法解析时必须标记为兜底（调用方据此跳过、不写库）。
+    ///
+    /// 回归背景：旧实现解析失败后照常返回模板摘要 + 逐条原文复制，pipeline
+    /// 不加区分地落库，产生永久垃圾记忆。
+    #[tokio::test]
+    async fn test_extract_marks_fallback_when_parse_fails() {
+        use crate::llm::MockLlmClient;
+
+        let llm: Arc<dyn crate::llm::LlmClient> =
+            Arc::new(MockLlmClient::new("抱歉，我无法按 JSON 输出"));
+        let m = mem_with("hello world content", 0.5);
+
+        let x = extract_cluster(Some(&llm), &[m], true, 3).await.unwrap();
+        assert!(
+            x.from_fallback,
+            "解析失败必须标记 from_fallback=true，调用方才能拒绝写库"
+        );
+    }
+
+    /// 正常解析成功时不得标记兜底，避免误伤正常产出。
+    #[tokio::test]
+    async fn test_extract_success_is_not_marked_fallback() {
+        use crate::llm::MockLlmClient;
+
+        let llm: Arc<dyn crate::llm::LlmClient> = Arc::new(MockLlmClient::new(
+            r#"{"facts":[{"text":"结论 A","source_hints":[]}],"summary":"摘要 A","contradictions":[]}"#,
+        ));
+        let m = mem_with("hello world content", 0.5);
+
+        let x = extract_cluster(Some(&llm), &[m], true, 3).await.unwrap();
+        assert!(!x.from_fallback, "正常解析不应标记为兜底");
+        assert_eq!(x.facts.len(), 1);
     }
 }

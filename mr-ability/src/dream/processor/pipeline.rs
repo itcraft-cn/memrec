@@ -332,7 +332,24 @@ impl DreamProcessor {
         let mut kept_fact_embs: Vec<Vec<f32>> = Vec::new();
         let mut dedup_dropped = 0usize;
 
+        // 因 LLM 输出无法解析而退化为模板的簇：本轮跳过。
+        // 这类兜底结果的内容是「[Dream 分簇摘要] 本簇整合了 N 条记忆」加逐条原文
+        // 复制，写库只会污染检索、稀释真实记忆；且产出带 dream-integrated 标签后
+        // 不再进入后续候选，无法被下一轮清理。跳过时也不标记 dream-processed，
+        // 源记忆保持可重试。
+        let mut parse_failed_clusters = 0usize;
+
         for (cluster, extraction) in &extractions {
+            if extraction.from_fallback {
+                parse_failed_clusters += 1;
+                tracing::warn!(
+                    target: "dream",
+                    "簇内 LLM 输出无法解析，跳过该簇（{} 条源记忆保持可重试）",
+                    cluster.len()
+                );
+                continue;
+            }
+
             let source_ids: Vec<String> = cluster
                 .iter()
                 .map(|&i| candidates[i].id.to_string())
@@ -393,8 +410,13 @@ impl DreamProcessor {
             }
 
             // 主题摘要
-            if self.config.fusion_emit_summary {
-                let content = clean_summary(&extraction.summary);
+            // 空/空白摘要不得落库：`{"facts":[],"summary":""}` 是 LLM 在
+            // 「本簇无新信息」时的常见合法输出，写进去会得到一条内容为空、
+            // importance=0.8、System/Global 的记忆——检索层不为空内容建索引，
+            // 于是它不可见地占库，还会把 run.summary_memory_id 指向空记录。
+            let summary_content = clean_summary(&extraction.summary);
+            if self.config.fusion_emit_summary && !summary_content.trim().is_empty() {
+                let content = summary_content;
                 let mut tags = self.config.integration_tags.clone();
                 tags.push(TAG_INTEGRATED.to_string());
                 tags.push(TAG_SUMMARY.to_string());
@@ -422,6 +444,15 @@ impl DreamProcessor {
                     }
                 }
             }
+        }
+
+        if parse_failed_clusters > 0 {
+            tracing::warn!(
+                target: "dream",
+                skipped_clusters = parse_failed_clusters,
+                "本轮有 {} 个簇因 LLM 输出无法解析被跳过（未写库、未标记已处理）",
+                parse_failed_clusters
+            );
         }
 
         if dedup_dropped > 0 {

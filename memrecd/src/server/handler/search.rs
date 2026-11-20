@@ -38,11 +38,37 @@ impl Router {
                     // T4: 全局语义统一为 None；global_only 由 SearchFilter.global_only 承载
                     None
                 } else if p.project_only {
-                    p.project_id
-                        .or_else(|| detect_project_id(p.working_dir.as_deref()).ok())
+                    p.project_id.or_else(|| {
+                        // 解析失败必须留痕：静默降级会让「仅本项目」范围退化为
+                        // 「全部非全局记忆」，跨项目结果泄漏且无从排查。
+                        match detect_project_id(p.working_dir.as_deref()) {
+                            Ok(pid) => Some(pid),
+                            Err(e) => {
+                                tracing::warn!(
+                                    target: "project",
+                                    "项目标记解析失败，检索范围退化为不限定项目：{:#}",
+                                    e
+                                );
+                                None
+                            }
+                        }
+                    })
                 } else {
-                    p.project_id
-                        .or_else(|| detect_project_id(p.working_dir.as_deref()).ok())
+                    p.project_id.or_else(|| {
+                        // 解析失败必须留痕：静默降级会让「仅本项目」范围退化为
+                        // 「全部非全局记忆」，跨项目结果泄漏且无从排查。
+                        match detect_project_id(p.working_dir.as_deref()) {
+                            Ok(pid) => Some(pid),
+                            Err(e) => {
+                                tracing::warn!(
+                                    target: "project",
+                                    "项目标记解析失败，检索范围退化为不限定项目：{:#}",
+                                    e
+                                );
+                                None
+                            }
+                        }
+                    })
                 };
 
                 let include_global = !p.project_only && !p.cross_project && !p.global_only;
@@ -373,11 +399,37 @@ impl Router {
                     // T4: 全局语义统一为 None；global_only 由 SearchFilter.global_only 承载
                     None
                 } else if p.project_only {
-                    p.project_id
-                        .or_else(|| detect_project_id(p.working_dir.as_deref()).ok())
+                    p.project_id.or_else(|| {
+                        // 解析失败必须留痕：静默降级会让「仅本项目」范围退化为
+                        // 「全部非全局记忆」，跨项目结果泄漏且无从排查。
+                        match detect_project_id(p.working_dir.as_deref()) {
+                            Ok(pid) => Some(pid),
+                            Err(e) => {
+                                tracing::warn!(
+                                    target: "project",
+                                    "项目标记解析失败，检索范围退化为不限定项目：{:#}",
+                                    e
+                                );
+                                None
+                            }
+                        }
+                    })
                 } else {
-                    p.project_id
-                        .or_else(|| detect_project_id(p.working_dir.as_deref()).ok())
+                    p.project_id.or_else(|| {
+                        // 解析失败必须留痕：静默降级会让「仅本项目」范围退化为
+                        // 「全部非全局记忆」，跨项目结果泄漏且无从排查。
+                        match detect_project_id(p.working_dir.as_deref()) {
+                            Ok(pid) => Some(pid),
+                            Err(e) => {
+                                tracing::warn!(
+                                    target: "project",
+                                    "项目标记解析失败，检索范围退化为不限定项目：{:#}",
+                                    e
+                                );
+                                None
+                            }
+                        }
+                    })
                 };
 
                 let include_global = !p.project_only && !p.cross_project && !p.global_only;
