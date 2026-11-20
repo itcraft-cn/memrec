@@ -200,14 +200,14 @@ impl MemoryStorage for MemoryStore {
         let cf_memories = self.rocksdb.cf_memories()?;
         let iter = self.rocksdb.iter_cf(cf_memories);
 
-        Ok(Self::collect_memories_from_iter(iter, limit, true))
+        Self::collect_memories_from_iter(iter, limit, true)
     }
 
     async fn list_raw(&self, limit: usize) -> Result<Vec<Memory>> {
         let cf_memories = self.rocksdb.cf_memories()?;
         let iter = self.rocksdb.iter_cf(cf_memories);
         // 直读主列族，保留软删除记录（Dream 融合的源记录即处于此状态）。
-        Ok(Self::collect_memories_from_iter(iter, limit, false))
+        Self::collect_memories_from_iter(iter, limit, false)
     }
 
     async fn list_by_type(&self, memory_type: MemoryType, limit: usize) -> Result<Vec<Memory>> {

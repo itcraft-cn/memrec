@@ -367,6 +367,11 @@ impl RocksDBStore {
             count += 1;
             iter.next();
         }
+        // RocksDB 迭代在 I/O 错误（EIO、文件损坏）时会变为 invalid，错误挂在
+        // status() 上。只判 valid() 会把错误当成正常结束，返回**成功的**不完整
+        // 计数——Dream 门控据此判断记忆总数，少算会误判为「不足以触发」。
+        iter.status()
+            .map_err(|e| anyhow::anyhow!("RocksDB 迭代失败（计数不完整）：{e}"))?;
         Ok(count)
     }
 }

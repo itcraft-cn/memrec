@@ -186,7 +186,11 @@ impl TantivyStore {
         };
         if stale {
             tracing::warn!("全文检索分词器版本变化，重建索引目录: {:?}", path);
-            let _ = std::fs::remove_dir_all(path);
+            // 删除失败必须报错：旧实现用 `let _ =` 吞掉错误后继续 open_or_create，
+            // 随后又把 marker 写成新版本，于是旧索引被永久判定为「已是最新」，
+            // 不再重建也不报错（历史上「preview 恒空」正是这类残留）。
+            std::fs::remove_dir_all(path)
+                .with_context(|| format!("重建全文索引失败：无法删除 {:?}", path))?;
         }
 
         if !path.exists() {
@@ -202,10 +206,12 @@ impl TantivyStore {
 
         Self::register_tokenizer(&index);
 
-        // 写入分词器版本标记，供下次启动比对；失败不影响检索，仅记录以避免阻断。
-        if let Err(e) = std::fs::write(&marker, TOKENIZER_VERSION) {
-            tracing::warn!("写入分词器版本标记失败: {e}");
-        }
+        // 写入分词器版本标记，供下次启动比对。
+        //
+        // marker 是「索引已按当前分词器重建」的唯一凭据，写失败必须报错：
+        // 静默放过会让下次启动误判为已是最新。
+        std::fs::write(&marker, TOKENIZER_VERSION)
+            .with_context(|| format!("写入分词器版本标记失败：{:?}", marker))?;
 
         let writer = index
             .writer(50_000_000)
@@ -491,16 +497,18 @@ impl FtsStorage for TantivyStore {
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
 
+            // 索引中残留非 UUID 文档（脏数据）时直接跳过：旧实现退化为
+            // `Uuid::nil()` 并作为正常命中返回，所有脏文档会坍缩成同一个 nil id
+            // 互相覆盖，最终以上层查不到的 id 出现在结果里。
             let id = match Uuid::parse_str(id_str) {
                 Ok(id) => id,
                 Err(_) => {
-                    // 索引中残留非 UUID 文档（脏数据）时记录并退化为 nil，避免静默。
-                    tracing::debug!(
+                    tracing::warn!(
                         target: "fts",
-                        "search: 文档 id 非合法 UUID，退化为 nil: {:?}",
+                        "search: 文档 id 非合法 UUID，已跳过: {:?}",
                         id_str
                     );
-                    Uuid::nil()
+                    continue;
                 }
             };
 

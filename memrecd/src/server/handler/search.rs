@@ -4,6 +4,12 @@
 
 use super::*;
 
+/// 单次检索允许的最大返回条数。
+///
+/// 客户端传入的 `top_k` 会经此上界夹取：`usize::MAX` 级别的取值会让图遍历
+/// 的 `max_results` 乘法回绕、候选池无界增长，属可被单条本地请求触发的资源耗尽。
+const MAX_TOP_K: usize = 200;
+
 impl Router {
     /// 处理 SearchMemory 请求：混合搜索（向量 + 全文）。
     ///
@@ -15,7 +21,16 @@ impl Router {
         id: u64,
     ) -> JsonRpcResponse {
         match params {
-            Some(RequestParams::SearchMemory(p)) => {
+            Some(RequestParams::SearchMemory(mut p)) => {
+                // 客户端可控数值必须有界：usize::MAX 级别的 top_k 会让
+                // 图遍历 max_results 乘法回绕、让候选池无界增长；NaN/越界
+                // min_score 会让过滤恒假（检索永远空）或恒真（放行一切）。
+                p.top_k = p.top_k.clamp(1, MAX_TOP_K);
+                p.min_score = if p.min_score.is_finite() {
+                    p.min_score.clamp(0.0, 1.0)
+                } else {
+                    mr_protocol::default_min_score()
+                };
                 self.metrics.on_search();
                 let start = Instant::now();
 
@@ -171,7 +186,7 @@ impl Router {
                             max_depth: self.retrieval_graph.depth + 1,
                             decay: self.retrieval_graph.decay,
                             min_score: 0.0,
-                            max_results: p.top_k.max(1) * 3,
+                            max_results: p.top_k.max(1).saturating_mul(3),
                             edge_types: Some(vec![
                                 mr_common::EdgeType::Similar,
                                 mr_common::EdgeType::References,
@@ -401,7 +416,14 @@ impl Router {
         id: u64,
     ) -> JsonRpcResponse {
         match params {
-            Some(RequestParams::TieredSearch(p)) => {
+            Some(RequestParams::TieredSearch(mut p)) => {
+                // 与 search_memory 一致：客户端可控数值必须有界
+                p.top_k = p.top_k.clamp(1, MAX_TOP_K);
+                p.min_score = if p.min_score.is_finite() {
+                    p.min_score.clamp(0.0, 1.0)
+                } else {
+                    mr_protocol::default_min_score()
+                };
                 self.metrics.on_search();
                 let start = Instant::now();
 

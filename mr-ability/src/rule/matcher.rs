@@ -44,7 +44,19 @@ impl RuleMatcher {
                 } else {
                     format!("(?i){}", regex::escape(pattern))
                 };
-                Regex::new(&pattern_str).unwrap_or_else(|_| Regex::new(".*").unwrap())
+                // 编译失败绝不能回退为 `.*`：那会让非法规则变成「匹配一切」，
+                // 若其 action 是 Filter/Suppress，用户侧表现为「检索突然什么都搜不到」。
+                // 这里退回一个永不匹配的表达式并告警，保证非法规则不生效。
+                match Regex::new(&pattern_str) {
+                    Ok(re) => re,
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "rule",
+                            "规则正则编译失败，已按「不匹配」处理：pattern={pattern:?} err={e}"
+                        );
+                        Regex::new(r"$^").expect("`$^` 是合法正则且永不匹配")
+                    }
+                }
             });
 
         regex.is_match(query)

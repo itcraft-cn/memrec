@@ -302,7 +302,16 @@ impl EdgeGenerator for LlmEdgeGenerator {
             .await
         {
             Ok(r) => r,
-            Err(_) => return Ok(Vec::new()),
+            Err(e) => {
+                // 不能静默返回空：否则「未配置/被门控关闭」与「LLM 一直失败」
+                // 在运维视角完全无法区分（同文件 parse_relations 已改为告警，
+                // 这里补齐更上游的调用失败）。
+                tracing::warn!(
+                    target: "edge",
+                    "语义边生成跳过：LLM 调用失败：{e}"
+                );
+                return Ok(Vec::new());
+            }
         };
 
         let relations = Self::parse_relations(&raw);

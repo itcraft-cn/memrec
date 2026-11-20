@@ -74,28 +74,44 @@ impl MemoryStore {
     }
 
     /// 从迭代器中收集记忆，支持跳过已删除项。
+    ///
+    /// 返回 `Result`：迭代错误（I/O、文件损坏）不能当成「正常结束」，
+    /// 否则调用方会拿到**成功但不完整**的结果（旧实现只判 `valid()`，
+    /// 且反序列化失败项被静默跳过，双重丢失）。
     pub(super) fn collect_memories_from_iter(
         mut iter: rocksdb::DBRawIterator<'_>,
         limit: usize,
         filter_deleted: bool,
-    ) -> Vec<Memory> {
+    ) -> anyhow::Result<Vec<Memory>> {
         let mut memories = Vec::new();
         let mut count = 0;
 
+        let mut skipped = 0usize;
         iter.seek_to_first();
         while iter.valid() && count < limit {
             if let Some(value) = iter.value() {
-                if let Ok(memory) = Self::deserialize_memory(value) {
-                    if !filter_deleted || !memory.is_deleted {
-                        memories.push(memory);
-                        count += 1;
+                match Self::deserialize_memory(value) {
+                    Ok(memory) => {
+                        if !filter_deleted || !memory.is_deleted {
+                            memories.push(memory);
+                            count += 1;
+                        }
+                    }
+                    Err(e) => {
+                        skipped += 1;
+                        tracing::warn!(target: "storage", "记忆反序列化失败，已跳过：{e}");
                     }
                 }
             }
             iter.next();
         }
+        iter.status()
+            .map_err(|e| anyhow::anyhow!("RocksDB 迭代失败（结果不完整）：{e}"))?;
+        if skipped > 0 {
+            tracing::warn!(target: "storage", "本轮列表跳过 {skipped} 条无法解析的记忆");
+        }
 
-        memories
+        Ok(memories)
     }
 }
 

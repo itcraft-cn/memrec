@@ -42,7 +42,8 @@ pub struct RocksDBVectorStore {
     db: Arc<DB>,
     dimension: usize,
     cache: Arc<Mutex<HashMap<Uuid, StoredVector>>>,
-    dirty: Arc<Mutex<bool>>,
+    /// 待刷盘的记忆 id 集合（只记增量，避免每次脏刷新全量重写）。
+    pending: Arc<Mutex<std::collections::HashSet<Uuid>>>,
 }
 
 impl RocksDBVectorStore {
@@ -64,14 +65,50 @@ impl RocksDBVectorStore {
             let cf = db.cf_handle(CF_VECTORS).context("CF_VECTORS not found")?;
             let mut cache_lock = cache.lock().unwrap();
 
-            for (key, value) in db.iterator_cf(&cf, rocksdb::IteratorMode::Start).flatten() {
-                if let Ok(id_str) = std::str::from_utf8(&key) {
-                    if let Ok(id) = Uuid::parse_str(id_str) {
-                        if let Ok(stored) = serde_json::from_slice::<StoredVector>(&value) {
+            // 坏记录必须留痕：静默丢弃会让对应记忆永久不可被语义检索，
+            // 且启动日志无任何线索，只能靠「搜不到」被动发现。
+            let mut skipped = 0usize;
+            for item in db.iterator_cf(&cf, rocksdb::IteratorMode::Start) {
+                let (key, value) = match item {
+                    Ok(kv) => kv,
+                    Err(e) => {
+                        skipped += 1;
+                        tracing::warn!(target: "vector", "向量迭代失败，已跳过：{e}");
+                        continue;
+                    }
+                };
+                let id = std::str::from_utf8(&key)
+                    .ok()
+                    .and_then(|s| Uuid::parse_str(s).ok());
+                let stored = serde_json::from_slice::<StoredVector>(&value).ok();
+                match (id, stored) {
+                    (Some(id), Some(stored)) => {
+                        if stored.embedding.len() == dimension {
                             cache_lock.insert(id, stored);
+                        } else {
+                            // 维度不一致的存量向量不得进入缓存：否则余弦会用 zip
+                            // 静默截断成较短长度，产出貌似合理的错误相关性。
+                            skipped += 1;
+                            tracing::warn!(
+                                target: "vector",
+                                "向量维度不一致（记录 {} 维 / 期望 {} 维），已跳过 {}",
+                                stored.embedding.len(),
+                                dimension,
+                                id
+                            );
                         }
                     }
+                    _ => {
+                        skipped += 1;
+                        tracing::warn!(
+                            target: "vector",
+                            "向量记录损坏（key 非 UUID 或内容无法解析），已跳过"
+                        );
+                    }
                 }
+            }
+            if skipped > 0 {
+                tracing::warn!(target: "vector", "启动加载向量时跳过 {} 条异常记录", skipped);
             }
         }
 
@@ -79,42 +116,71 @@ impl RocksDBVectorStore {
             db,
             dimension,
             cache,
-            dirty: Arc::new(Mutex::new(false)),
+            pending: Arc::new(Mutex::new(std::collections::HashSet::new())),
         })
     }
 
-    /// 将脏数据批量写入 RocksDB。
+    /// 将待写数据增量刷盘。
     ///
-    /// 仅在 dirty 标记为 true 时执行写入，写入后清除 dirty 标记。
+    /// 只写自上次刷盘以来变更过的 id（`pending` 集合），而不是整个缓存：
+    /// 旧实现用一个 `dirty: bool`，任何一条 add 都会触发全量序列化 + 整库重写
+    /// （1 万条 1024 维向量约 200MB 写放大），且序列化与 `db.write` 全程持有
+    /// cache 锁，检索与写入被一起阻塞。现在序列化在锁内、写盘在锁外，
+    /// 写入量与实际变更成正比。
     pub fn save(&self) -> Result<()> {
-        let dirty = *self.dirty.lock().unwrap();
-        if !dirty {
+        let ids: Vec<Uuid> = {
+            let mut pending = self.pending.lock().unwrap();
+            if pending.is_empty() {
+                return Ok(());
+            }
+            pending.drain().collect()
+        };
+
+        // 锁内只做序列化（纯 CPU，无 I/O），随后释放锁再写盘
+        let entries: Vec<(Vec<u8>, Vec<u8>)> = {
+            let cache = self.cache.lock().unwrap();
+            let mut entries = Vec::with_capacity(ids.len());
+            for id in &ids {
+                // 期间被删除的 id 跳过（remove 已同步删除磁盘记录）
+                if let Some(stored) = cache.get(id) {
+                    entries.push((id.to_string().into_bytes(), serde_json::to_vec(stored)?));
+                }
+            }
+            entries
+        };
+
+        if entries.is_empty() {
             return Ok(());
         }
 
-        let cache = self.cache.lock().unwrap();
         let cf_vectors = self
             .db
             .cf_handle(CF_VECTORS)
             .context("CF_VECTORS not found")?;
-
         let mut batch = WriteBatch::default();
-
-        for (id, stored) in cache.iter() {
-            let key = id.to_string();
-            let value = serde_json::to_vec(stored)?;
-            batch.put_cf(&cf_vectors, key.as_bytes(), &value);
+        for (key, value) in &entries {
+            batch.put_cf(&cf_vectors, key, value);
         }
-
         self.db.write(batch)?;
-
-        *self.dirty.lock().unwrap() = false;
 
         Ok(())
     }
 
     /// 计算余弦相似度。
+    ///
+    /// 长度不一致时返回 0.0 而不是用 `zip` 静默截断：截断会把两个不同空间
+    /// 的向量前 N 维当成同一空间计算，产出看似合理的错误相关性（换模型后
+    /// 的旧向量正是这种情形）。调用方负责在加载/写入阶段拦截维度不一致。
     fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+        if a.len() != b.len() {
+            tracing::warn!(
+                target: "vector",
+                "余弦计算维度不一致（{} vs {}），返回 0",
+                a.len(),
+                b.len()
+            );
+            return 0.0;
+        }
         let dot = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum::<f32>();
         let norm_a = (a.iter().map(|x| x * x).sum::<f32>()).sqrt();
         let norm_b = (b.iter().map(|x| x * x).sum::<f32>()).sqrt();
@@ -135,7 +201,7 @@ impl RocksDBVectorStore {
     ///
     /// 供定时同步循环判断是否需要实际写入，避免无变更时产生无意义日志。
     pub fn is_dirty(&self) -> bool {
-        *self.dirty.lock().unwrap()
+        !self.pending.lock().unwrap().is_empty()
     }
 }
 
@@ -156,7 +222,7 @@ impl VectorStorage for RocksDBVectorStore {
         };
 
         self.cache.lock().unwrap().insert(*id, stored);
-        *self.dirty.lock().unwrap() = true;
+        self.pending.lock().unwrap().insert(*id);
 
         Ok(())
     }
@@ -164,7 +230,8 @@ impl VectorStorage for RocksDBVectorStore {
     async fn remove(&self, id: &Uuid) -> Result<bool> {
         let existed = self.cache.lock().unwrap().remove(id).is_some();
         if existed {
-            *self.dirty.lock().unwrap() = true;
+            // 直接从待写集合摘除，避免刷盘时又写回已删除的 id
+            self.pending.lock().unwrap().remove(id);
 
             let cf_vectors = self
                 .db
@@ -299,5 +366,89 @@ mod tests {
         let retrieved2 = store2.get(&id).await.unwrap();
         assert!(retrieved2.is_some());
         assert_eq!(retrieved2.unwrap(), embedding);
+    }
+}
+
+#[cfg(test)]
+mod incremental_save_tests {
+    use super::*;
+
+    /// 刷盘只写自上次刷盘以来变更的 id，而不是全量缓存。
+    ///
+    /// 回归背景：旧实现用单个 `dirty: bool`，任意一条 add 都触发整个缓存
+    /// 重写，写放大约等于库体积。
+    #[tokio::test]
+    async fn test_save_writes_only_pending_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RocksDBVectorStore::open(dir.path(), 3).unwrap();
+
+        let id1 = Uuid::new_v4();
+        store
+            .add(&id1, &[1.0, 0.0, 0.0], VectorPayload::default())
+            .await
+            .unwrap();
+        store.save().unwrap();
+        assert!(!store.is_dirty(), "刷盘后不应再有待写数据");
+
+        // 第二次只新增一条：待写集合应恰好只有它
+        let id2 = Uuid::new_v4();
+        store
+            .add(&id2, &[0.0, 1.0, 0.0], VectorPayload::default())
+            .await
+            .unwrap();
+        assert!(store.is_dirty());
+        {
+            let pending = store.pending.lock().unwrap();
+            assert_eq!(pending.len(), 1, "只应记录增量 id");
+            assert!(pending.contains(&id2));
+        }
+        store.save().unwrap();
+        assert!(!store.is_dirty());
+    }
+
+    /// 删除后刷盘不得把已删向量写回。
+    #[tokio::test]
+    async fn test_remove_before_save_leaves_no_vector() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RocksDBVectorStore::open(dir.path(), 3).unwrap();
+
+        let id = Uuid::new_v4();
+        store
+            .add(&id, &[1.0, 0.0, 0.0], VectorPayload::default())
+            .await
+            .unwrap();
+        assert!(store.remove(&id).await.unwrap(), "应先命中缓存");
+        store.save().unwrap();
+
+        // 重新打开：磁盘上不应存在该向量
+        drop(store);
+        let reopened = RocksDBVectorStore::open(dir.path(), 3).unwrap();
+        assert_eq!(reopened.count_cached(), 0, "已删除向量不得被写回");
+    }
+
+    /// 维度不一致的存量向量不得进入缓存（避免余弦静默截断）。
+    #[test]
+    fn test_open_skips_dimension_mismatch() {
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let store = RocksDBVectorStore::open(dir.path(), 4).unwrap();
+            // 直接写一条 3 维记录，模拟换模型前的旧数据
+            let stored = StoredVector {
+                embedding: vec![1.0, 0.0, 0.0],
+                payload: VectorPayload::default(),
+            };
+            let cf = store.db.cf_handle(CF_VECTORS).unwrap();
+            store
+                .db
+                .put_cf(
+                    &cf,
+                    Uuid::new_v4().to_string().as_bytes(),
+                    serde_json::to_vec(&stored).unwrap(),
+                )
+                .unwrap();
+        }
+
+        let reopened = RocksDBVectorStore::open(dir.path(), 4).unwrap();
+        assert_eq!(reopened.count_cached(), 0, "维度不一致的向量应被跳过");
     }
 }

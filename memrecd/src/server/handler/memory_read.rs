@@ -4,6 +4,12 @@
 
 use super::*;
 
+/// 单次 list/timeline 允许的最大返回条数。
+const MAX_LIST_LIMIT: usize = 1000;
+
+/// 允许的最大翻页偏移（防止 skip 越过内存可控范围）。
+const MAX_LIST_SKIP: usize = 1_000_000;
+
 impl Router {
     /// 处理 Get 请求：获取单条记忆。
     ///
@@ -261,6 +267,11 @@ impl Router {
 
         // 分页：skip 跳过前 N 条，take 取 limit 条
         let total = filtered.len();
+        // 分页参数必须有界：limit = usize::MAX 等于一次导出全库（先全量收集、
+        // 再序列化成一个响应），属可被单条请求触发的资源耗尽。
+        let limit = limit.clamp(1, MAX_LIST_LIMIT);
+        let skip = skip.min(MAX_LIST_SKIP);
+
         let page: Vec<MemoryView> = filtered
             .into_iter()
             .skip(skip)
