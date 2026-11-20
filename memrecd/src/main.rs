@@ -126,7 +126,13 @@ impl LocalDailyWriter {
         let remove_count = files.len() - self.max_files;
         for old in files.into_iter().take(remove_count) {
             if let Err(e) = std::fs::remove_file(&old) {
-                eprintln!("Failed to remove old log file {}: {}", old.display(), e);
+                // 统一走日志：项目约定禁止使用 stdout/stderr 输出
+                tracing::warn!(
+                    target: "log",
+                    "Failed to remove old log file {}: {}",
+                    old.display(),
+                    e
+                );
             }
         }
     }

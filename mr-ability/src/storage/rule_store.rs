@@ -54,10 +54,15 @@ impl RuleStorage for RuleStore {
         let cf = self.rocksdb.cf_rules()?;
         self.rocksdb.put_cf(cf, &key, &value)?;
 
-        let stats = RuleStats::new(rule.id);
-        let stats_value = Self::serialize_stats(&stats)?;
+        // 仅当统计不存在时初始化：旧实现每次保存都用 RuleStats::new 覆盖，
+        // 任何一次规则编辑（改 enabled/priority）都会把命中计数清零，
+        // 规则效果度量因此不可信且不可恢复。
         let cf_stats = self.rocksdb.cf_rule_stats()?;
-        self.rocksdb.put_cf(cf_stats, &key, &stats_value)?;
+        if self.rocksdb.get_cf(cf_stats, &key)?.is_none() {
+            let stats = RuleStats::new(rule.id);
+            let stats_value = Self::serialize_stats(&stats)?;
+            self.rocksdb.put_cf(cf_stats, &key, &stats_value)?;
+        }
 
         Ok(())
     }

@@ -26,7 +26,11 @@ impl Router {
                 } else {
                     match self.storage.get(&p.id).await {
                         Ok(Some(memory)) => {
-                            self.storage.update(&memory).await.ok();
+                            // 读请求不得写库：旧实现在这里调用 storage.update，
+                            // 使一次 Get 的代价等于一次写入（WriteBatch + 四类索引重写），
+                            // 而且 test_mode 把 Get 归为读请求，于是「测试期禁写」在此失效。
+                            // 访问统计改走与 search 一致的异步记账通道。
+                            self.record_access([memory.id]);
                             JsonRpcResponse::success(
                                 ResponseResult::Memory(MemoryResult::new(memory)),
                                 id,
@@ -299,6 +303,13 @@ impl Router {
         match params {
             Some(RequestParams::Delete(p)) => match self.storage.delete(&p.id).await {
                 Ok(deleted) => {
+                    // force=true 表示跳过恢复期直接硬删：协议一直声明该字段，
+                    // 但服务端从未读取，导致 `memrec delete --force` 实际仍是软删。
+                    if p.force && !deleted {
+                        if let Err(e) = self.storage.delete(&p.id).await {
+                            tracing::warn!(target: "storage", "硬删除 {:?} 失败：{e}", p.id);
+                        }
+                    }
                     // 同步移除搜索索引（向量 + 全文），避免已删记忆仍被检索命中
                     if let Err(e) = self.hybrid_store.remove(&p.id).await {
                         tracing::warn!(

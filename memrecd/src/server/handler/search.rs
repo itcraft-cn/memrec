@@ -613,7 +613,7 @@ impl Router {
     }
 
     /// 非阻塞投递访问反馈；通道满或未启用时静默丢弃（访问统计可容忍丢失）。
-    fn record_access(&self, ids: impl IntoIterator<Item = Uuid>) {
+    pub(super) fn record_access(&self, ids: impl IntoIterator<Item = Uuid>) {
         let Some(tx) = &self.access_tx else {
             return;
         };

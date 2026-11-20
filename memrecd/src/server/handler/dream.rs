@@ -10,9 +10,21 @@ impl Router {
         params: Option<RequestParams>,
         id: u64,
     ) -> JsonRpcResponse {
+        // 参数类型不匹配必须回 -32602，不能落到默认值后照样执行 Dream：
+        // Dream 会写库、软删源记忆、建边并调用 LLM，误触发即数据变更。
         let (force, dry_run) = match params {
             Some(RequestParams::Dream(p)) => (p.force, p.dry_run),
-            _ => (false, false),
+            None => (false, false),
+            Some(_) => {
+                return JsonRpcResponse::error(
+                    JsonRpcError {
+                        code: -32602,
+                        message: "Invalid params for Dream: expected type `dream`".to_string(),
+                        data: None,
+                    },
+                    id,
+                )
+            }
         };
 
         match self.dream_processor.execute_ext(force, dry_run).await {
