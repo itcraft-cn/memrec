@@ -662,6 +662,7 @@ retrieval_graph_depth = 1        # 扩散跳数
 retrieval_graph_decay = 0.6      # 扩散衰减
 retrieval_graph_weight = 0.3     # 图命中并入候选的权重
 retrieval_graph_quota = 0.25     # 图命中在 top_k 中的保留名额比例（0=退回纯按分截断）
+retrieval_graph_min_ratio = 0.30 # 图命中分下限 = min_score × 本值（0=不设下限）
 
 # 成网（Stage N）
 networking_enabled = true               # 是否建边成网

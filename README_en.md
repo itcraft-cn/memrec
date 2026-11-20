@@ -304,6 +304,7 @@ retrieval_graph_depth = 1        # diffusion hops
 retrieval_graph_decay = 0.6      # diffusion decay
 retrieval_graph_weight = 0.3     # weight of graph hits merged into candidates
 retrieval_graph_quota = 0.25     # reserved top_k share for graph hits (0 = score-only truncation)
+retrieval_graph_min_ratio = 0.30 # graph-hit floor = min_score x this (0 = no floor, weak neighbours kept)
 
 # Networking (Stage N)
 networking_enabled = true               # build edges

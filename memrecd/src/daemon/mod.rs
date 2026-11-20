@@ -308,6 +308,7 @@ impl Daemon {
                 decay: self.config.dream.retrieval_graph_decay,
                 weight: self.config.dream.retrieval_graph_weight,
                 quota: self.config.dream.retrieval_graph_quota,
+                min_ratio: self.config.dream.retrieval_graph_min_ratio,
             });
 
         // 周期性冲突审查：仅在显式开启且 LLM 可用时启用；调度由 cron 决定。

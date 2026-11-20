@@ -84,6 +84,12 @@ pub struct RetrievalGraph {
     pub weight: f32,
     /// 图命中保留名额比例（0.0-1.0）：最终 top_k 中为图命中预留的比例。
     pub quota: f32,
+    /// 图命中的分数下限比例（0.0-1.0）：图命中分须不小于 `min_score × 本值`。
+    ///
+    /// 图命中分是传播分（种子分 × 边权 × weight），量纲不同于相似度，
+    /// 天然低于 `min_score`；不设下限时弱邻居会突破用户设定的阈值。
+    /// 置 0 表示不设下限（恢复旧行为）。
+    pub min_ratio: f32,
 }
 
 impl Default for RetrievalGraph {
@@ -94,6 +100,7 @@ impl Default for RetrievalGraph {
             decay: 0.6,
             weight: 0.3,
             quota: 0.25,
+            min_ratio: 0.30,
         }
     }
 }

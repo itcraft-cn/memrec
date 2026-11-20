@@ -110,6 +110,14 @@
 
     /// 同上，但显式指定图命中保留名额比例，用于验证保留名额机制。
     fn router_with_graph_quota(quota: f32) -> (Router, Arc<dyn mr_ability::storage::EdgeStorage>) {
+        router_with_graph_opts(quota, 0.30)
+    }
+
+    /// 同上，同时指定图命中保留名额与分数下限比例，用于验证弱邻居过滤。
+    fn router_with_graph_opts(
+        quota: f32,
+        min_ratio: f32,
+    ) -> (Router, Arc<dyn mr_ability::storage::EdgeStorage>) {
         let dir = tempdir().unwrap();
         let data_dir = dir.path().to_path_buf();
         std::mem::forget(dir);
@@ -154,6 +162,7 @@
             decay: 0.6,
             weight: 0.3,
             quota,
+            min_ratio,
         });
         (router, edge_store)
     }

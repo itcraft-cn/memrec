@@ -344,3 +344,88 @@ use super::*;
             );
         }
     }
+
+    #[tokio::test]
+    async fn test_search_graph_min_ratio_filters_weak_neighbor() {
+        // 图命中分是传播分（种子分 × 边权 × weight），量纲不同于相似度。
+        // 未设下限时弱邻居会突破用户设定的 min_score；设下限后应被过滤，
+        // 而 min_ratio=0 必须恢复旧行为（否则等于悄悄关掉图扩散）。
+        async fn neighbor_visible(min_ratio: f32, min_score: f32, edge_weight: f32) -> bool {
+            let (router, edge_store) = router_with_graph_opts(0.25, min_ratio);
+
+            let a = router
+                .route(add_request_dedup_off(
+                    "rust ownership and borrowing rules",
+                    1,
+                ))
+                .await;
+            let a_id = match &a.result {
+                Some(ResponseResult::Memory(m)) => m.memory.id,
+                _ => panic!("expected memory"),
+            };
+
+            // B 仅入记忆库、不进索引：只能经图扩散到达。
+            let b_mem = mr_common::Memory::new(
+                "cargo workspace dependency layout".to_string(),
+                MemoryType::Knowledge,
+            );
+            let b_id = b_mem.id;
+            router.storage.add(&b_mem).await.unwrap();
+
+            let edge = mr_common::MemoryEdge::new(
+                a_id,
+                b_id,
+                mr_common::EdgeType::References,
+                edge_weight,
+                "test".to_string(),
+            );
+            edge_store.save(&edge).await.unwrap();
+
+            let resp = router
+                .route(JsonRpcRequest::new(
+                    RequestAction::SearchMemory,
+                    Some(RequestParams::SearchMemory(SearchMemoryParams {
+                        query: "rust ownership and borrowing rules".to_string(),
+                        project_id: None,
+                        include_global: true,
+                        project_only: false,
+                        global_only: false,
+                        cross_project: false,
+                        memory_type: None,
+                        top_k: 5,
+                        min_score,
+                        working_dir: None,
+                        hybrid_alpha: default_hybrid_alpha(),
+                        mmr_enabled: false,
+                        mmr_lambda: default_mmr_lambda(),
+                        max_total_tokens: None,
+                    })),
+                    5,
+                ))
+                .await;
+            let results = match resp.result {
+                Some(ResponseResult::SemanticSearchResult(r)) => r.results,
+                _ => panic!("expected semantic search result"),
+            };
+            results.iter().any(|r| r.memory_id == b_id)
+        }
+
+        // 种子分≈1.0、边权 0.5、weight 0.3 → 图命中分≈0.15。
+        // min_score=0.9、ratio=0.30 → 下限 0.27，弱邻居应被过滤。
+        assert!(
+            !neighbor_visible(0.30, 0.9, 0.5).await,
+            "弱邻居（0.15 < 0.9×0.30）应被下限过滤"
+        );
+        // ratio=0 表示不设下限：同一场景必须恢复旧行为。
+        assert!(
+            neighbor_visible(0.0, 0.9, 0.5).await,
+            "min_ratio=0 应保留旧行为，不过滤弱邻居"
+        );
+        // 下限足够低时弱邻居仍可见，说明机制不是把图扩散整体关掉。
+        // 注意 gh.score 已含 graph decay（默认 0.6），故实际图命中分远低于
+        // "种子分 × 边权 × weight" 的朴素估算，这里取一个明确极小的比例。
+        assert!(
+            neighbor_visible(0.01, 0.9, 0.5).await,
+            "下限远低于图命中分时应保留邻居"
+        );
+    }

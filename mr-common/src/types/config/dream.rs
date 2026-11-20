@@ -193,6 +193,14 @@ pub struct DreamConfig {
     /// 的比例，使图命中不被种子分挤压后截断。置 0 则退回"纯按分合并截断"。
     #[serde(default = "default_retrieval_graph_quota")]
     pub retrieval_graph_quota: f32,
+    /// 图命中的分数下限比例（0.0-1.0，默认 0.30）。
+    ///
+    /// 图命中分是"种子分 × 边权 × 权重"的传播分，量纲不同于相似度，天然低于
+    /// `min_score`；若完全不设下限，低于用户阈值的弱邻居也会进入结果，破坏
+    /// "最低相似度"的语义。故按相对比例约束：图命中分须 ≥ `min_score × 本值`。
+    /// 置 0 表示不设下限（恢复旧行为，弱邻居照常返回）。
+    #[serde(default = "default_retrieval_graph_min_ratio")]
+    pub retrieval_graph_min_ratio: f32,
 
     // ---- dry-run ----
     /// dry-run 预演时是否真调 LLM（关闭时用模板占位摘要）
@@ -343,6 +351,11 @@ fn default_retrieval_graph_weight() -> f32 {
 fn default_retrieval_graph_quota() -> f32 {
     0.25
 }
+
+/// 图命中分数下限比例的默认值：0.30（即不低于 min_score 的 30%）。
+fn default_retrieval_graph_min_ratio() -> f32 {
+    0.30
+}
 fn default_dry_run_with_llm() -> bool {
     false
 }
@@ -416,6 +429,7 @@ impl Default for DreamConfig {
             retrieval_graph_decay: 0.6,
             retrieval_graph_weight: 0.3,
             retrieval_graph_quota: 0.25,
+            retrieval_graph_min_ratio: 0.30,
             dry_run_with_llm: false,
         }
     }

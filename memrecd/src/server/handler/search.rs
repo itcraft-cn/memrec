@@ -177,6 +177,24 @@ impl Router {
                                     tracing::debug!(target:"recall","gh {} skip: score<=0", gh.memory_id);
                                     continue;
                                 }
+                                // 图命中分数下限：图命中分是传播分（种子分 × 边权 × weight），
+                                // 量纲不同于相似度，天然低于 min_score；若完全不设限，低于用户
+                                // 阈值 `min_score` 的弱邻居也会进入结果，破坏"最低相似度"语义。
+                                // 故按相对比例约束：score >= min_score × min_ratio，
+                                // min_ratio=0 时不设限（保留旧行为）。
+                                let graph_floor = p.min_score * self.retrieval_graph.min_ratio;
+                                if self.retrieval_graph.min_ratio > 0.0 && score < graph_floor {
+                                    tracing::debug!(
+                                        target:"recall",
+                                        "gh {} skip: score {:.4} < floor {:.4} (min_score={} × ratio={})",
+                                        gh.memory_id,
+                                        score,
+                                        graph_floor,
+                                        p.min_score,
+                                        self.retrieval_graph.min_ratio
+                                    );
+                                    continue;
+                                }
                                 let memory = match graph_mem.remove(&gh.memory_id) {
                                     Some(m) => m,
                                     None => {
