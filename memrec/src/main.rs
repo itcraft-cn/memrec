@@ -326,8 +326,7 @@ async fn main() -> Result<()> {
             raw,
             with_dream,
         } => {
-            let (project_only, global_only, project_id) =
-                resolve_list_scope(project, global, all)?;
+            let (project_only, global_only, project_id) = resolve_list_scope(project, global, all)?;
             list(
                 &client,
                 ListOptions {
@@ -357,8 +356,7 @@ async fn main() -> Result<()> {
             raw,
             with_dream,
         } => {
-            let (project_only, global_only, project_id) =
-                resolve_list_scope(project, global, all)?;
+            let (project_only, global_only, project_id) = resolve_list_scope(project, global, all)?;
             timeline(
                 &client,
                 ListOptions {

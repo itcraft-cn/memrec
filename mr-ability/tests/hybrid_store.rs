@@ -308,7 +308,6 @@ async fn test_hybrid_remove() {
     assert!(result.hits.is_empty() || !result.hits.iter().any(|h| h.memory_id == id));
 }
 
-
 /// T3 验证：MMR 相似度以全文（TextProvider）而非 200 字符 content_preview 计算。
 ///
 /// 构造三条向量分相同（同 embedding）、preview 完全相同的候选 A/B/C：

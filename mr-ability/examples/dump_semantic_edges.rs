@@ -31,12 +31,7 @@ async fn main() -> anyhow::Result<()> {
             .iter()
             .filter(|e| e.evidence.starts_with("dream:llm-semantic"))
             .collect();
-        println!(
-            "{:?}: total={} semantic={}",
-            t,
-            edges.len(),
-            semantic.len()
-        );
+        println!("{:?}: total={} semantic={}", t, edges.len(), semantic.len());
         for e in semantic.iter().take(20) {
             println!(
                 "  {} -> {} w={:.2} | {}",

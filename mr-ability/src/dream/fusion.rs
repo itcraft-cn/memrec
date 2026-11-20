@@ -283,10 +283,7 @@ pub async fn extract_cluster(
                  6. 本簇最多输出 {max_facts} 条 facts；必须合并相似内容，优先保留结论、数字、路径与命令，禁止逐条复述输入；\
                  若上限为 0，facts 必须为空数组。"
             );
-            let messages = vec![
-                LlmMessage::system(system),
-                LlmMessage::user(user),
-            ];
+            let messages = vec![LlmMessage::system(system), LlmMessage::user(user)];
             let raw = llm
                 .chat_with_think(&messages, mr_common::ThinkLevel::Off)
                 .await?;

@@ -9,11 +9,11 @@
 //! - **Similar/CausedBy/Contradicts**: 语义关系，需要 LLM 判断
 //! - **Evolves/References**: 演进/引用关系，需要 LLM 判断
 
-use std::collections::HashSet;
 use crate::storage::{EdgeStorage, MemoryStorage};
 use anyhow::Result;
 use async_trait::async_trait;
 use mr_common::{EdgeType, Memory, MemoryEdge};
+use std::collections::HashSet;
 use uuid::Uuid;
 
 /// 边生成器 trait。

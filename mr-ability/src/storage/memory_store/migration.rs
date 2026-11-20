@@ -4,7 +4,11 @@ use super::*;
 
 impl MemoryStore {
     /// 项目桶前缀扫描的共享实现：桶 key 恰为 id，逐 id 回表并过滤软删。
-    pub(super) async fn list_by_project_bucket(&self, bucket: &[u8; 16], limit: usize) -> Result<Vec<Memory>> {
+    pub(super) async fn list_by_project_bucket(
+        &self,
+        bucket: &[u8; 16],
+        limit: usize,
+    ) -> Result<Vec<Memory>> {
         let cf_by_project = self.rocksdb.cf_by_project()?;
         let mut iter = self.rocksdb.iter_cf(cf_by_project);
         let mut memories = Vec::new();

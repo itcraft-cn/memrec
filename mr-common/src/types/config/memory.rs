@@ -24,7 +24,6 @@ pub struct MemoryConfig {
     pub low_watermark: f32,
 }
 
-
 impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
@@ -38,7 +37,6 @@ impl Default for MemoryConfig {
         }
     }
 }
-
 
 /// 重要性计算权重配置。
 ///
@@ -62,7 +60,6 @@ pub struct ImportanceConfig {
     pub weight_explicit: f32,
 }
 
-
 impl Default for ImportanceConfig {
     fn default() -> Self {
         Self {
@@ -75,7 +72,6 @@ impl Default for ImportanceConfig {
         }
     }
 }
-
 
 /// 记忆来源权重配置。
 ///
@@ -92,26 +88,21 @@ pub struct SourceWeights {
     pub external: f64,
 }
 
-
 fn default_user_weight() -> f64 {
     1.0
 }
-
 
 fn default_system_weight() -> f64 {
     0.8
 }
 
-
 fn default_inferred_weight() -> f64 {
     0.5
 }
 
-
 fn default_external_weight() -> f64 {
     0.7
 }
-
 
 impl Default for SourceWeights {
     fn default() -> Self {
@@ -123,4 +114,3 @@ impl Default for SourceWeights {
         }
     }
 }
-

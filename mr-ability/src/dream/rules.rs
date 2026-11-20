@@ -190,9 +190,7 @@ fn has_new_evidence(
     else {
         return true;
     };
-    members
-        .iter()
-        .any(|m| m.created_at > updated_at)
+    members.iter().any(|m| m.created_at > updated_at)
 }
 
 /// 构造消息：系统提示 + 编号来源列表。

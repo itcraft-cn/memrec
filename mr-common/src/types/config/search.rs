@@ -1,7 +1,7 @@
 //! 检索配置。
 
-use serde::{Deserialize, Serialize};
 use super::*;
+use serde::{Deserialize, Serialize};
 
 /// 搜索配置。
 ///
@@ -33,31 +33,25 @@ pub struct SearchConfig {
     pub evergreen_scopes: Vec<String>,
 }
 
-
 fn default_hybrid_alpha() -> f64 {
     0.5
 }
-
 
 fn default_mmr_enabled() -> bool {
     true
 }
 
-
 fn default_mmr_lambda() -> f64 {
     0.5
 }
-
 
 fn default_decay_half_life() -> f64 {
     336.0
 }
 
-
 fn default_evergreen_scopes() -> Vec<String> {
     vec!["global".to_string(), "workspace".to_string()]
 }
-
 
 impl Default for SearchConfig {
     fn default() -> Self {
@@ -71,4 +65,3 @@ impl Default for SearchConfig {
         }
     }
 }
-

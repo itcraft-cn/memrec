@@ -13,7 +13,6 @@ pub struct ServerConfig {
     pub data_dir: String,
 }
 
-
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
@@ -22,7 +21,6 @@ impl Default for ServerConfig {
         }
     }
 }
-
 
 /// 日志配置。
 ///
@@ -46,26 +44,21 @@ pub struct LogConfig {
     pub memrecd_log: String,
 }
 
-
 fn default_log_enabled() -> bool {
     true
 }
-
 
 fn default_log_level() -> String {
     "info".to_string()
 }
 
-
 fn default_rotation_days() -> u64 {
     7
 }
 
-
 fn default_memrecd_log_path() -> String {
     "~/.memrec/logs/memrecd.log".to_string()
 }
-
 
 impl Default for LogConfig {
     fn default() -> Self {
@@ -77,4 +70,3 @@ impl Default for LogConfig {
         }
     }
 }
-

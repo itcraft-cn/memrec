@@ -6,7 +6,11 @@ use super::*;
 
 impl Router {
     /// 处理 SceneCreate 请求：创建场景。
-    pub(super) async fn handle_scene_create(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+    pub(super) async fn handle_scene_create(
+        &self,
+        params: Option<RequestParams>,
+        id: u64,
+    ) -> JsonRpcResponse {
         match params {
             Some(RequestParams::SceneCreate(p)) => {
                 let mut scene = mr_common::Scene::new(p.theme);
@@ -41,7 +45,11 @@ impl Router {
     }
 
     /// 处理 SceneGet 请求：获取场景。
-    pub(super) async fn handle_scene_get(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+    pub(super) async fn handle_scene_get(
+        &self,
+        params: Option<RequestParams>,
+        id: u64,
+    ) -> JsonRpcResponse {
         match params {
             Some(RequestParams::SceneGet(p)) => match self.scene_store.get_scene(&p.id).await {
                 Ok(Some(scene)) => {
@@ -76,7 +84,11 @@ impl Router {
     }
 
     /// 处理 SceneList 请求：列出场景。
-    pub(super) async fn handle_scene_list(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+    pub(super) async fn handle_scene_list(
+        &self,
+        params: Option<RequestParams>,
+        id: u64,
+    ) -> JsonRpcResponse {
         match params {
             Some(RequestParams::SceneList(p)) => {
                 match self
@@ -113,7 +125,11 @@ impl Router {
     }
 
     /// 处理 SceneDelete 请求：删除场景。
-    pub(super) async fn handle_scene_delete(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+    pub(super) async fn handle_scene_delete(
+        &self,
+        params: Option<RequestParams>,
+        id: u64,
+    ) -> JsonRpcResponse {
         match params {
             Some(RequestParams::SceneDelete(p)) => {
                 match self.scene_store.delete_scene(&p.id).await {

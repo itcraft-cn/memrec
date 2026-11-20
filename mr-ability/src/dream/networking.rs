@@ -39,10 +39,7 @@ pub struct EdgeBuildStats {
 impl EdgeBuildStats {
     fn record(&mut self, edge_type: EdgeType) {
         self.total += 1;
-        *self
-            .by_type
-            .entry(edge_type.to_string())
-            .or_insert(0) += 1;
+        *self.by_type.entry(edge_type.to_string()).or_insert(0) += 1;
     }
 }
 
@@ -120,7 +117,10 @@ impl EdgeBuilder {
                     if !seen.insert(key) {
                         continue;
                     }
-                    if self.edge_exists(edge_store, p.id, qid, EdgeType::Similar).await? {
+                    if self
+                        .edge_exists(edge_store, p.id, qid, EdgeType::Similar)
+                        .await?
+                    {
                         continue;
                     }
                     let edge = MemoryEdge::new(
@@ -241,17 +241,26 @@ impl EdgeBuilder {
     ) -> Result<bool> {
         let a_type = self.config_kind(edge_type);
         let out_a = edge_store.list_out_edges(&a).await?;
-        if out_a.iter().any(|e| e.target_id == b && e.edge_type == edge_type) {
+        if out_a
+            .iter()
+            .any(|e| e.target_id == b && e.edge_type == edge_type)
+        {
             return Ok(true);
         }
         if !a_type {
             // 无向边：反向也视为已存在
             let out_b = edge_store.list_out_edges(&b).await?;
-            if out_b.iter().any(|e| e.target_id == a && e.edge_type == edge_type) {
+            if out_b
+                .iter()
+                .any(|e| e.target_id == a && e.edge_type == edge_type)
+            {
                 return Ok(true);
             }
             let in_a = edge_store.list_in_edges(&a).await?;
-            if in_a.iter().any(|e| e.source_id == b && e.edge_type == edge_type) {
+            if in_a
+                .iter()
+                .any(|e| e.source_id == b && e.edge_type == edge_type)
+            {
                 return Ok(true);
             }
         }

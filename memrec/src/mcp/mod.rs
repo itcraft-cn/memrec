@@ -316,7 +316,6 @@ impl McpServer {
             "error": {"code": code, "message": message}
         })
     }
-
 }
 
 #[cfg(test)]

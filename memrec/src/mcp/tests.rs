@@ -2,239 +2,238 @@
 
 use super::*;
 
+fn make_server() -> McpServer {
+    McpServer::new()
+}
 
-    fn make_server() -> McpServer {
-        McpServer::new()
+#[test]
+fn test_handle_initialize() {
+    let server = make_server();
+    let result = server.handle_initialize(Some(1.into()), &json!({}));
+
+    assert_eq!(result["jsonrpc"], "2.0");
+    assert_eq!(result["id"], 1);
+    assert!(result["result"]["protocolVersion"].is_string());
+    assert!(result["result"]["capabilities"]["tools"].is_object());
+    assert!(result["result"]["serverInfo"]["name"].is_string());
+}
+
+#[test]
+fn test_handle_tools_list() {
+    let server = make_server();
+    let result = server.handle_tools_list(Some(2.into()));
+
+    assert!(result["result"]["tools"].is_array());
+    let tools = result["result"]["tools"].as_array().unwrap();
+    assert!(tools.len() >= 6);
+
+    let tool_names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
+    assert!(tool_names.contains(&"mr_add"));
+    assert!(tool_names.contains(&"mr_search"));
+    assert!(tool_names.contains(&"mr_get"));
+    assert!(tool_names.contains(&"mr_list"));
+    assert!(tool_names.contains(&"mr_timeline"));
+    assert!(tool_names.contains(&"mr_delete"));
+    assert!(tool_names.contains(&"mr_stats"));
+}
+
+#[test]
+fn test_handle_resources_list() {
+    let server = make_server();
+    let result = server.handle_resources_list(Some(3.into()));
+
+    let resources = result["result"]["resources"].as_array().unwrap();
+    assert!(resources.len() >= 2);
+
+    let uris: Vec<&str> = resources.iter().filter_map(|r| r["uri"].as_str()).collect();
+    assert!(uris.contains(&"memrec://stats"));
+    assert!(uris.contains(&"memrec://project"));
+}
+
+#[test]
+fn test_make_result() {
+    let server = make_server();
+    let result = server.make_result(Some(42.into()), json!({"key": "value"}));
+
+    assert_eq!(result["jsonrpc"], "2.0");
+    assert_eq!(result["id"], 42);
+    assert_eq!(result["result"]["key"], "value");
+}
+
+#[test]
+fn test_make_error() {
+    let server = make_server();
+    let result = server.make_error(Some(99.into()), -32600, "Invalid Request");
+
+    assert_eq!(result["jsonrpc"], "2.0");
+    assert_eq!(result["id"], 99);
+    assert_eq!(result["error"]["code"], -32600);
+    assert_eq!(result["error"]["message"], "Invalid Request");
+}
+
+#[test]
+fn test_tool_schema_validation() {
+    let server = make_server();
+    let result = server.handle_tools_list(Some(1.into()));
+
+    for tool in result["result"]["tools"].as_array().unwrap() {
+        assert!(tool["name"].is_string());
+        assert!(tool["description"].is_string());
+        assert!(tool["inputSchema"].is_object());
+        assert_eq!(tool["inputSchema"]["type"], "object");
     }
+}
 
-    #[test]
-    fn test_handle_initialize() {
-        let server = make_server();
-        let result = server.handle_initialize(Some(1.into()), &json!({}));
+#[test]
+fn test_mr_add_tool_schema() {
+    let server = make_server();
+    let result = server.handle_tools_list(Some(1.into()));
 
-        assert_eq!(result["jsonrpc"], "2.0");
-        assert_eq!(result["id"], 1);
-        assert!(result["result"]["protocolVersion"].is_string());
-        assert!(result["result"]["capabilities"]["tools"].is_object());
-        assert!(result["result"]["serverInfo"]["name"].is_string());
-    }
+    let mr_add = result["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "mr_add")
+        .unwrap();
 
-    #[test]
-    fn test_handle_tools_list() {
-        let server = make_server();
-        let result = server.handle_tools_list(Some(2.into()));
+    let required = mr_add["inputSchema"]["required"].as_array().unwrap();
+    assert!(required.contains(&json!("content")));
+    assert!(required.contains(&json!("memory_type")));
+}
 
-        assert!(result["result"]["tools"].is_array());
-        let tools = result["result"]["tools"].as_array().unwrap();
-        assert!(tools.len() >= 6);
+#[test]
+fn test_mr_search_tool_schema() {
+    let server = make_server();
+    let result = server.handle_tools_list(Some(1.into()));
 
-        let tool_names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
-        assert!(tool_names.contains(&"mr_add"));
-        assert!(tool_names.contains(&"mr_search"));
-        assert!(tool_names.contains(&"mr_get"));
-        assert!(tool_names.contains(&"mr_list"));
-        assert!(tool_names.contains(&"mr_timeline"));
-        assert!(tool_names.contains(&"mr_delete"));
-        assert!(tool_names.contains(&"mr_stats"));
-    }
+    let mr_search = result["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "mr_search")
+        .unwrap();
 
-    #[test]
-    fn test_handle_resources_list() {
-        let server = make_server();
-        let result = server.handle_resources_list(Some(3.into()));
+    let required = mr_search["inputSchema"]["required"].as_array().unwrap();
+    assert!(required.contains(&json!("query")));
 
-        let resources = result["result"]["resources"].as_array().unwrap();
-        assert!(resources.len() >= 2);
+    // scope 三态枚举：与 CLI -p/-g/-a 对齐
+    let scope = &mr_search["inputSchema"]["properties"]["scope"];
+    let enum_values: Vec<&str> = scope["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect();
+    assert_eq!(enum_values, vec!["project", "global", "all"]);
+}
 
-        let uris: Vec<&str> = resources.iter().filter_map(|r| r["uri"].as_str()).collect();
-        assert!(uris.contains(&"memrec://stats"));
-        assert!(uris.contains(&"memrec://project"));
-    }
+#[test]
+fn test_mr_list_tool_schema_scope() {
+    let server = make_server();
+    let result = server.handle_tools_list(Some(1.into()));
 
-    #[test]
-    fn test_make_result() {
-        let server = make_server();
-        let result = server.make_result(Some(42.into()), json!({"key": "value"}));
+    let mr_list = result["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "mr_list")
+        .unwrap();
 
-        assert_eq!(result["jsonrpc"], "2.0");
-        assert_eq!(result["id"], 42);
-        assert_eq!(result["result"]["key"], "value");
-    }
+    let scope = &mr_list["inputSchema"]["properties"]["scope"];
+    let enum_values: Vec<&str> = scope["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect();
+    assert_eq!(enum_values, vec!["project", "global", "all"]);
+    // 旧布尔参数已移除，仅保留 scope
+    let props = &mr_list["inputSchema"]["properties"];
+    assert!(props.get("project_only").is_none());
+    assert!(props.get("global_only").is_none());
+    // 原始记录视图与分页/过滤参数已暴露
+    assert!(props.get("skip").is_some());
+    assert!(props.get("tags").is_some());
+    assert!(props.get("memory_type").is_some());
+    assert!(props.get("include_deleted").is_some());
+    assert!(props.get("raw").is_some());
+    assert!(props.get("with_dream").is_some());
+}
 
-    #[test]
-    fn test_make_error() {
-        let server = make_server();
-        let result = server.make_error(Some(99.into()), -32600, "Invalid Request");
+#[test]
+fn test_mr_timeline_tool_schema() {
+    let server = make_server();
+    let result = server.handle_tools_list(Some(1.into()));
 
-        assert_eq!(result["jsonrpc"], "2.0");
-        assert_eq!(result["id"], 99);
-        assert_eq!(result["error"]["code"], -32600);
-        assert_eq!(result["error"]["message"], "Invalid Request");
-    }
+    let mr_timeline = result["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "mr_timeline")
+        .unwrap();
 
-    #[test]
-    fn test_tool_schema_validation() {
-        let server = make_server();
-        let result = server.handle_tools_list(Some(1.into()));
+    let props = &mr_timeline["inputSchema"]["properties"];
+    assert!(props.get("limit").is_some());
+    assert!(props.get("skip").is_some());
+    assert!(props.get("scope").is_some());
+    assert!(props.get("tags").is_some());
+    assert!(props.get("memory_type").is_some());
+    assert!(props.get("raw").is_some());
+    assert!(props.get("with_dream").is_some());
+}
 
-        for tool in result["result"]["tools"].as_array().unwrap() {
-            assert!(tool["name"].is_string());
-            assert!(tool["description"].is_string());
-            assert!(tool["inputSchema"].is_object());
-            assert_eq!(tool["inputSchema"]["type"], "object");
-        }
-    }
+#[test]
+fn test_build_list_params_raw_and_order() {
+    let args = json!({
+        "limit": 5,
+        "skip": 10,
+        "scope": "all",
+        "tags": ["rust", "fact"],
+        "memory_type": "decision",
+        "include_deleted": true,
+        "raw": true,
+        "with_dream": true
+    });
 
-    #[test]
-    fn test_mr_add_tool_schema() {
-        let server = make_server();
-        let result = server.handle_tools_list(Some(1.into()));
+    let params = McpServer::build_list_params(&args, ListOrder::CreatedDesc).unwrap();
+    assert_eq!(params.limit, 5);
+    assert_eq!(params.skip, 10);
+    assert_eq!(params.tags, vec!["rust", "fact"]);
+    assert_eq!(params.memory_type, Some(mr_common::MemoryType::Decision));
+    assert!(params.include_deleted);
+    assert!(params.raw);
+    assert!(params.with_dream);
+    assert_eq!(params.order, ListOrder::CreatedDesc);
+    assert!(!params.project_only);
+    assert!(!params.global_only);
+}
 
-        let mr_add = result["result"]["tools"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|t| t["name"] == "mr_add")
-            .unwrap();
+#[test]
+fn test_parse_scope_explicit() {
+    assert_eq!(parse_scope(Some("project")), Scope::Project);
+    assert_eq!(parse_scope(Some("global")), Scope::Global);
+    assert_eq!(parse_scope(Some("all")), Scope::All);
+}
 
-        let required = mr_add["inputSchema"]["required"].as_array().unwrap();
-        assert!(required.contains(&json!("content")));
-        assert!(required.contains(&json!("memory_type")));
-    }
+#[test]
+fn test_parse_scope_invalid_falls_back_to_default() {
+    // 未知值/缺失时回退默认推断（当前工作目录有 .mr_pid 时为 Project）
+    let default = default_scope();
+    assert_eq!(parse_scope(Some("invalid")), default);
+    assert_eq!(parse_scope(None), default);
+}
 
-    #[test]
-    fn test_mr_search_tool_schema() {
-        let server = make_server();
-        let result = server.handle_tools_list(Some(1.into()));
+#[test]
+fn test_add_working_dir_global_is_none() {
+    // 全局写入不携带工作目录，归属由 is_global 决定为全局。
+    assert_eq!(add_working_dir(true), None);
+}
 
-        let mr_search = result["result"]["tools"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|t| t["name"] == "mr_search")
-            .unwrap();
-
-        let required = mr_search["inputSchema"]["required"].as_array().unwrap();
-        assert!(required.contains(&json!("query")));
-
-        // scope 三态枚举：与 CLI -p/-g/-a 对齐
-        let scope = &mr_search["inputSchema"]["properties"]["scope"];
-        let enum_values: Vec<&str> = scope["enum"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|v| v.as_str())
-            .collect();
-        assert_eq!(enum_values, vec!["project", "global", "all"]);
-    }
-
-    #[test]
-    fn test_mr_list_tool_schema_scope() {
-        let server = make_server();
-        let result = server.handle_tools_list(Some(1.into()));
-
-        let mr_list = result["result"]["tools"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|t| t["name"] == "mr_list")
-            .unwrap();
-
-        let scope = &mr_list["inputSchema"]["properties"]["scope"];
-        let enum_values: Vec<&str> = scope["enum"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|v| v.as_str())
-            .collect();
-        assert_eq!(enum_values, vec!["project", "global", "all"]);
-        // 旧布尔参数已移除，仅保留 scope
-        let props = &mr_list["inputSchema"]["properties"];
-        assert!(props.get("project_only").is_none());
-        assert!(props.get("global_only").is_none());
-        // 原始记录视图与分页/过滤参数已暴露
-        assert!(props.get("skip").is_some());
-        assert!(props.get("tags").is_some());
-        assert!(props.get("memory_type").is_some());
-        assert!(props.get("include_deleted").is_some());
-        assert!(props.get("raw").is_some());
-        assert!(props.get("with_dream").is_some());
-    }
-
-    #[test]
-    fn test_mr_timeline_tool_schema() {
-        let server = make_server();
-        let result = server.handle_tools_list(Some(1.into()));
-
-        let mr_timeline = result["result"]["tools"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|t| t["name"] == "mr_timeline")
-            .unwrap();
-
-        let props = &mr_timeline["inputSchema"]["properties"];
-        assert!(props.get("limit").is_some());
-        assert!(props.get("skip").is_some());
-        assert!(props.get("scope").is_some());
-        assert!(props.get("tags").is_some());
-        assert!(props.get("memory_type").is_some());
-        assert!(props.get("raw").is_some());
-        assert!(props.get("with_dream").is_some());
-    }
-
-    #[test]
-    fn test_build_list_params_raw_and_order() {
-        let args = json!({
-            "limit": 5,
-            "skip": 10,
-            "scope": "all",
-            "tags": ["rust", "fact"],
-            "memory_type": "decision",
-            "include_deleted": true,
-            "raw": true,
-            "with_dream": true
-        });
-
-        let params = McpServer::build_list_params(&args, ListOrder::CreatedDesc).unwrap();
-        assert_eq!(params.limit, 5);
-        assert_eq!(params.skip, 10);
-        assert_eq!(params.tags, vec!["rust", "fact"]);
-        assert_eq!(params.memory_type, Some(mr_common::MemoryType::Decision));
-        assert!(params.include_deleted);
-        assert!(params.raw);
-        assert!(params.with_dream);
-        assert_eq!(params.order, ListOrder::CreatedDesc);
-        assert!(!params.project_only);
-        assert!(!params.global_only);
-    }
-
-    #[test]
-    fn test_parse_scope_explicit() {
-        assert_eq!(parse_scope(Some("project")), Scope::Project);
-        assert_eq!(parse_scope(Some("global")), Scope::Global);
-        assert_eq!(parse_scope(Some("all")), Scope::All);
-    }
-
-    #[test]
-    fn test_parse_scope_invalid_falls_back_to_default() {
-        // 未知值/缺失时回退默认推断（当前工作目录有 .mr_pid 时为 Project）
-        let default = default_scope();
-        assert_eq!(parse_scope(Some("invalid")), default);
-        assert_eq!(parse_scope(None), default);
-    }
-
-    #[test]
-    fn test_add_working_dir_global_is_none() {
-        // 全局写入不携带工作目录，归属由 is_global 决定为全局。
-        assert_eq!(add_working_dir(true), None);
-    }
-
-    #[test]
-    fn test_add_working_dir_project_uses_caller_cwd() {
-        // 回归：非全局写入必须携带调用方工作目录，否则守护进程回落到自身 cwd，
-        // 所有 MCP 写入汇入同一项目桶（项目隔离失效）。
-        let wd = add_working_dir(false);
-        assert!(wd.is_some(), "非全局写入必须携带工作目录");
-        assert_eq!(wd, detect_working_dir().ok());
-    }
+#[test]
+fn test_add_working_dir_project_uses_caller_cwd() {
+    // 回归：非全局写入必须携带调用方工作目录，否则守护进程回落到自身 cwd，
+    // 所有 MCP 写入汇入同一项目桶（项目隔离失效）。
+    let wd = add_working_dir(false);
+    assert!(wd.is_some(), "非全局写入必须携带工作目录");
+    assert_eq!(wd, detect_working_dir().ok());
+}

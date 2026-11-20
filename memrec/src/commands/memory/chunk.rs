@@ -1,6 +1,5 @@
 //! 长内容分块与分块标签工具。
 
-
 /// 按最大尺寸拆分内容为多个块。
 pub(super) fn split_content(content: &str, max_size: usize) -> Vec<String> {
     let mut chunks = Vec::new();
@@ -50,7 +49,11 @@ pub(super) fn find_chunk_boundary(content: &str, start: usize, max_size: usize) 
 }
 
 /// 为分块添加 part 标签（`part:N-M`、`part:first`、`part:last`）。
-pub(super) fn format_part_tags(original_tags: &[String], part_num: usize, total_parts: usize) -> Vec<String> {
+pub(super) fn format_part_tags(
+    original_tags: &[String],
+    part_num: usize,
+    total_parts: usize,
+) -> Vec<String> {
     let mut tags = original_tags.to_vec();
     tags.push(format!("part:{}-{}", part_num, total_parts));
     if part_num == 1 {

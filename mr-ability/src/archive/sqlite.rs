@@ -208,9 +208,9 @@ impl ArchiveStorage for SqliteArchive {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use super::*;
     use mr_common::{MemoryScope, MemorySource, MemoryType};
+    use std::collections::HashMap;
     use tempfile::tempdir;
     use uuid::Uuid;
 

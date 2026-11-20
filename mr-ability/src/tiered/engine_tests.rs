@@ -1,350 +1,342 @@
 //! 分层引擎单元测试（内联 tests 抽离）。
 
-    use super::*;
+use super::*;
+use crate::storage::{GraphSearchHit, GraphTraversalParams};
+use async_trait::async_trait;
+use mr_common::{EdgeType, MemorySource, MemoryType};
+use std::collections::HashMap;
+
+struct MockMemoryStore {
+    memories: std::sync::Arc<tokio::sync::Mutex<HashMap<Uuid, Memory>>>,
+}
+
+impl MockMemoryStore {
+    fn new() -> Self {
+        MockMemoryStore {
+            memories: std::sync::Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        }
+    }
+
+    async fn insert(&self, memory: Memory) {
+        let mut map = self.memories.lock().await;
+        map.insert(memory.id, memory);
+    }
+}
+
+#[async_trait]
+impl MemoryStorage for MockMemoryStore {
+    async fn save(&self, memory: &Memory) -> Result<()> {
+        let mut map = self.memories.lock().await;
+        map.insert(memory.id, memory.clone());
+        Ok(())
+    }
+    async fn get(&self, id: &Uuid) -> Result<Option<Memory>> {
+        let map = self.memories.lock().await;
+        Ok(map.get(id).cloned())
+    }
+    async fn update(&self, memory: &Memory) -> Result<()> {
+        self.save(memory).await
+    }
+    async fn restore(&self, id: &Uuid) -> Result<Option<Memory>> {
+        let mut map = self.memories.lock().await;
+        match map.get_mut(id) {
+            Some(m) if m.is_deleted => {
+                m.is_deleted = false;
+                m.deleted_at = None;
+                Ok(Some(m.clone()))
+            }
+            _ => Ok(None),
+        }
+    }
+    async fn delete(&self, id: &Uuid) -> Result<bool> {
+        let mut map = self.memories.lock().await;
+        Ok(map.remove(id).is_some())
+    }
+    async fn list(&self, limit: usize) -> Result<Vec<Memory>> {
+        let map = self.memories.lock().await;
+        Ok(map.values().take(limit).cloned().collect())
+    }
+    async fn list_raw(&self, limit: usize) -> Result<Vec<Memory>> {
+        self.list(limit).await
+    }
+    async fn list_by_type(&self, _memory_type: MemoryType, limit: usize) -> Result<Vec<Memory>> {
+        self.list(limit).await
+    }
+    async fn list_by_tag(&self, _tag: &str, limit: usize) -> Result<Vec<Memory>> {
+        self.list(limit).await
+    }
+    async fn list_by_importance(&self, _min: f32, _max: f32) -> Result<Vec<Memory>> {
+        self.list(100).await
+    }
+    async fn list_deleted(&self) -> Result<Vec<Memory>> {
+        Ok(vec![])
+    }
+    async fn count(&self) -> Result<usize> {
+        let map = self.memories.lock().await;
+        Ok(map.len())
+    }
+    async fn count_deleted(&self) -> Result<usize> {
+        Ok(0)
+    }
+    async fn list_by_project(&self, _project_id: &Uuid) -> Result<Vec<Memory>> {
+        self.list(100).await
+    }
+    async fn list_global(&self, limit: usize) -> Result<Vec<Memory>> {
+        self.list(limit).await
+    }
+    async fn list_created_between(
+        &self,
+        _after_unix: i64,
+        _before_unix: i64,
+        limit: usize,
+    ) -> Result<Vec<Memory>> {
+        self.list(limit).await
+    }
+    async fn get_chunks_by_group(&self, _chunk_group_id: &Uuid) -> Result<Vec<Memory>> {
+        Ok(vec![])
+    }
+    async fn list_older_than(&self, _cutoff: &str, limit: usize) -> Result<Vec<Memory>> {
+        self.list(limit).await
+    }
+}
+
+struct MockEdgeStore {
+    edges: std::sync::Arc<tokio::sync::Mutex<Vec<MemoryEdge>>>,
+}
+
+impl MockEdgeStore {
+    fn new() -> Self {
+        MockEdgeStore {
+            edges: std::sync::Arc::new(tokio::sync::Mutex::new(vec![])),
+        }
+    }
+}
+
+#[async_trait]
+impl EdgeStorage for MockEdgeStore {
+    async fn save(&self, edge: &MemoryEdge) -> Result<()> {
+        let mut edges = self.edges.lock().await;
+        edges.push(edge.clone());
+        Ok(())
+    }
+    async fn get(&self, _id: &Uuid) -> Result<Option<MemoryEdge>> {
+        Ok(None)
+    }
+    async fn delete(&self, _id: &Uuid) -> Result<bool> {
+        Ok(false)
+    }
+    async fn list_out_edges(&self, _source_id: &Uuid) -> Result<Vec<MemoryEdge>> {
+        Ok(vec![])
+    }
+    async fn list_in_edges(&self, _target_id: &Uuid) -> Result<Vec<MemoryEdge>> {
+        Ok(vec![])
+    }
+    async fn list_by_type(&self, _edge_type: EdgeType) -> Result<Vec<MemoryEdge>> {
+        Ok(vec![])
+    }
+    async fn count(&self) -> Result<usize> {
+        let edges = self.edges.lock().await;
+        Ok(edges.len())
+    }
+    async fn neighbors(&self, _memory_id: &Uuid) -> Result<Vec<MemoryEdge>> {
+        Ok(vec![])
+    }
+    async fn traverse(
+        &self,
+        _seed_ids: &[Uuid],
+        _params: GraphTraversalParams,
+    ) -> Result<Vec<GraphSearchHit>> {
+        Ok(vec![])
+    }
+}
+
+struct MockTieredStore {
+    summaries: std::sync::Arc<tokio::sync::Mutex<HashMap<Uuid, String>>>,
+    keywords: std::sync::Arc<tokio::sync::Mutex<HashMap<Uuid, Vec<String>>>>,
+}
+
+impl MockTieredStore {
+    fn new() -> Self {
+        MockTieredStore {
+            summaries: std::sync::Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            keywords: std::sync::Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        }
+    }
+}
+
+#[async_trait]
+impl TieredStorage for MockTieredStore {
+    async fn save_summary(&self, memory_id: &Uuid, summary: &str) -> Result<()> {
+        let mut map = self.summaries.lock().await;
+        map.insert(*memory_id, summary.to_string());
+        Ok(())
+    }
+    async fn get_summary(&self, memory_id: &Uuid) -> Result<Option<String>> {
+        let map = self.summaries.lock().await;
+        Ok(map.get(memory_id).cloned())
+    }
+    async fn delete_summary(&self, memory_id: &Uuid) -> Result<bool> {
+        let mut map = self.summaries.lock().await;
+        Ok(map.remove(memory_id).is_some())
+    }
+    async fn save_keywords(&self, memory_id: &Uuid, keywords: &[String]) -> Result<()> {
+        let mut map = self.keywords.lock().await;
+        map.insert(*memory_id, keywords.to_vec());
+        Ok(())
+    }
+    async fn get_keywords(&self, memory_id: &Uuid) -> Result<Option<Vec<String>>> {
+        let map = self.keywords.lock().await;
+        Ok(map.get(memory_id).cloned())
+    }
+    async fn delete_keywords(&self, memory_id: &Uuid) -> Result<bool> {
+        let mut map = self.keywords.lock().await;
+        Ok(map.remove(memory_id).is_some())
+    }
+}
+
+fn make_memory(content: &str, tags: Vec<&str>) -> Memory {
     use std::collections::HashMap;
-    use crate::storage::{GraphSearchHit, GraphTraversalParams};
-    use async_trait::async_trait;
-    use mr_common::{EdgeType, MemorySource, MemoryType};
-
-    struct MockMemoryStore {
-        memories: std::sync::Arc<tokio::sync::Mutex<HashMap<Uuid, Memory>>>,
+    let now = chrono::Utc::now();
+    Memory {
+        id: Uuid::new_v4(),
+        content: content.to_string(),
+        memory_type: MemoryType::Decision,
+        source: MemorySource::User,
+        project_id: None,
+        tags: tags.into_iter().map(|s| s.to_string()).collect(),
+        importance: 0.5,
+        created_at: now,
+        last_accessed: now,
+        access_count: 0,
+        summary: None,
+        embedding: None,
+        metadata: HashMap::new(),
+        is_deleted: false,
+        deleted_at: None,
+        chunk_group_id: None,
+        chunk_index: None,
+        chunk_total: None,
+        expires_at: None,
+        scope: mr_common::MemoryScope::default(),
     }
+}
 
-    impl MockMemoryStore {
-        fn new() -> Self {
-            MockMemoryStore {
-                memories: std::sync::Arc::new(tokio::sync::Mutex::new(
-                    HashMap::new(),
-                )),
-            }
-        }
+#[tokio::test]
+async fn test_build_tiered_result() {
+    let memory_store = MockMemoryStore::new();
+    let edge_store = MockEdgeStore::new();
+    let tiered_store = MockTieredStore::new();
 
-        async fn insert(&self, memory: Memory) {
-            let mut map = self.memories.lock().await;
-            map.insert(memory.id, memory);
-        }
-    }
+    let m1 = make_memory("This is a full content test", vec!["test"]);
+    let m2 = make_memory("Short content", vec!["short"]);
+    let id1 = m1.id;
+    let id2 = m2.id;
 
-    #[async_trait]
-    impl MemoryStorage for MockMemoryStore {
-        async fn save(&self, memory: &Memory) -> Result<()> {
-            let mut map = self.memories.lock().await;
-            map.insert(memory.id, memory.clone());
-            Ok(())
-        }
-        async fn get(&self, id: &Uuid) -> Result<Option<Memory>> {
-            let map = self.memories.lock().await;
-            Ok(map.get(id).cloned())
-        }
-        async fn update(&self, memory: &Memory) -> Result<()> {
-            self.save(memory).await
-        }
-        async fn restore(&self, id: &Uuid) -> Result<Option<Memory>> {
-            let mut map = self.memories.lock().await;
-            match map.get_mut(id) {
-                Some(m) if m.is_deleted => {
-                    m.is_deleted = false;
-                    m.deleted_at = None;
-                    Ok(Some(m.clone()))
-                }
-                _ => Ok(None),
-            }
-        }
-        async fn delete(&self, id: &Uuid) -> Result<bool> {
-            let mut map = self.memories.lock().await;
-            Ok(map.remove(id).is_some())
-        }
-        async fn list(&self, limit: usize) -> Result<Vec<Memory>> {
-            let map = self.memories.lock().await;
-            Ok(map.values().take(limit).cloned().collect())
-        }
-        async fn list_raw(&self, limit: usize) -> Result<Vec<Memory>> {
-            self.list(limit).await
-        }
-        async fn list_by_type(
-            &self,
-            _memory_type: MemoryType,
-            limit: usize,
-        ) -> Result<Vec<Memory>> {
-            self.list(limit).await
-        }
-        async fn list_by_tag(&self, _tag: &str, limit: usize) -> Result<Vec<Memory>> {
-            self.list(limit).await
-        }
-        async fn list_by_importance(&self, _min: f32, _max: f32) -> Result<Vec<Memory>> {
-            self.list(100).await
-        }
-        async fn list_deleted(&self) -> Result<Vec<Memory>> {
-            Ok(vec![])
-        }
-        async fn count(&self) -> Result<usize> {
-            let map = self.memories.lock().await;
-            Ok(map.len())
-        }
-        async fn count_deleted(&self) -> Result<usize> {
-            Ok(0)
-        }
-        async fn list_by_project(&self, _project_id: &Uuid) -> Result<Vec<Memory>> {
-            self.list(100).await
-        }
-        async fn list_global(&self, limit: usize) -> Result<Vec<Memory>> {
-            self.list(limit).await
-        }
-        async fn list_created_between(
-            &self,
-            _after_unix: i64,
-            _before_unix: i64,
-            limit: usize,
-        ) -> Result<Vec<Memory>> {
-            self.list(limit).await
-        }
-        async fn get_chunks_by_group(&self, _chunk_group_id: &Uuid) -> Result<Vec<Memory>> {
-            Ok(vec![])
-        }
-        async fn list_older_than(&self, _cutoff: &str, limit: usize) -> Result<Vec<Memory>> {
-            self.list(limit).await
-        }
-    }
+    memory_store.insert(m1).await;
+    memory_store.insert(m2).await;
 
-    struct MockEdgeStore {
-        edges: std::sync::Arc<tokio::sync::Mutex<Vec<MemoryEdge>>>,
-    }
+    let engine = TieredEngine::new(
+        memory_store,
+        edge_store,
+        tiered_store,
+        TieredEngineConfig::default(),
+    );
 
-    impl MockEdgeStore {
-        fn new() -> Self {
-            MockEdgeStore {
-                edges: std::sync::Arc::new(tokio::sync::Mutex::new(vec![])),
-            }
-        }
-    }
+    let result = engine
+        .build_tiered_result(&[id1, id2], &[0.9, 0.4])
+        .await
+        .unwrap();
 
-    #[async_trait]
-    impl EdgeStorage for MockEdgeStore {
-        async fn save(&self, edge: &MemoryEdge) -> Result<()> {
-            let mut edges = self.edges.lock().await;
-            edges.push(edge.clone());
-            Ok(())
-        }
-        async fn get(&self, _id: &Uuid) -> Result<Option<MemoryEdge>> {
-            Ok(None)
-        }
-        async fn delete(&self, _id: &Uuid) -> Result<bool> {
-            Ok(false)
-        }
-        async fn list_out_edges(&self, _source_id: &Uuid) -> Result<Vec<MemoryEdge>> {
-            Ok(vec![])
-        }
-        async fn list_in_edges(&self, _target_id: &Uuid) -> Result<Vec<MemoryEdge>> {
-            Ok(vec![])
-        }
-        async fn list_by_type(&self, _edge_type: EdgeType) -> Result<Vec<MemoryEdge>> {
-            Ok(vec![])
-        }
-        async fn count(&self) -> Result<usize> {
-            let edges = self.edges.lock().await;
-            Ok(edges.len())
-        }
-        async fn neighbors(&self, _memory_id: &Uuid) -> Result<Vec<MemoryEdge>> {
-            Ok(vec![])
-        }
-        async fn traverse(
-            &self,
-            _seed_ids: &[Uuid],
-            _params: GraphTraversalParams,
-        ) -> Result<Vec<GraphSearchHit>> {
-            Ok(vec![])
-        }
-    }
+    assert_eq!(result.total_results, 2);
+    assert!(result.total_tokens > 0);
+    assert_eq!(result.budget, 4000);
+    assert_eq!(result.results[0].tier, RepresentationTier::Full);
+    assert_eq!(result.results[1].tier, RepresentationTier::Summary);
+}
 
-    struct MockTieredStore {
-        summaries: std::sync::Arc<tokio::sync::Mutex<HashMap<Uuid, String>>>,
-        keywords: std::sync::Arc<tokio::sync::Mutex<HashMap<Uuid, Vec<String>>>>,
-    }
+#[tokio::test]
+async fn test_truncate_content() {
+    let memory_store = MockMemoryStore::new();
+    let edge_store = MockEdgeStore::new();
+    let tiered_store = MockTieredStore::new();
 
-    impl MockTieredStore {
-        fn new() -> Self {
-            MockTieredStore {
-                summaries: std::sync::Arc::new(tokio::sync::Mutex::new(
-                    HashMap::new(),
-                )),
-                keywords: std::sync::Arc::new(tokio::sync::Mutex::new(
-                    HashMap::new(),
-                )),
-            }
-        }
-    }
+    let engine = TieredEngine::new(
+        memory_store,
+        edge_store,
+        tiered_store,
+        TieredEngineConfig::default(),
+    );
 
-    #[async_trait]
-    impl TieredStorage for MockTieredStore {
-        async fn save_summary(&self, memory_id: &Uuid, summary: &str) -> Result<()> {
-            let mut map = self.summaries.lock().await;
-            map.insert(*memory_id, summary.to_string());
-            Ok(())
-        }
-        async fn get_summary(&self, memory_id: &Uuid) -> Result<Option<String>> {
-            let map = self.summaries.lock().await;
-            Ok(map.get(memory_id).cloned())
-        }
-        async fn delete_summary(&self, memory_id: &Uuid) -> Result<bool> {
-            let mut map = self.summaries.lock().await;
-            Ok(map.remove(memory_id).is_some())
-        }
-        async fn save_keywords(&self, memory_id: &Uuid, keywords: &[String]) -> Result<()> {
-            let mut map = self.keywords.lock().await;
-            map.insert(*memory_id, keywords.to_vec());
-            Ok(())
-        }
-        async fn get_keywords(&self, memory_id: &Uuid) -> Result<Option<Vec<String>>> {
-            let map = self.keywords.lock().await;
-            Ok(map.get(memory_id).cloned())
-        }
-        async fn delete_keywords(&self, memory_id: &Uuid) -> Result<bool> {
-            let mut map = self.keywords.lock().await;
-            Ok(map.remove(memory_id).is_some())
-        }
-    }
+    let short = "This is short.";
+    let truncated = engine.truncate_content(short, 200);
+    assert_eq!(truncated, short);
 
-    fn make_memory(content: &str, tags: Vec<&str>) -> Memory {
-        use std::collections::HashMap;
-        let now = chrono::Utc::now();
-        Memory {
-            id: Uuid::new_v4(),
-            content: content.to_string(),
-            memory_type: MemoryType::Decision,
-            source: MemorySource::User,
-            project_id: None,
-            tags: tags.into_iter().map(|s| s.to_string()).collect(),
-            importance: 0.5,
-            created_at: now,
-            last_accessed: now,
-            access_count: 0,
-            summary: None,
-            embedding: None,
-            metadata: HashMap::new(),
-            is_deleted: false,
-            deleted_at: None,
-            chunk_group_id: None,
-            chunk_index: None,
-            chunk_total: None,
-            expires_at: None,
-            scope: mr_common::MemoryScope::default(),
-        }
-    }
+    let long = "This is a very long content that should be truncated at a sentence boundary. And this is another sentence.";
+    let truncated = engine.truncate_content(long, 10);
+    assert!(truncated.ends_with("..."));
+}
 
-    #[tokio::test]
-    async fn test_build_tiered_result() {
-        let memory_store = MockMemoryStore::new();
-        let edge_store = MockEdgeStore::new();
-        let tiered_store = MockTieredStore::new();
+#[tokio::test]
+async fn test_tiered_result_with_keywords() {
+    let memory_store = MockMemoryStore::new();
+    let edge_store = MockEdgeStore::new();
+    let tiered_store = MockTieredStore::new();
 
-        let m1 = make_memory("This is a full content test", vec!["test"]);
-        let m2 = make_memory("Short content", vec!["short"]);
-        let id1 = m1.id;
-        let id2 = m2.id;
+    let m = make_memory("Content", vec![]);
+    let id = m.id;
+    memory_store.insert(m).await;
 
-        memory_store.insert(m1).await;
-        memory_store.insert(m2).await;
+    tiered_store
+        .save_keywords(&id, &["rust".to_string(), "async".to_string()])
+        .await
+        .unwrap();
 
-        let engine = TieredEngine::new(
-            memory_store,
-            edge_store,
-            tiered_store,
-            TieredEngineConfig::default(),
-        );
+    let engine = TieredEngine::new(
+        memory_store,
+        edge_store,
+        tiered_store,
+        TieredEngineConfig::default(),
+    );
 
-        let result = engine
-            .build_tiered_result(&[id1, id2], &[0.9, 0.4])
-            .await
-            .unwrap();
+    let result = engine.build_tiered_result(&[id], &[0.1]).await.unwrap();
 
-        assert_eq!(result.total_results, 2);
-        assert!(result.total_tokens > 0);
-        assert_eq!(result.budget, 4000);
-        assert_eq!(result.results[0].tier, RepresentationTier::Full);
-        assert_eq!(result.results[1].tier, RepresentationTier::Summary);
-    }
+    assert_eq!(result.results[0].tier, RepresentationTier::DenseProxy);
+    assert!(result.results[0].content.contains("rust"));
+}
 
-    #[tokio::test]
-    async fn test_truncate_content() {
-        let memory_store = MockMemoryStore::new();
-        let edge_store = MockEdgeStore::new();
-        let tiered_store = MockTieredStore::new();
+#[tokio::test]
+async fn test_downgraded_tier_matches_rendered_content() {
+    // 预算降级后，内容必须按最终层级重新渲染（而非保留全文只改标注）
+    let memory_store = MockMemoryStore::new();
+    let edge_store = MockEdgeStore::new();
+    let tiered_store = MockTieredStore::new();
 
-        let engine = TieredEngine::new(
-            memory_store,
-            edge_store,
-            tiered_store,
-            TieredEngineConfig::default(),
-        );
+    let long = "记忆内容。".repeat(200); // 约 1000 汉字
+    let m = make_memory(&long, vec!["t"]);
+    let id = m.id;
+    memory_store.insert(m).await;
 
-        let short = "This is short.";
-        let truncated = engine.truncate_content(short, 200);
-        assert_eq!(truncated, short);
+    let config = TieredEngineConfig {
+        max_tokens: 500,
+        ..TieredEngineConfig::default()
+    };
+    let engine = TieredEngine::new(memory_store, edge_store, tiered_store, config);
 
-        let long = "This is a very long content that should be truncated at a sentence boundary. And this is another sentence.";
-        let truncated = engine.truncate_content(long, 10);
-        assert!(truncated.ends_with("..."));
-    }
-
-    #[tokio::test]
-    async fn test_tiered_result_with_keywords() {
-        let memory_store = MockMemoryStore::new();
-        let edge_store = MockEdgeStore::new();
-        let tiered_store = MockTieredStore::new();
-
-        let m = make_memory("Content", vec![]);
-        let id = m.id;
-        memory_store.insert(m).await;
-
-        tiered_store
-            .save_keywords(&id, &["rust".to_string(), "async".to_string()])
-            .await
-            .unwrap();
-
-        let engine = TieredEngine::new(
-            memory_store,
-            edge_store,
-            tiered_store,
-            TieredEngineConfig::default(),
-        );
-
-        let result = engine.build_tiered_result(&[id], &[0.1]).await.unwrap();
-
-        assert_eq!(result.results[0].tier, RepresentationTier::DenseProxy);
-        assert!(result.results[0].content.contains("rust"));
-    }
-
-    #[tokio::test]
-    async fn test_downgraded_tier_matches_rendered_content() {
-        // 预算降级后，内容必须按最终层级重新渲染（而非保留全文只改标注）
-        let memory_store = MockMemoryStore::new();
-        let edge_store = MockEdgeStore::new();
-        let tiered_store = MockTieredStore::new();
-
-        let long = "记忆内容。".repeat(200); // 约 1000 汉字
-        let m = make_memory(&long, vec!["t"]);
-        let id = m.id;
-        memory_store.insert(m).await;
-
-        let mut config = TieredEngineConfig::default();
-        config.max_tokens = 500;
-        let engine = TieredEngine::new(memory_store, edge_store, tiered_store, config);
-
-        let result = engine.build_tiered_result(&[id], &[0.95]).await.unwrap();
-        let hit = &result.results[0];
-        assert_eq!(hit.tier, RepresentationTier::Summary);
-        assert!(
-            hit.content.chars().count() < long.chars().count(),
-            "Summary 层内容应被截断"
-        );
-        assert!(
-            hit.token_count <= 80,
-            "Summary 层 token 应受 80 上限约束: {}",
-            hit.token_count
-        );
-        assert_eq!(
-            hit.token_count,
-            crate::tiered::BudgetController::estimate_token_count(&hit.content)
-        );
-        assert!(result.total_tokens <= 500);
-    }
+    let result = engine.build_tiered_result(&[id], &[0.95]).await.unwrap();
+    let hit = &result.results[0];
+    assert_eq!(hit.tier, RepresentationTier::Summary);
+    assert!(
+        hit.content.chars().count() < long.chars().count(),
+        "Summary 层内容应被截断"
+    );
+    assert!(
+        hit.token_count <= 80,
+        "Summary 层 token 应受 80 上限约束: {}",
+        hit.token_count
+    );
+    assert_eq!(
+        hit.token_count,
+        crate::tiered::BudgetController::estimate_token_count(&hit.content)
+    );
+    assert!(result.total_tokens <= 500);
+}

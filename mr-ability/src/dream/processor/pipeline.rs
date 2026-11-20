@@ -111,7 +111,10 @@ impl DreamProcessor {
         if !dry_run {
             for memory in &candidates {
                 if let Err(e) = self.mark_processed(memory, run.run_id).await {
-                    warn!("Failed to mark source memory {} processed: {}", memory.id, e);
+                    warn!(
+                        "Failed to mark source memory {} processed: {}",
+                        memory.id, e
+                    );
                 } else {
                     run.processed_source_ids.push(memory.id);
                 }
@@ -180,14 +183,12 @@ impl DreamProcessor {
         if !updated.tags.iter().any(|t| t == TAG_PROCESSED) {
             updated.tags.push(TAG_PROCESSED.to_string());
         }
-        updated.metadata.insert(
-            "dream_processed_at".to_string(),
-            Utc::now().to_rfc3339(),
-        );
-        updated.metadata.insert(
-            "dream_processed_run_id".to_string(),
-            run_id.to_string(),
-        );
+        updated
+            .metadata
+            .insert("dream_processed_at".to_string(), Utc::now().to_rfc3339());
+        updated
+            .metadata
+            .insert("dream_processed_run_id".to_string(), run_id.to_string());
         self.storage
             .update(&updated)
             .await
@@ -444,5 +445,4 @@ impl DreamProcessor {
             summary_texts,
         })
     }
-
 }

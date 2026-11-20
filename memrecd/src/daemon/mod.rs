@@ -283,59 +283,58 @@ impl Daemon {
         }
 
         let router = Router::new(
-                storage.clone(),
-                vector_store.clone(),
-                hybrid_store.clone(),
-                embedder.clone(),
-                dream_processor.clone(),
-                archive_manager,
-                scene_store,
-                self.config.dedup.clone(),
-                dedup_decider,
-            )
-            .with_dream_run_store(dream_run_store.clone())
-            .with_edge_store(edge_store.clone())
-            .with_tiered_store(tiered_store)
-            .with_budget_policy(mr_common::TypeBudgetPolicy {
-                caps: self.config.retrieval.injection_type_caps.clone(),
-            })
-            .with_access_tracker(access_tx)
-            .with_metrics(metrics.clone())
-            .with_test_mode(test_mode.clone())
-            .with_retrieval_graph(crate::server::RetrievalGraph {
-                enabled: self.config.dream.retrieval_graph_enabled,
-                depth: self.config.dream.retrieval_graph_depth,
-                decay: self.config.dream.retrieval_graph_decay,
-                weight: self.config.dream.retrieval_graph_weight,
-                quota: self.config.dream.retrieval_graph_quota,
-                min_ratio: self.config.dream.retrieval_graph_min_ratio,
-            });
+            storage.clone(),
+            vector_store.clone(),
+            hybrid_store.clone(),
+            embedder.clone(),
+            dream_processor.clone(),
+            archive_manager,
+            scene_store,
+            self.config.dedup.clone(),
+            dedup_decider,
+        )
+        .with_dream_run_store(dream_run_store.clone())
+        .with_edge_store(edge_store.clone())
+        .with_tiered_store(tiered_store)
+        .with_budget_policy(mr_common::TypeBudgetPolicy {
+            caps: self.config.retrieval.injection_type_caps.clone(),
+        })
+        .with_access_tracker(access_tx)
+        .with_metrics(metrics.clone())
+        .with_test_mode(test_mode.clone())
+        .with_retrieval_graph(crate::server::RetrievalGraph {
+            enabled: self.config.dream.retrieval_graph_enabled,
+            depth: self.config.dream.retrieval_graph_depth,
+            decay: self.config.dream.retrieval_graph_decay,
+            weight: self.config.dream.retrieval_graph_weight,
+            quota: self.config.dream.retrieval_graph_quota,
+            min_ratio: self.config.dream.retrieval_graph_min_ratio,
+        });
 
         // 周期性冲突审查：仅在显式开启且 LLM 可用时启用；调度由 cron 决定。
-        let review_task = if let (Some(llm), true) =
-            (&llm_client, self.config.dedup.llm_review_enabled)
-        {
-            let reviewer = Arc::new(mr_ability::dedup::LlmConflictReviewer::new(llm.clone()));
-            let state_path = self
-                .config
-                .server
-                .data_dir
-                .parent()
-                .unwrap_or(&self.config.server.data_dir)
-                .join("review.state");
-            Some(tokio::spawn(crate::review::review_loop(
-                storage.clone(),
-                vector_store.clone(),
-                embedder.clone(),
-                hybrid_store,
-                reviewer,
-                metrics.clone(),
-                self.config.dedup.clone(),
-                state_path,
-            )))
-        } else {
-            None
-        };
+        let review_task =
+            if let (Some(llm), true) = (&llm_client, self.config.dedup.llm_review_enabled) {
+                let reviewer = Arc::new(mr_ability::dedup::LlmConflictReviewer::new(llm.clone()));
+                let state_path = self
+                    .config
+                    .server
+                    .data_dir
+                    .parent()
+                    .unwrap_or(&self.config.server.data_dir)
+                    .join("review.state");
+                Some(tokio::spawn(crate::review::review_loop(
+                    storage.clone(),
+                    vector_store.clone(),
+                    embedder.clone(),
+                    hybrid_store,
+                    reviewer,
+                    metrics.clone(),
+                    self.config.dedup.clone(),
+                    state_path,
+                )))
+            } else {
+                None
+            };
 
         let router = Arc::new(router);
         let prod_path = self.config.server.socket_path.clone();

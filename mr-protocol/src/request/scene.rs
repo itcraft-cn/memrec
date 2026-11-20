@@ -1,8 +1,8 @@
 //! 场景相关请求参数。
 
-use serde::{Deserialize, Serialize};
 use super::memory::default_limit;
 use super::*;
+use serde::{Deserialize, Serialize};
 
 /// 创建场景参数。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,4 +54,3 @@ pub struct SceneUpdateHeatParams {
     pub scene_id: Uuid,
     pub heat: f32,
 }
-

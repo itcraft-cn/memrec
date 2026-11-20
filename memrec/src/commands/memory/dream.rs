@@ -38,7 +38,9 @@ pub async fn dream(client: &Client, force: bool, dry_run: bool, human: bool) -> 
                     }
                     println!(
                         "  Metrics: clue_retention={:.2} compression={:.2} avg_cluster={:.1}",
-                        d.metrics.clue_retention, d.metrics.compression_ratio, d.metrics.avg_cluster_size
+                        d.metrics.clue_retention,
+                        d.metrics.compression_ratio,
+                        d.metrics.avg_cluster_size
                     );
                     println!("  Summary: {}", d.summary);
                 }

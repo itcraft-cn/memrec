@@ -94,7 +94,6 @@ async fn test_tantivy_search_with_filter() {
     assert_eq!(results.len(), 2);
 }
 
-
 /// T4 验证：SearchFilter.global_only 只命中全局记忆（project_id None，
 /// 历史 Some(nil) 等价处理），向量与全文两侧一致。
 #[tokio::test]

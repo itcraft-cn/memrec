@@ -23,4 +23,3 @@ pub struct DreamReportParams {
     #[serde(default)]
     pub offset: Option<usize>,
 }
-

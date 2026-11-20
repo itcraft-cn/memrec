@@ -24,26 +24,21 @@ pub struct IdleMonitorConfig {
     pub auto_dream_enabled: bool,
 }
 
-
 fn default_idle_enabled() -> bool {
     true
 }
-
 
 fn default_check_interval_secs() -> u64 {
     300
 }
 
-
 fn default_load_threshold() -> f64 {
     0.5
 }
 
-
 fn default_auto_dream_enabled() -> bool {
     true
 }
-
 
 impl Default for IdleMonitorConfig {
     fn default() -> Self {
@@ -55,7 +50,6 @@ impl Default for IdleMonitorConfig {
         }
     }
 }
-
 
 /// 队列配置。
 ///
@@ -71,16 +65,13 @@ pub struct QueueConfig {
     pub dream_queue_capacity: usize,
 }
 
-
 fn default_normal_queue_capacity() -> usize {
     1000
 }
 
-
 fn default_dream_queue_capacity() -> usize {
     10
 }
-
 
 impl Default for QueueConfig {
     fn default() -> Self {
@@ -90,4 +81,3 @@ impl Default for QueueConfig {
         }
     }
 }
-

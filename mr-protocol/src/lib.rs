@@ -11,8 +11,7 @@ pub use request::{
     default_hybrid_alpha, default_mmr_enabled, default_mmr_lambda, AddParams, DeleteParams,
     DreamParams, DreamReportParams, GetParams, GetProjectInfoParams, JsonRpcRequest, ListOrder,
     ListParams, RequestAction, RequestParams, RestoreParams, SceneAddMemoryParams,
-    SceneCreateParams,
-    SceneDeleteParams, SceneGetParams, SceneListParams, SceneRemoveMemoryParams,
+    SceneCreateParams, SceneDeleteParams, SceneGetParams, SceneListParams, SceneRemoveMemoryParams,
     SceneUpdateHeatParams, SearchMemoryParams, TieredSearchParams,
 };
 pub use response::{

@@ -296,7 +296,7 @@ impl HybridStorage for HybridStore {
         // 若直接把 `top_k` 当作两路检索上限，融合与 MMR 只能在已被截断的池子里挑选，
         // 会导致 top1 随 k 变化、稀有词/标签命中被 BM25 长文淹没等召回缺陷。
         // 经验值：至少 4 倍且不少于 50，上限 500 约束单次检索开销。
-        let fetch_k = req.top_k.saturating_mul(4).max(50).min(500);
+        let fetch_k = req.top_k.saturating_mul(4).clamp(50, 500);
         let mut vector_filter = filter.clone();
         vector_filter.min_score = 0.0;
         let (vec_result, fts_result) = tokio::join!(

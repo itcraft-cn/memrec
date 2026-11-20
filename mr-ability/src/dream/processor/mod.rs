@@ -305,8 +305,8 @@ impl DreamProcessor {
 }
 
 // 子模块：辅助函数 / 主流程 / 度量与阶段（原单文件约 1600 行）。
-use helpers::{count_new_user_memories, gate_outcome};
 pub use helpers::extract_summary_clues;
+use helpers::{count_new_user_memories, gate_outcome};
 
 mod helpers;
 mod metrics;

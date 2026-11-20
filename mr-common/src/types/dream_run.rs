@@ -273,9 +273,7 @@ impl DreamRun {
     pub fn finish(&mut self, status: DreamRunStatus) {
         self.status = status;
         let finished = Utc::now();
-        self.duration_ms = (finished - self.started_at)
-            .num_milliseconds()
-            .max(0) as u64;
+        self.duration_ms = (finished - self.started_at).num_milliseconds().max(0) as u64;
         self.finished_at = Some(finished);
     }
 }

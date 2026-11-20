@@ -5,7 +5,11 @@
 use super::*;
 
 impl Router {
-    pub(super) async fn handle_dream(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+    pub(super) async fn handle_dream(
+        &self,
+        params: Option<RequestParams>,
+        id: u64,
+    ) -> JsonRpcResponse {
         let (force, dry_run) = match params {
             Some(RequestParams::Dream(p)) => (p.force, p.dry_run),
             _ => (false, false),
@@ -43,7 +47,11 @@ impl Router {
     }
 
     /// 处理 DreamReport 请求：返回最近的 DreamRun 审计报告。
-    pub(super) async fn handle_dream_report(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+    pub(super) async fn handle_dream_report(
+        &self,
+        params: Option<RequestParams>,
+        id: u64,
+    ) -> JsonRpcResponse {
         let (last, offset) = match params {
             Some(RequestParams::DreamReport(p)) => (p.last.unwrap_or(10), p.offset.unwrap_or(0)),
             _ => (10, 0),
@@ -80,7 +88,11 @@ impl Router {
     }
 
     /// 处理 GetProjectInfo 请求：返回项目 ID、根目录和记忆数量。
-    pub(super) async fn handle_project_info(&self, params: Option<RequestParams>, id: u64) -> JsonRpcResponse {
+    pub(super) async fn handle_project_info(
+        &self,
+        params: Option<RequestParams>,
+        id: u64,
+    ) -> JsonRpcResponse {
         let params: GetProjectInfoParams = match params {
             Some(RequestParams::GetProjectInfo(p)) => p,
             _ => GetProjectInfoParams::default(),
