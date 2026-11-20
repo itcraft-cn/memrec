@@ -464,7 +464,7 @@ memrecd_log = "~/.memrec/logs/memrecd.log"  # 日志文件完整路径（本地�
 | 插件 | 平台 | 能力 |
 |------|------|------|
 | `pi-extension/memrec.ts` | pi 编码代理 | 6 个 LLM 工具（`memrec_search`/`add`/`get`/`list`/`delete`/`stats`）+ agent 启动自动注入上下文；命令 `/memrec`、`/memrec-auto` |
-| `dsh-plugin/` | DeepSeek Harness | 7 个原生工具（`mr_add`/`mr_search`/`mr_get`/`mr_list`/`mr_delete`/`mr_stats`/`mr_dream`）+ 上下文注入 + 会话自动记录（LLM 提取） |
+| `dsh-plugin/` | DeepSeek Harness | 9 个原生工具（`mr_add`/`mr_search`/`mr_get`/`mr_list`/`mr_timeline`/`mr_delete`/`mr_stats`/`mr_dream`/`mr_dream_report`）+ 上下文注入 + 会话自动记录（LLM 提取）；经 `engines.dsh` 声明兼容运行时 |
 
 - **pi**：将 `pi-extension/memrec.ts` 复制到 `~/.pi/agent/extensions/`，然后 `/reload`
 - **DSH**：详见 [dsh-plugin/README.md](dsh-plugin/README.md)

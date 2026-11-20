@@ -402,10 +402,14 @@ memrec timeline --raw                 # raw timeline (incl. fusion-soft-deleted 
 ### Delete Memory
 
 ```bash
-memrec delete <memory-id>
+memrec delete <memory-id>            # soft delete: marks is_deleted=true, restorable
+memrec delete <memory-id> --force    # skip the recovery window, delete permanently
 ```
 
-Deletion is soft — memories are marked as `is_deleted=true`.
+Deletion is soft by default: memories are marked `is_deleted=true` and can be restored
+with `memrec restore`. `--force` physically removes an already soft-deleted record
+(record and indexes together). Deleting an unknown id returns `-32001` instead of
+reporting a successful delete.
 
 ### Statistics
 
@@ -681,6 +685,25 @@ memrecd_log = "~/.memrec/logs/memrecd.log"  # full log path (local-timezone time
 ```
 
 > The systemd user service does not inherit shell env vars: write the API key to `~/.memrec/memrecd.env` (mode 600, loaded by the service template via `EnvironmentFile`) and run `systemctl --user restart memrecd`; when starting manually in a terminal, just `export` it.
+
+## Runtime Limits
+
+The daemon and clients enforce the following bounds to cap per-request resource use
+(since 0.12.0):
+
+| Item | Limit | Notes |
+|------|-------|-------|
+| Request size | 1 MB | Larger requests return `-32600`; the daemon used to read a fixed 8192 bytes, truncating large bodies |
+| Read / write timeout | 30s / 60s | The connection is closed on timeout, so a slow client cannot hold descriptors forever |
+| Concurrent connections | 128 | New connections beyond the limit are closed immediately |
+| `search --top-k` / MCP `top_k` | 200 | Values above are clamped |
+| `list`/`timeline --limit` | 1000 | Values above are clamped |
+| `--skip` | 1,000,000 | Values above are clamped |
+| `--min-score` | 0.0-1.0 | Non-finite or out-of-range values fall back to the protocol default |
+| `--ttl` | <= 3650 days | Larger values are rejected; numeric overflow no longer panics |
+
+The CLI exits non-zero when the daemon returns a JSON-RPC error, so scripts and agents
+can detect failure.
 
 ## Data Directory
 

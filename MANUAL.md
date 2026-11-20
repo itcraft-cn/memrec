@@ -414,10 +414,14 @@ memrec timeline --raw                 # 原始记录时间线（含历史软删�
 ### 删除记忆
 
 ```bash
-memrec delete <memory-id>
+memrec delete <memory-id>            # 软删除：标记 is_deleted=true，可 restore
+memrec delete <memory-id> --force    # 跳过恢复期，直接永久删除
 ```
 
-删除为软删除，记忆标记为 `is_deleted=true`。
+默认删除为软删除，记忆标记为 `is_deleted=true` 并可 `memrec restore` 恢复；`--force`
+对已软删除的记录执行物理删除（记录与索引一并移除）。
+
+删除不存在的 id 会返回 `-32001`，不再回「已删除」。
 
 ### 统计信息
 
@@ -692,6 +696,23 @@ memrecd_log = "~/.memrec/logs/memrecd.log"  # 日志完整路径（本地时区�
 ```
 
 > systemd 用户服务不继承 shell 环境变量：将 API 密钥写入 `~/.memrec/memrecd.env`（权限 600，服务模板已通过 `EnvironmentFile` 加载）后 `systemctl --user restart memrecd`；终端手动启动时直接 `export` 即可。
+
+## 运行时限制
+
+以下上限由守护进程与客户端强制，用于约束单请求资源占用（0.12.0 起）：
+
+| 项目 | 上限 | 说明 |
+|------|------|------|
+| 单个请求字节数 | 1 MB | 超过返回 `-32600`；此前单次读取固定 8192 字节，大正文会被截断 |
+| 连接读取/写回超时 | 30s / 60s | 超时关闭连接，慢客户端不再无限占用 fd |
+| 并发连接数 | 128 | 超限直接关闭新连接 |
+| `search --top-k` / MCP `top_k` | 200 | 超出按 200 处理 |
+| `list`/`timeline --limit` | 1000 | 超出按 1000 处理 |
+| `--skip` | 1,000,000 | 超出按上限处理 |
+| `--min-score` | 0.0–1.0 | 非有限或越界回落到协议默认值 |
+| `--ttl` | ≤ 3650 天 | 超出报错；数值溢出不再 panic |
+
+CLI 在守护进程返回 JSON-RPC 错误时以非零退出码结束，便于脚本与 Agent 判定失败。
 
 ## 数据目录
 

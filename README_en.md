@@ -341,7 +341,7 @@ memrecd_log = "~/.memrec/logs/memrecd.log"  # full log path (local-timezone time
 | Plugin | Platform | Capabilities |
 |--------|----------|--------------|
 | `pi-extension/memrec.ts` | pi coding agent | 6 LLM tools (`memrec_search`/`add`/`get`/`list`/`delete`/`stats`) + auto context injection on agent start; commands `/memrec`, `/memrec-auto` |
-| `dsh-plugin/` | DeepSeek Harness | 7 native tools (`mr_add`/`mr_search`/`mr_get`/`mr_list`/`mr_delete`/`mr_stats`/`mr_dream`) + context injection + auto session recording (LLM-extracted) |
+| `dsh-plugin/` | DeepSeek Harness | 9 native tools (`mr_add`/`mr_search`/`mr_get`/`mr_list`/`mr_timeline`/`mr_delete`/`mr_stats`/`mr_dream`/`mr_dream_report`) + context injection + auto session recording (LLM-extracted); declares its compatible runtime through `engines.dsh` |
 
 - **pi**: copy `pi-extension/memrec.ts` to `~/.pi/agent/extensions/`, then `/reload`
 - **DSH**: see [dsh-plugin/README.md](dsh-plugin/README.md)

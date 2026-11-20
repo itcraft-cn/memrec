@@ -37,12 +37,12 @@ memrec/
     - 在开发前，会对需求进行详尽分析，提供多套方案，以上、中、下三策的形式呈现，以备后续决策参考
     - 在设计时，会充分考虑非功能性需求：安全性、可扩展性、可用性、可观测性、性能等
     - 在设计细节时，充分考虑各种设计模式及各语言特性
-2. 你是资深开发者，对Rust非常了解
-    - 对Rust的官方库及周边库均了解
-    - 对Rust的RAII机制理解深刻
-    - 对Rust的内存布局非常清楚
-    - 开发上偏好过程式+trait多态
-    - 对CPU指令也熟悉
+2. 你是资深开发者，对 Rust 非常了解
+    - 对 Rust 官方库及主流周边库均了解
+    - 对 RAII 机制与所有权模型理解深刻
+    - 对内存布局非常清楚
+    - 开发上偏好过程式加 trait 多态
+    - 对 CPU 指令与性能特征也熟悉
 
 ### 工作准则
 
@@ -55,6 +55,17 @@ memrec/
 ### 环境信息
 
 通过 `rustc --version`、`cargo --version` 确认工具链，必要时检查 `rust-toolchain.toml`。
+
+另，提供 Relax 实验性 JIT 运行/检查工具（`~/bin/relax`）：`relax run`、`relax test`、`relax check`。
+
+relax 可显著提升开发内环效率：跳过完整 cargo 构建、按需 JIT 编译，热缓存启动通常在亚秒级，适合快速试跑与测试热重跑。
+
+使用注意：
+
+- 仍为 experimental；CI、发布与产物构建以 cargo 为准，relax 结果不作为验收或性能基准。
+- 依赖含 C/C++ 构建脚本时需 `--allow-c`。
+- 缓存冷时首次运行包含依赖构建，耗时会明显高于热缓存。
+- 加载失败时先确认 relax 版本，再回退 cargo；不要为适配 relax 修改业务代码或第三方依赖。
 
 ### 环境变量
 
@@ -119,12 +130,17 @@ cargo install --path memrecd --locked
 cargo clippy --release
 cargo fmt --check
 
+# 严格验证（提交前全量执行：覆盖测试目标与所有目标 crate）
+cargo test --all-targets
+cargo clippy --all-targets -- -D warnings
+cargo fmt --all -- --check
+
 # 打包 deb/rpm（产物写入 release/）
 scripts/package/build-packages.sh
 scripts/package/build-packages.sh deb    # 仅 deb
 ```
 
-打包细节见 `packaging/README.md`，发布流程见 `docs/release-process.md`。
+打包细节见 `packaging/README.md`，发布流程见 `docs/release-process.md`。性能分析见 skill `rust-flamegraph`。
 
 ### 多步骤测试与部署
 

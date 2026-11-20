@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > [中文](CHANGELOG.md) | English
 
-## [Unreleased]
+## [0.12.0] - 2026-11-20
 
 ### Added
 
@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test-mode write isolation**: when the `~/.memrec/.debug` flag file exists, test mode is active (auto-expires after `test_mode_max_age_secs`). The daemon listens on both the production and test sockets; the production socket rejects mutating requests with `-32010` while reads keep working, and Dream is skipped during tests. Companion script: `scripts/test-mode.sh`.
 - **Multi-step verification script**: `scripts/multistep-test.sh` codifies "build → unit tests → stop service → backup → deploy to both directories → start → retrieval gate", with `status`/`list`/`restore`/`restore-bin`/`prune` subcommands.
 
+- **Native DSH plugin (`dsh-plugin/`)**: a Cordis plugin for DeepSeek Harness exposing nine `mr_*` tools (`mr_add`/`mr_search`/`mr_get`/`mr_list`/`mr_timeline`/`mr_delete`/`mr_stats`/`mr_dream`/`mr_dream_report`) straight over the daemon's Unix socket. It injects project memories and standing rule sets at `agent/pre-step` and extracts decisions/knowledge/preferences through the LLM at `turn/end`. Tool calls carry the session working directory, so project isolation matches the CLI and MCP surfaces, and `engines.dsh` declares the compatible runtime (currently `^0.2.2-rc.5`).
+
 ### Changed
 
 - **Retrieval scoring now uses IDF evidence strength**: the full-text route no longer uses raw query-term coverage. Its score is `coverage × (1 - exp(-sum(matched_idf) / (4·√query_terms)))`, so single-token queries never saturate at 1.0, rare terms keep their weight and common terms are down-weighted. Dual-route fusion remains noisy-OR.
@@ -28,11 +30,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Default `min_score` raised from 0.5 to 0.60** across protocol, CLI, MCP, the DSH plugin and the pi extension. Justification: measured BGE-M3 cosine noise on unrelated Chinese text reaches about 0.57.
 - **Retrieval gate expanded**: negatives grow from 3 to 8 queries, each requiring a top1 below the threshold with non-empty content; a top-k prefix consistency check was added (k=3 results must be contained in k=10 results, with an identical top1).
 
+- **Tighter daemon request handling**: each connection is now read to completion (1MB cap) with a 30s read timeout, a 60s write timeout and a 128-connection semaphore. Previously a single 8192-byte `read` was treated as the whole request, so anything above roughly 7.8KB was truncated -- the CLI hid this by chunking at 7500 bytes while MCP and the DSH plugin could not write large bodies at all, and a slow client could exhaust file descriptors because there was no timeout or concurrency limit.
+- **Upper bounds on client-controlled numbers**: `top_k` is clamped to 1..=200, `list`/`timeline` `limit` to 1000 and `skip` to 1000000, and a non-finite or out-of-range `min_score` falls back to the protocol default. `usize::MAX` values used to wrap the graph over-fetch multiplication, and an unbounded `limit` meant exporting the whole store.
+- **CLI failure semantics**: a JSON-RPC error from the daemon now exits non-zero (including `search --human`), a partially written chunked add reports the parts it did write and fails, and the client gives connect/read a 30s timeout. Errors used to go to stdout with a zero exit code, so scripts and agents read failures as success.
+- **`memrec delete --force` really hard-deletes**: the protocol declared `force` all along, but the server never read it and every delete was a soft delete.
+- **Get no longer writes**: the read path called `storage.update` (one WriteBatch plus four index rewrites), and because test mode classifies Get as a read it bypassed the "no writes during test mode" guard. Access accounting now uses the asynchronous channel.
+- **MCP tools report errors as errors**: `call_daemon` maps a JSON-RPC error envelope to `isError`, `mr_add` returns `Skipped` for a dedup hit instead of `Added memory: unknown`, and empty content or an unknown `memory_type` is rejected.
+- **Graph diffusion hits obey the search scope**: neighbours are filtered by project, memory type and global scope exactly like the seeds; a `project_only` search could previously reach another project's memory through one edge.
+- **Dedup scoped to the writing project**: writing the same text into a second project is no longer judged a duplicate and skipped (global memories keep cross-project dedup).
+- **MMR handles Chinese**: tokenisation falls back to character bigrams for CJK; treating a whole sentence as one token made every Chinese pair's Jaccard zero, so the diversity penalty did nothing on the main corpus.
+- **Dream lock rework**: acquisition uses `create_new` (O_EXCL) instead of exists-then-write and returns an RAII guard. Two concurrent acquisitions could previously both win, and any early return or panic left the lock file behind, stalling Dream until a restart.
+- **Atomic `.mr_pid` creation**: concurrent first writes agree on a single project id, and a corrupt marker is reported with guidance instead of silently degrading the write to a global memory.
+- **No writes when Dream parsing fails**: a cluster whose LLM output cannot be parsed is skipped for that round (no template summary, no copied facts, no processed mark), and empty summaries are not written either.
+- **Incremental vector flush**: only ids changed since the last flush are written, serialisation happens under the cache lock and the database write outside it; any single write used to rewrite the entire cache while holding the lock.
+- **Index and load degradation fixes**: stored vectors with a mismatched dimension are skipped and logged at load, cosine returns 0.0 on a length mismatch instead of letting `zip` truncate, a failed full-text rebuild is an error rather than a rewritten version marker, non-UUID documents are skipped instead of collapsing to `nil`, and RocksDB iteration checks `status()` so an I/O error is no longer read as a normal end.
+- **Time-decay guards**: a future timestamp no longer amplifies the score (decay must not gain) and a non-finite or zero half-life skips decay.
+- **Warnings for rule and edge degradation**: a regex that fails to compile matches nothing instead of falling back to `.*`, and a failed semantic-edge LLM call is logged.
+
 ### Fixed
 
 - **Empty-content memories polluting retrieval**: the Dream summary path could emit memories with empty content. Empty strings embed near the corpus centroid, scoring about 0.52 for any query and hijacking top1 (12 of 16 unrelated queries in the measurement). The write path, the indexing decorator and startup self-healing now all keep empty content out of the vector and full-text indexes, and legacy empty vectors are removed.
 - **Single-token queries scoring 1.0**: queries such as `route` and `infrastructure` previously scored 1.0 because coverage was 1.0, returning unrelated memories.
 - **Top1 drifting with `top_k`**: the same query could return different top1 results at k=3/5/10/20, and small-k results were not always contained in large-k ones.
+
+- **Contradictory `ModelConfig::default()`**: the default model type was BGE-M3 (1024 dimensions) paired with the MiniLM file list, so a fresh deployment without `config.toml` looked for MiniLM files under the BGE-M3 directory and then failed every vector write on the dimension check. The default now delegates to `ModelConfig::new(ModelType::default())` and `is_ready()` also requires dimension consistency.
+- **`--ttl` overflow panic**: `n * unit_secs` was unchecked and `chrono::Duration::seconds` panics out of bounds; the same function backs the MCP stdio server, so one argument could kill a long-lived process. Now `checked_mul` plus a ten-year cap, `try_seconds` and `checked_add_signed`.
+- **`batch_size = 0` panic**: `slice::chunks(0)` panics, and the panic happened while holding the Dream lock; configuration is normalised to at least 1.
+- **Dream params of the wrong type ran an integration**: a mismatched `params` fell through to defaults and still executed Dream (writes, source soft-deletes, edges, LLM calls); it now returns `-32602`.
+- **Fabricated metadata on lookup failure**: a failed metadata lookup used to fill in `Conversation` and 1970-01-01 for every hit; it now returns `-32000` (the graph branch logs and skips expansion for that round).
+- **Rule statistics reset on save**: saving a rule unconditionally overwrote its statistics, so any edit cleared the hit counters; statistics are now only initialised when absent.
 
 ## [0.11.0] - 2026-11-08
 
