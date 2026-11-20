@@ -137,11 +137,22 @@ impl Router {
                 let mut results: Vec<SearchHit> = vec![];
                 // 批量回表，消除逐条 storage.get 的 N+1（M-1）。取数失败时退化为缺省元数据。
                 let hit_ids: Vec<Uuid> = result.hits.iter().map(|h| h.memory_id).collect();
-                let fetched = self
-                    .storage
-                    .get_many(&hit_ids)
-                    .await
-                    .unwrap_or_else(|_| vec![None; hit_ids.len()]);
+                // 元数据回表失败必须报错：旧实现用 unwrap_or_else 造出全 None，
+                // 结果里每条命中都被伪造成 Conversation 类型与 1970-01-01 时间，
+                // 客户端据此做时间线/类型/TTL 判断全部失真，且失败原因被丢弃。
+                let fetched = match self.storage.get_many(&hit_ids).await {
+                    Ok(fetched) => fetched,
+                    Err(e) => {
+                        return JsonRpcResponse::error(
+                            JsonRpcError {
+                                code: -32000,
+                                message: format!("检索元数据读取失败：{e}"),
+                                data: None,
+                            },
+                            id,
+                        )
+                    }
+                };
                 for (h, memory) in result.hits.iter().zip(fetched) {
                     let memory_type = memory
                         .as_ref()
@@ -206,11 +217,15 @@ impl Router {
                             // 批量预取图命中记忆，消除循环内逐条回表（M-2）。
                             let graph_ids: Vec<Uuid> =
                                 graph_hits.iter().map(|gh| gh.memory_id).collect();
-                            let graph_fetched = self
-                                .storage
-                                .get_many(&graph_ids)
-                                .await
-                                .unwrap_or_else(|_| vec![None; graph_ids.len()]);
+                            // 与种子路径一致：回表失败不再静默伪造
+                            let graph_fetched =
+                                self.storage.get_many(&graph_ids).await.unwrap_or_else(|e| {
+                                    tracing::warn!(
+                                        target: "recall",
+                                        "图扩散元数据回表失败，跳过本轮扩散：{e}"
+                                    );
+                                    vec![None; graph_ids.len()]
+                                });
                             let mut graph_mem: HashMap<Uuid, Memory> = graph_ids
                                 .iter()
                                 .copied()

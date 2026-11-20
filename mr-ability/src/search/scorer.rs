@@ -83,8 +83,15 @@ fn apply_time_decay(
         return score;
     }
 
-    let age_hours = (Utc::now() - created_at).num_hours() as f64;
-    let lambda = std::f64::consts::LN_2 / config.decay_half_life_hours;
+    // 未来时间戳（时钟回拨、导入数据）会让 age_hours 为负，exp 把分数放大到
+    // 超过入参，破坏「衰减不增益」的契约；半衰期为 0 会得到 inf/NaN 并静默
+    // 传播到排序（下游用 partial_cmp().unwrap_or(Equal) 吞掉 NaN）。
+    let half_life = config.decay_half_life_hours;
+    if !half_life.is_finite() || half_life <= 0.0 {
+        return score;
+    }
+    let age_hours = ((Utc::now() - created_at).num_hours().max(0)) as f64;
+    let lambda = std::f64::consts::LN_2 / half_life;
     score * (-lambda * age_hours).exp()
 }
 

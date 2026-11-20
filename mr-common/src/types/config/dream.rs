@@ -361,6 +361,20 @@ fn default_dry_run_with_llm() -> bool {
 }
 
 impl DreamConfig {
+    /// 归一化非法配置。
+    ///
+    /// `batch_size`/`batch_interval_ms` 直接来自 config.toml，`slice::chunks(0)`
+    /// 会 panic，且 panic 发生在持有 Dream 锁的路径上（叠加锁不释放会永久停摆）。
+    /// 这里把 0 归一为 1，其它字段保持原值。
+    pub fn normalize(&mut self) {
+        if self.batch_size == 0 {
+            self.batch_size = 1;
+        }
+        if self.retrieval_graph_decay == 0.0 {
+            self.retrieval_graph_decay = 0.6;
+        }
+    }
+
     /// 计算单簇 facts 上限。
     ///
     /// 预算 = `dream_out_size` - 摘要数（启用 summary 时每簇 1 条），

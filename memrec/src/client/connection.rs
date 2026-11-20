@@ -47,9 +47,20 @@ impl Client {
     /// 流程：连接 → 发送请求 → 关闭写端 → 读取响应 → 解析。
     /// 响应超过 1MB 时返回错误。
     pub async fn send(&self, request: &JsonRpcRequest) -> Result<JsonRpcResponse> {
-        let mut stream = UnixStream::connect(&self.socket_path)
-            .await
-            .context("Failed to connect to memrecd")?;
+        // 连接与整体读响应都必须有超时：守护进程卡死时客户端不能无界挂起
+        // （调用方常是 Agent，挂起会连带阻塞整轮对话）。
+        let mut stream = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            UnixStream::connect(&self.socket_path),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("连接 memrecd 超时（30s）：{}", self.socket_path.display()))?
+        .with_context(|| {
+            format!(
+                "Failed to connect to memrecd: {}",
+                self.socket_path.display()
+            )
+        })?;
 
         let request_json = serde_json::to_string(request).context("Failed to serialize request")?;
 

@@ -22,7 +22,7 @@ mod client;
 mod commands;
 mod mcp;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use uuid::Uuid;
 
@@ -425,7 +425,15 @@ async fn main() -> Result<()> {
                 project_id,
                 tag,
             } => {
-                let project_uuid = project_id.and_then(|s| Uuid::parse_str(&s).ok());
+                // 非法 UUID 必须报错：静默变成「不筛选」会让用户以为收窄了范围，
+                // 实际拿到全量（含其他项目）的结果。
+                let project_uuid = match project_id {
+                    Some(s) => Some(
+                        Uuid::parse_str(&s)
+                            .with_context(|| format!("--project-id 不是合法 UUID: {s}"))?,
+                    ),
+                    None => None,
+                };
                 scene::create(&client, theme, project_uuid, tag, human).await?;
             }
             SceneCommands::Get { id } => {

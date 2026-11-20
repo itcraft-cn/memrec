@@ -146,6 +146,14 @@ pub async fn add(client: &Client, opts: AddOptions, human: bool) -> Result<()> {
         }
 
         if human {
+            if ids.len() != chunks.len() {
+                anyhow::bail!(
+                    "分块写入不完整：成功 {}/{} 块（已写入 {:?}），请检查服务端错误",
+                    ids.len(),
+                    chunks.len(),
+                    ids
+                );
+            }
             println!("All {} parts added: {:?}", ids.len(), ids);
         } else if let Some(resp) = last_response {
             println!("{}", serde_json::to_string_pretty(&resp)?);
@@ -204,7 +212,9 @@ pub async fn add(client: &Client, opts: AddOptions, human: bool) -> Result<()> {
                     _ => println!("Unexpected response type"),
                 }
             } else if let Some(err) = response.error {
-                println!("Error: {}", err.message);
+                // 错误必须走 stderr 并以非零退出码结束：脚本/Agent 常以退出码
+                // 判定成败，仅打印到 stdout 会让失败被当成成功。
+                anyhow::bail!("{}", err.message);
             }
         } else {
             println!("{}", serde_json::to_string_pretty(&response)?);
@@ -243,7 +253,7 @@ pub async fn get(client: &Client, id: String, merge: bool, human: bool) -> Resul
                 _ => println!("Unexpected response type"),
             }
         } else if let Some(err) = response.error {
-            println!("Error: {}", err.message);
+            anyhow::bail!("{}", err.message);
         }
     } else {
         println!("{}", serde_json::to_string_pretty(&response)?);

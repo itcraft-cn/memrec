@@ -103,6 +103,9 @@ pub async fn search_execute(
     let response = client.send(&request).await?;
 
     if human {
+        if let Some(err) = &response.error {
+            anyhow::bail!("{}", err.message);
+        }
         print_human_output(&response);
     } else {
         println!("{}", serde_json::to_string_pretty(&response)?);

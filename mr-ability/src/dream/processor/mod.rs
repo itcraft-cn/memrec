@@ -147,10 +147,12 @@ pub struct DreamProcessor {
 
 impl DreamProcessor {
     pub fn new(
-        config: DreamConfig,
+        mut config: DreamConfig,
         data_dir: &std::path::Path,
         storage: Arc<dyn MemoryStorage>,
     ) -> Self {
+        // 归一化非法配置：batch_size=0 会让 chunks(0) 在持锁路径上 panic
+        config.normalize();
         Self {
             config,
             lock: DreamLock::new(data_dir),
