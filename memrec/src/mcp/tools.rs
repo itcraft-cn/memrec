@@ -213,6 +213,9 @@ impl McpServer {
     /// 导致所有 MCP 写入汇入同一项目桶，项目内检索无法命中。
     async fn tool_add(&self, args: &Value) -> Result<String, String> {
         let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+        if content.trim().is_empty() {
+            return Err("content is required and must not be empty".to_string());
+        }
         let memory_type = args
             .get("memory_type")
             .and_then(|v| v.as_str())
@@ -242,7 +245,7 @@ impl McpServer {
                 RequestAction::Add,
                 Some(RequestParams::Add(AddParams {
                     content: content.to_string(),
-                    memory_type: parse_memory_type(memory_type),
+                    memory_type: parse_memory_type(memory_type)?,
                     tags,
                     project_id: None,
                     is_global,
@@ -256,17 +259,40 @@ impl McpServer {
             ))
             .await?;
 
-        let memory_id = resp
-            .get("result")
+        let result = resp.get("result");
+        let memory_id = result
             .and_then(|r| r.get("memory"))
             .and_then(|m| m.get("id"))
+            .and_then(|v| v.as_str());
+        // action 由服务端给出：added / skipped（去重命中）/ updated。
+        // 去重跳过时服务端不返回 memory.id，此时必须如实说是 skipped，
+        // 不能拼成"Added memory: unknown"让模型误以为已写入。
+        let action = result
+            .and_then(|r| r.get("action"))
             .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
+            .unwrap_or("added");
 
-        Ok(format!(
-            "Added memory: {} (type: {}, global: {})",
-            memory_id, memory_type, is_global
-        ))
+        match (action, memory_id) {
+            ("skipped", _) => Ok(format!(
+                "Skipped: an equivalent memory already exists (type: {}, global: {})",
+                memory_type, is_global
+            )),
+            (_, Some(id)) => Ok(format!(
+                "{}: {} (type: {}, global: {})",
+                if action == "updated" {
+                    "Updated memory"
+                } else {
+                    "Added memory"
+                },
+                id,
+                memory_type,
+                is_global
+            )),
+            (_, None) => Err(format!(
+                "memrecd reported action `{}` without a memory id",
+                action
+            )),
+        }
     }
 
     /// `mr_search` 工具实现：语义搜索。
@@ -312,7 +338,10 @@ impl McpServer {
                     project_only,
                     global_only,
                     cross_project,
-                    memory_type: memory_type.filter(|s| !s.is_empty()).map(parse_memory_type),
+                    memory_type: match memory_type.filter(|s| !s.is_empty()) {
+                        Some(t) => Some(parse_memory_type(t)?),
+                        None => None,
+                    },
                     top_k: top_k as usize,
                     min_score: min_score as f32,
                     working_dir,
@@ -397,7 +426,8 @@ impl McpServer {
             .get("memory_type")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
-            .map(parse_memory_type);
+            .map(parse_memory_type)
+            .transpose()?;
         let include_deleted = args
             .get("include_deleted")
             .and_then(|v| v.as_bool())
@@ -509,16 +539,6 @@ impl McpServer {
             }
         }
 
-        if let Some(err) = resp.get("error") {
-            let msg = err
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown error");
-            // daemon 侧错误串已带类别前缀（Dream skipped / Gate check failed / LLM error ...），
-            // 直接透传，避免与"Dream failed"叠加成双重前缀。
-            return Err(msg.to_string());
-        }
-
         Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())
     }
 
@@ -540,14 +560,6 @@ impl McpServer {
             if let Some(runs) = result.get("runs") {
                 return Ok(serde_json::to_string_pretty(runs).unwrap_or_default());
             }
-        }
-
-        if let Some(err) = resp.get("error") {
-            let msg = err
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown error");
-            return Err(format!("Dream report failed: {}", msg));
         }
 
         Ok(serde_json::to_string_pretty(&resp).unwrap_or_default())

@@ -49,7 +49,28 @@ pub fn parse_ttl(spec: &str) -> Result<chrono::DateTime<chrono::Utc>> {
             ))
         }
     };
-    Ok(chrono::Utc::now() + chrono::Duration::seconds(n * unit_secs))
+    // 数值必须经 checked_mul 与显式上界：`n * unit_secs` 在 release 下溢出会
+    // 回绕成负数（过期时间落在过去，写入即过期），而 chrono 的 `Duration::seconds`
+    // 对越界值直接 panic —— 该函数同时服务于 CLI 与 MCP stdio 服务器，
+    // 一次非法参数就会打崩长驻进程。
+    const MAX_TTL_DAYS: i64 = 3650; // 10 年
+    let secs = n
+        .checked_mul(unit_secs)
+        .ok_or_else(|| anyhow::anyhow!("ttl 数值过大：{}", spec))?;
+    let max_secs = MAX_TTL_DAYS * 86_400;
+    if secs > max_secs {
+        return Err(anyhow::anyhow!(
+            "ttl 不能超过 {} 天（{} 秒）：{}",
+            MAX_TTL_DAYS,
+            max_secs,
+            spec
+        ));
+    }
+    let duration = chrono::Duration::try_seconds(secs)
+        .ok_or_else(|| anyhow::anyhow!("ttl 超出 chrono 可表示范围：{}", spec))?;
+    chrono::Utc::now()
+        .checked_add_signed(duration)
+        .ok_or_else(|| anyhow::anyhow!("ttl 导致过期时间溢出：{}", spec))
 }
 
 /// 解析 `--expires-at` 的 RFC3339 时间。

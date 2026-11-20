@@ -237,3 +237,75 @@ fn test_add_working_dir_project_uses_caller_cwd() {
     assert!(wd.is_some(), "非全局写入必须携带工作目录");
     assert_eq!(wd, detect_working_dir().ok());
 }
+
+/// 守护进程返回 JSON-RPC 错误时，工具调用必须以 `isError: true` 上报。
+///
+/// 回归背景：`call_daemon` 曾把错误对象当成功内容返回，只有 dream 系工具
+/// 自行检查 `error` 字段，其余工具（尤其 `mr_add`）在写入被拒时回报成功，
+/// 模型据此认为记忆已落库，造成静默数据丢失。
+#[tokio::test]
+async fn test_tool_call_reports_daemon_error_as_is_error() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let dir = tempfile::tempdir().unwrap();
+    let socket_path = dir.path().join("fake.sock");
+    let listener = tokio::net::UnixListener::bind(&socket_path).unwrap();
+
+    // 假守护进程：读一次请求后回一个 JSON-RPC 错误
+    let server_task = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut buf = [0u8; 4096];
+        let _ = stream.read(&mut buf).await;
+        let body = r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32010,"message":"test mode: write denied"}}"#;
+        let _ = stream.write_all(body.as_bytes()).await;
+        let _ = stream.shutdown().await;
+    });
+
+    std::env::set_var("MEMREC_SOCKET_PATH", &socket_path);
+    let server = make_server();
+    let result = server
+        .handle_tools_call(
+            Some(1.into()),
+            &json!({
+                "name": "mr_add",
+                "arguments": {"content": "hello", "memory_type": "knowledge"}
+            }),
+        )
+        .await;
+    std::env::remove_var("MEMREC_SOCKET_PATH");
+    server_task.await.unwrap();
+
+    assert_eq!(
+        result["result"]["isError"], true,
+        "daemon 返回错误时必须 isError=true，实际 {result}"
+    );
+    let text = result["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        text.contains("test mode: write denied"),
+        "错误信息应透传给模型，实际 {text}"
+    );
+}
+
+/// 空正文与非法记忆类型必须报错，而不是静默写入。
+#[tokio::test]
+async fn test_tool_add_rejects_empty_content_and_bad_type() {
+    let server = make_server();
+
+    let empty = server
+        .handle_tools_call(
+            Some(1.into()),
+            &json!({"name": "mr_add", "arguments": {"content": "   ", "memory_type": "knowledge"}}),
+        )
+        .await;
+    assert_eq!(empty["result"]["isError"], true, "空正文应被拒绝");
+
+    let bad_type = server
+        .handle_tools_call(
+            Some(2.into()),
+            &json!({"name": "mr_add", "arguments": {"content": "x", "memory_type": "knoledge"}}),
+        )
+        .await;
+    assert_eq!(bad_type["result"]["isError"], true, "非法类型应被拒绝");
+}

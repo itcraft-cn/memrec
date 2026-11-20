@@ -59,6 +59,22 @@ fn test_parse_ttl_rejects_invalid() {
     assert!(super::parse_ttl("abc").is_err());
 }
 
+/// 超大 TTL 必须返回错误而不是 panic。
+///
+/// 回归背景：旧实现用 `n * unit_secs` 直接构造 `chrono::Duration::seconds`，
+/// 越界时 chrono 直接 panic；该函数同时被 MCP stdio 服务器调用，
+/// 一次非法参数即可打崩长驻进程（模型侧表现为连接中断）。
+#[test]
+fn test_parse_ttl_rejects_overflow_without_panic() {
+    // i64 乘法溢出
+    assert!(super::parse_ttl("9223372036854775807w").is_err());
+    // 不溢出但超出 10 年上限
+    assert!(super::parse_ttl("999999999d").is_err());
+    // 恰好在上界内仍应成功
+    assert!(super::parse_ttl("3650d").is_ok());
+    assert!(super::parse_ttl("3651d").is_err(), "超过 10 年上限应报错");
+}
+
 #[test]
 fn test_parse_expires_at() {
     let at = super::parse_expires_at("2030-01-02T03:04:05Z").unwrap();

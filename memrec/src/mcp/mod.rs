@@ -52,13 +52,22 @@ fn parse_scope(scope: Option<&str>) -> Scope {
 
 /// 解析 MCP 工具参数中的 memory_type 字符串（T7），
 /// 未识别值回退 Conversation（与旧字符串透传的服务端行为一致）。
-fn parse_memory_type(s: &str) -> mr_common::MemoryType {
+/// 解析记忆类型。
+///
+/// 未知取值返回 Err 而不是静默降级为 Conversation：写入是模型的主路径，
+/// 类型拼错会让记忆的类型语义与实际不符（且影响后续类型预算注入），
+/// 静默纠正比报错更难排查。
+fn parse_memory_type(s: &str) -> Result<mr_common::MemoryType, String> {
     match s.to_lowercase().as_str() {
-        "decision" => mr_common::MemoryType::Decision,
-        "knowledge" => mr_common::MemoryType::Knowledge,
-        "context" => mr_common::MemoryType::Context,
-        "preference" => mr_common::MemoryType::Preference,
-        _ => mr_common::MemoryType::Conversation,
+        "decision" => Ok(mr_common::MemoryType::Decision),
+        "knowledge" => Ok(mr_common::MemoryType::Knowledge),
+        "context" => Ok(mr_common::MemoryType::Context),
+        "preference" => Ok(mr_common::MemoryType::Preference),
+        "conversation" => Ok(mr_common::MemoryType::Conversation),
+        other => Err(format!(
+            "invalid memory_type `{}` (expected decision/knowledge/context/preference/conversation)",
+            other
+        )),
     }
 }
 
@@ -295,6 +304,19 @@ impl McpServer {
 
         let response: Value =
             serde_json::from_slice(&buffer).map_err(|e| format!("Parse error: {}", e))?;
+
+        // 统一在此处把守护进程的 JSON-RPC 错误翻译成 Err：
+        // 之前只有 dream 系工具检查 error，其余工具（get/list/delete/search/add）
+        // 把错误对象当成功内容返回（isError=false），模型无法区分「失败」与「数据」，
+        // 对 mr_add 而言就是写入被拒却回报成功。
+        if let Some(err) = response.get("error") {
+            let code = err.get("code").and_then(|c| c.as_i64()).unwrap_or(-32603);
+            let message = err
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("memrecd returned an unspecified error");
+            return Err(format!("memrecd error {}: {}", code, message));
+        }
 
         Ok(response)
     }

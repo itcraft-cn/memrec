@@ -294,14 +294,15 @@ pub struct ModelConfig {
 }
 
 impl Default for ModelConfig {
+    /// 默认模型配置。
+    ///
+    /// 必须整体委派给 [`ModelConfig::new`]：此前这里独立取默认值，
+    /// `model_type` 用 `ModelType::default()`（BGE-M3，1024 维）却把
+    /// `files` 硬编码成 `ModelFile::for_minilm()`，于是全新部署（无
+    /// `config.toml`）会用 BGE-M3 的目录去找 MiniLM 的文件，并在维度校验
+    /// （1024 vs 384）处让所有向量写入失败，且错误配置会被写盘、重启不自愈。
     fn default() -> Self {
-        Self {
-            model_type: ModelType::default(),
-            source: "huggingface".to_string(),
-            dimension: ModelType::default().dimension(),
-            files: ModelFile::for_minilm(),
-            model_dir: None,
-        }
+        Self::new(ModelType::default())
     }
 }
 
@@ -324,9 +325,13 @@ impl ModelConfig {
         }
     }
 
-    /// 判断模型是否就绪（文件清单非空）。
+    /// 判断模型是否就绪。
+    ///
+    /// 除文件清单非空外，还要求 `dimension` 与 `model_type` 一致：
+    /// 二者不一致意味着配置自相矛盾（历史上 `Default` 曾出现 BGE-M3 类型
+    /// 配 MiniLM 文件），此时向量维度校验会让写入全部失败，必须视为未就绪。
     pub fn is_ready(&self) -> bool {
-        !self.files.is_empty()
+        !self.files.is_empty() && self.dimension == self.model_type.dimension()
     }
 
     /// 返回 HuggingFace 仓库路径，委托给 [`ModelType::huggingface_repo`]。
@@ -433,5 +438,49 @@ mod tests {
             get("tokenizer_config.json").sha256,
             "7e4c1cc848840aeccdd763458c18dd525eb0f795c992e00ebe9c28554e7db2d4"
         );
+    }
+
+    /// 默认模型配置必须自洽：类型、维度、文件清单三者一致。
+    ///
+    /// 回归背景：`Default` 曾用 BGE-M3 的类型与 1024 维，却把文件清单硬编码为
+    /// MiniLM，导致全新部署时按 BGE-M3 目录找 MiniLM 文件、维度校验失败。
+    #[test]
+    fn test_default_model_config_is_self_consistent() {
+        let config = super::ModelConfig::default();
+        assert_eq!(
+            config.dimension,
+            config.model_type.dimension(),
+            "dimension 必须与 model_type 一致"
+        );
+        assert_eq!(
+            config.local_dir_name(),
+            "BAAI--bge-m3",
+            "默认模型的缓存目录应为 BGE-M3"
+        );
+        // 文件清单必须与 BGE-M3 的清单完全一致（remote_path 是仓库内相对路径，
+        // 形如 `onnx/model.onnx`，仓库名由 huggingface_repo 给出）
+        let expected: Vec<String> = super::ModelFile::for_bge_m3()
+            .iter()
+            .map(|f| f.remote_path.clone())
+            .collect();
+        let actual: Vec<String> = config.files.iter().map(|f| f.remote_path.clone()).collect();
+        assert_eq!(actual, expected, "默认配置的文件清单应与 BGE-M3 一致");
+        assert_eq!(
+            config.huggingface_repo().as_deref(),
+            Some("BAAI/bge-m3"),
+            "默认配置的仓库应为 BAAI/bge-m3"
+        );
+        assert!(config.is_ready(), "默认配置应处于就绪状态");
+    }
+
+    /// `is_ready` 必须拒绝维度与类型不一致的配置。
+    #[test]
+    fn test_is_ready_rejects_dimension_mismatch() {
+        // MiniLM 维度 384 与 BGE-M3 类型冲突
+        let config = super::ModelConfig {
+            dimension: 384,
+            ..super::ModelConfig::default()
+        };
+        assert!(!config.is_ready(), "维度与类型不一致时应判定为未就绪");
     }
 }
